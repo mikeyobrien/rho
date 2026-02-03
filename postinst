@@ -1,0 +1,64 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Post-installation script for rho
+
+PI_DIR="$HOME/.pi/agent"
+BRAIN_DIR="$HOME/.pi/brain"
+SHARE_DIR="$PREFIX/share/rho"
+
+echo "Setting up rho..."
+
+# Create directories
+mkdir -p "$PI_DIR" "$BRAIN_DIR"
+
+# Symlink extensions and skills
+rm -rf "$PI_DIR/extensions" "$PI_DIR/skills"
+ln -sf "$SHARE_DIR/extensions" "$PI_DIR/extensions"
+ln -sf "$SHARE_DIR/skills" "$PI_DIR/skills"
+
+echo "✓ Symlinked extensions and skills"
+
+# Bootstrap AGENTS.md
+if [ ! -f "$HOME/AGENTS.md" ]; then
+  if [ -n "$TERMUX_VERSION" ]; then
+    OS="Android / Termux $TERMUX_VERSION"
+  else
+    OS=$(uname -s)
+  fi
+  ARCH=$(uname -m)
+  USER_SHELL=$(basename "$SHELL")
+
+  sed -e "s|{{OS}}|$OS|g" \
+      -e "s|{{ARCH}}|$ARCH|g" \
+      -e "s|{{SHELL}}|$USER_SHELL|g" \
+      -e "s|{{HOME}}|$HOME|g" \
+      "$SHARE_DIR/AGENTS.md.template" > "$HOME/AGENTS.md"
+  echo "✓ Created ~/AGENTS.md"
+fi
+
+# Bootstrap brain defaults
+for f in "$SHARE_DIR/brain"/*.jsonl.default; do
+  [ -f "$f" ] || continue
+  target="$BRAIN_DIR/$(basename "${f%.default}")"
+  if [ ! -f "$target" ]; then
+    cp "$f" "$target"
+    echo "✓ Created $(basename "$target")"
+  fi
+done
+
+# Bootstrap RHO.md
+if [ ! -f "$HOME/RHO.md" ]; then
+  cp "$SHARE_DIR/RHO.md.template" "$HOME/RHO.md"
+  echo "✓ Created ~/RHO.md"
+fi
+
+# Install pi-coding-agent if not present
+if ! command -v pi &> /dev/null; then
+  echo "Installing pi-coding-agent..."
+  npm install -g @mariozechner/pi-coding-agent
+  echo "✓ Installed pi"
+else
+  echo "• pi already installed"
+fi
+
+echo ""
+echo "Rho setup complete! Run 'pi' to start."
