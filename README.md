@@ -28,6 +28,20 @@ rho/
 
 ## Installation
 
+### Quick install (scripts only)
+
+```bash
+# Add rho apt repository
+echo "deb [trusted=yes] https://mikeyobrien.github.io/rho/apt ./" > $PREFIX/etc/apt/sources.list.d/rho.list
+
+# Install
+pkg update && pkg install rho
+```
+
+This installs `rho-daemon`, `rho-status`, `rho-stop`, `rho-trigger` to PATH.
+
+### Full install (extensions, skills, brain)
+
 ```bash
 git clone https://github.com/mikeyobrien/rho.git ~/projects/rho
 cd ~/projects/rho
