@@ -55,13 +55,21 @@ if [ -d "$REPO_DIR/brain" ]; then
   done
 fi
 
-# Install rho-daemon scripts
+# Install rho-daemon scripts to PATH
 if [ -d "$REPO_DIR/scripts" ]; then
-  mkdir -p "$HOME/.local/bin"
+  # Use $PREFIX/bin for Termux, fallback to ~/.local/bin
+  if [ -n "$PREFIX" ] && [ -d "$PREFIX/bin" ]; then
+    BIN_DIR="$PREFIX/bin"
+  else
+    BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$BIN_DIR"
+  fi
+  
   for script in "$REPO_DIR/scripts"/rho-*; do
     [ -f "$script" ] || continue
-    ln -sf "$script" "$HOME/.local/bin/$(basename "$script")"
-    echo "✓ Installed $(basename "$script")"
+    chmod +x "$script"
+    ln -sf "$script" "$BIN_DIR/$(basename "$script")"
+    echo "✓ Installed $(basename "$script") -> $BIN_DIR"
   done
 fi
 
