@@ -62,20 +62,20 @@ Continuous presence system. Periodic check-ins to surface urgent tasks, follow-u
 **Agent loop (pi extension wiring):**
 ```mermaid
 flowchart TD
-    A[Pi loads extension] --> B[rho.ts default(pi)]
+    A[Pi loads extension] --> B[rho.ts]
     B --> C[register tools + /rho command]
-    B --> D[listen: session_start/switch/fork]
+    B --> D[session start/switch/fork]
     D --> E[load state + schedule timer]
-    E --> F[timer fires -> triggerCheck]
-    F --> G{tmux available?}
+    E --> F[triggerCheck]
+    F --> G{tmux available}
     G -->|yes| H[spawn heartbeat in tmux]
     G -->|no| I[send follow-up message]
     H --> J[agent run]
     I --> J
     J --> K[agent_end]
-    K --> L{RHO_OK?}
-    L -->|yes| M[notify OK + update status]
-    L -->|no| N[alert response + update status]
+    K --> L{RHO_OK}
+    L -->|yes| M[notify OK]
+    L -->|no| N[alert + update status]
     M --> E
     N --> E
 ```
