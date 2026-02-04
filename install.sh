@@ -70,7 +70,7 @@ if [ -d "$REPO_DIR/scripts" ]; then
     mkdir -p "$BIN_DIR"
   fi
   
-  for script in "$REPO_DIR/scripts"/rho-*; do
+  for script in "$REPO_DIR/scripts"/rho "$REPO_DIR/scripts"/rho-*; do
     [ -f "$script" ] || continue
     chmod +x "$script"
     ln -sf "$script" "$BIN_DIR/$(basename "$script")"
@@ -82,6 +82,12 @@ fi
 if [ ! -f "$HOME/RHO.md" ]; then
   cp "$REPO_DIR/RHO.md.template" "$HOME/RHO.md"
   echo "✓ Created ~/RHO.md (customize your check-in checklist)"
+fi
+
+# Bootstrap HEARTBEAT.md if doesn't exist
+if [ ! -f "$HOME/HEARTBEAT.md" ]; then
+  cp "$REPO_DIR/HEARTBEAT.md.template" "$HOME/HEARTBEAT.md"
+  echo "✓ Created ~/HEARTBEAT.md (scheduled tasks for check-ins)"
 fi
 
 # Check for API keys

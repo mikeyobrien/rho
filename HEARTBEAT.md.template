@@ -1,0 +1,13 @@
+# HEARTBEAT Tasks
+
+Scheduled/recurring tasks for rho heartbeats.
+
+## Time-Based Triggers
+
+- [ ] Add your recurring tasks here (e.g., check weather, run backups)
+- [ ] If a task has cadence (e.g., every 2 hours), include a "last run" timestamp and update it after execution
+
+---
+
+**Note:** This file is read on every heartbeat. Keep it concise.
+If this file is empty (only headers), heartbeats will still run but no scheduled tasks will be executed.

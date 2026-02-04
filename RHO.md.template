@@ -11,9 +11,9 @@ Periodic check-in reminders for the agent.
   - {{HOME}}, {{CONFIG_PATH}}, {{BRAIN_PATH}}: Set appropriate paths
   - {{SKILLS_PATH}}: Where skills are stored
 
-## Time-Based Triggers
+## Scheduled Tasks
 
-- [ ] Add your recurring tasks here (e.g., check weather, run backups)
+- Recurring tasks live in `HEARTBEAT.md` (see HEARTBEAT.md.template)
 
 ## Quick Scan
 

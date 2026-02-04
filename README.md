@@ -21,9 +21,10 @@ rho/
 │   └── rho-status      # Check daemon status
 ├── tasker/             # Importable Tasker profiles (.prf.xml)
 ├── brain/              # Default brain files (copied on install)
-├── AGENTS.md.template  # Identity template (injected on install)
-├── RHO.md.template     # Checklist template for check-ins
-└── install.sh          # Setup script
+├── AGENTS.md.template    # Identity template (injected on install)
+├── RHO.md.template       # Checklist template for check-ins
+├── HEARTBEAT.md.template # Scheduled tasks template for check-ins
+└── install.sh            # Setup script
 ```
 
 ## Installation
@@ -63,21 +64,20 @@ Continuous presence system. Periodic check-ins to surface urgent tasks, follow-u
 flowchart TD
     A[Pi loads extension] --> B["rho.ts default(pi)"]
     B --> C[register tools + /rho command]
-    B --> D[listen: session_start/switch/fork]
+    B --> D[session start/switch/fork]
     D --> E[load state + schedule timer]
-    E --> F[timer fires -> triggerCheck]
-    F --> G{tmux available?}
+    E --> F[triggerCheck]
+    F --> G{tmux available}
     G -->|yes| H[spawn heartbeat in tmux]
     G -->|no| I[send follow-up message]
     H --> J[agent run]
     I --> J
     J --> K[agent_end]
-    K --> L[read heartbeats.jsonl]
-    L --> M{alert?}
-    M -->|yes| N[notify user]
-    M -->|no| O[no alert]
+    K --> L{RHO_OK}
+    L -->|yes| M[notify OK]
+    L -->|no| N[alert + update status]
+    M --> E
     N --> E
-    O --> E
 ```
 
 **Commands:**
@@ -102,7 +102,7 @@ rho-status      # Check if running
 - `RhoPeriodic.prf.xml` — Trigger every 30m  
 - `RhoManual.prf.xml` — Intent handler `rho.tasker.check`
 
-**Checklist:** Create `~/RHO.md` for custom checklists (auto-read on each check-in).
+**Checklist:** Create `~/RHO.md` for checklists and `~/HEARTBEAT.md` for scheduled tasks (both auto-read on each check-in).
 
 ### brain.ts
 Persistent memory (learnings, preferences, context)
@@ -165,11 +165,16 @@ Rho uses a JSONL-based memory system at `~/.pi/brain/`:
 - `core.jsonl` — Identity, behavior, user info
 - `memory.jsonl` — Learnings and preferences (grows over time)
 - `context.jsonl` — Project-specific context (matched by cwd)
+- `memory/YYYY-MM-DD.md` — Daily Markdown log of stored learnings/preferences
 
 **Auto-memory (LLM-based):** after each agent turn, Rho can extract durable learnings/preferences using the current model and append them to `memory.jsonl` (deduped, max 3 items/turn).
 
+**Pre-compaction flush:** before `/compact`, Rho runs the same extractor on messages being summarized so durable learnings/preferences are stored before the context shrinks.
+
 Controls:
-- `RHO_AUTO_MEMORY=0` — disable auto-memory
+- `RHO_AUTO_MEMORY=0` — disable auto-memory (also disables compaction flush)
 - `RHO_AUTO_MEMORY_DEBUG=1` — show debug toasts
+- `RHO_COMPACT_MEMORY_FLUSH=0` — disable pre-compaction memory flush
+- `RHO_DAILY_MEMORY=0` — disable daily Markdown memory files
 
 Use the `memory` tool or `/brain` command to interact with it.
