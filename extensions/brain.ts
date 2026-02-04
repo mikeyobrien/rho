@@ -40,33 +40,36 @@ const AUTO_MEMORY_ALLOWED_CATEGORIES = new Set(["Communication", "Code", "Tools"
 const DAILY_MEMORY_ENABLED = process.env.RHO_DAILY_MEMORY !== "0";
 const COMPACT_MEMORY_FLUSH_ENABLED = process.env.RHO_COMPACT_MEMORY_FLUSH !== "0";
 
-// Small model candidates for memory extraction/consolidation (cheapest first)
-const SMALL_MODEL_CANDIDATES: Array<{ provider: string; modelId: string }> = [
-  { provider: "google-antigravity", modelId: "gemini-3-flash" },
-  { provider: "anthropic", modelId: "claude-haiku-4-5" },
-];
-
 /**
- * Resolve a small/cheap model for background tasks (memory extraction, consolidation).
- * Falls back to ctx.model if no small model has auth configured.
+ * Resolve the cheapest model from the same provider as the current session model.
+ * Picks the model with the lowest output cost that has auth configured.
+ * Falls back to ctx.model if nothing cheaper is found.
  */
 async function resolveSmallModel(
   ctx: ExtensionContext
 ): Promise<{ model: Model<Api>; apiKey: string } | null> {
-  for (const candidate of SMALL_MODEL_CANDIDATES) {
-    const model = ctx.modelRegistry.find(candidate.provider, candidate.modelId);
-    if (!model) continue;
-    const apiKey = await ctx.modelRegistry.getApiKey(model);
+  const currentModel = ctx.model;
+  if (!currentModel) return null;
+
+  const currentApiKey = await ctx.modelRegistry.getApiKey(currentModel);
+  if (!currentApiKey) return null;
+
+  // Get all available models from the same provider, sorted by output cost
+  const sameProvider = ctx.modelRegistry
+    .getAll()
+    .filter((m) => m.provider === currentModel.provider)
+    .sort((a, b) => a.cost.output - b.cost.output);
+
+  // Pick the cheapest one that has auth (same provider = same key usually)
+  for (const candidate of sameProvider) {
+    const apiKey = await ctx.modelRegistry.getApiKey(candidate);
     if (apiKey) {
-      return { model, apiKey };
+      return { model: candidate, apiKey };
     }
   }
-  // Fallback: use the current session model
-  const model = ctx.model;
-  if (!model) return null;
-  const apiKey = await ctx.modelRegistry.getApiKey(model);
-  if (!apiKey) return null;
-  return { model, apiKey };
+
+  // Fallback: use the current model as-is
+  return { model: currentModel, apiKey: currentApiKey };
 }
 
 // Types
