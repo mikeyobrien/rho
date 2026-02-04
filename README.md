@@ -21,9 +21,10 @@ rho/
 │   └── rho-status      # Check daemon status
 ├── tasker/             # Importable Tasker profiles (.prf.xml)
 ├── brain/              # Default brain files (copied on install)
-├── AGENTS.md.template  # Identity template (injected on install)
-├── RHO.md.template     # Checklist template for check-ins
-└── install.sh          # Setup script
+├── AGENTS.md.template    # Identity template (injected on install)
+├── RHO.md.template       # Checklist template for check-ins
+├── HEARTBEAT.md.template # Scheduled tasks template for check-ins
+└── install.sh            # Setup script
 ```
 
 ## Installation
@@ -102,7 +103,7 @@ rho-status      # Check if running
 - `RhoPeriodic.prf.xml` — Trigger every 30m  
 - `RhoManual.prf.xml` — Intent handler `rho.tasker.check`
 
-**Checklist:** Create `~/RHO.md` for custom checklists (auto-read on each check-in).
+**Checklist:** Create `~/RHO.md` for checklists and `~/HEARTBEAT.md` for scheduled tasks (both auto-read on each check-in).
 
 ### brain.ts
 Persistent memory (learnings, preferences, context)
@@ -165,11 +166,16 @@ Rho uses a JSONL-based memory system at `~/.pi/brain/`:
 - `core.jsonl` — Identity, behavior, user info
 - `memory.jsonl` — Learnings and preferences (grows over time)
 - `context.jsonl` — Project-specific context (matched by cwd)
+- `memory/YYYY-MM-DD.md` — Daily Markdown log of stored learnings/preferences
 
 **Auto-memory (LLM-based):** after each agent turn, Rho can extract durable learnings/preferences using the current model and append them to `memory.jsonl` (deduped, max 3 items/turn).
 
+**Pre-compaction flush:** before `/compact`, Rho runs the same extractor on messages being summarized so durable learnings/preferences are stored before the context shrinks.
+
 Controls:
-- `RHO_AUTO_MEMORY=0` — disable auto-memory
+- `RHO_AUTO_MEMORY=0` — disable auto-memory (also disables compaction flush)
 - `RHO_AUTO_MEMORY_DEBUG=1` — show debug toasts
+- `RHO_COMPACT_MEMORY_FLUSH=0` — disable pre-compaction memory flush
+- `RHO_DAILY_MEMORY=0` — disable daily Markdown memory files
 
 Use the `memory` tool or `/brain` command to interact with it.

@@ -61,13 +61,14 @@ const MAX_WINDOW_NAME = 50;
 
 const RHO_PROMPT = `This is a rho check-in. Review the following:
 
-1. Read RHO.md from the workspace if it exists - follow any checklists there
+1. Read RHO.md and HEARTBEAT.md from the workspace if they exist - follow any checklists or scheduled tasks there
 2. Check for any outstanding tasks, TODOs, or follow-ups from our conversation
 3. Review any long-running operations or background processes
 4. Surface anything urgent that needs attention
 
 If nothing needs attention, reply with exactly: RHO_OK
-If something needs attention, reply with the alert (do NOT include RHO_OK).`;
+If something needs attention, reply with the alert (do NOT include RHO_OK).
+If the user asks for scheduled tasks or recurring reminders, add them to HEARTBEAT.md.`;
 
 export default function (pi: ExtensionAPI) {
 	if (process.env.RHO_SUBAGENT === "1") {
@@ -291,19 +292,13 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	/**
-	 * Read RHO.md from workspace if it exists
+	 * Read a markdown file from a list of candidate paths
 	 */
-	const readRhoMd = (ctx: ExtensionContext): string | null => {
-		const paths = [
-			join(ctx.cwd, "RHO.md"),
-			join(ctx.cwd, ".pi", "RHO.md"),
-			join(ctx.cwd, ".rho.md"),
-		];
-
-		for (const path of paths) {
-			if (existsSync(path)) {
+	const readMarkdownFile = (paths: string[]): string | null => {
+		for (const filePath of paths) {
+			if (existsSync(filePath)) {
 				try {
-					const content = readFileSync(path, "utf-8").trim();
+					const content = readFileSync(filePath, "utf-8").trim();
 					// Check if effectively empty (only whitespace and headers)
 					const hasContent = content
 						.split("\n")
@@ -329,11 +324,24 @@ export default function (pi: ExtensionAPI) {
 		state.lastCheckAt = Date.now();
 		state.checkCount++;
 
-		// Build the full prompt with RHO.md content if available
+		// Build the full prompt with RHO.md / HEARTBEAT.md content if available
 		let fullPrompt = RHO_PROMPT;
-		const rhoMd = readRhoMd(ctx);
+		const rhoMd = readMarkdownFile([
+			join(ctx.cwd, "RHO.md"),
+			join(ctx.cwd, ".pi", "RHO.md"),
+			join(ctx.cwd, ".rho.md"),
+		]);
+		const heartbeatMd = readMarkdownFile([
+			join(ctx.cwd, "HEARTBEAT.md"),
+			join(ctx.cwd, ".pi", "HEARTBEAT.md"),
+			join(ctx.cwd, ".heartbeat.md"),
+			join(ctx.cwd, ".rho-heartbeat.md"),
+		]);
 		if (rhoMd) {
 			fullPrompt += `\n\n---\n\nRHO.md content:\n${rhoMd}`;
+		}
+		if (heartbeatMd) {
+			fullPrompt += `\n\n---\n\nHEARTBEAT.md content:\n${heartbeatMd}`;
 		}
 
 		const sentToTmux = runHeartbeatInTmux(fullPrompt);

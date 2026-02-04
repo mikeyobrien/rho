@@ -84,6 +84,12 @@ if [ ! -f "$HOME/RHO.md" ]; then
   echo "✓ Created ~/RHO.md (customize your check-in checklist)"
 fi
 
+# Bootstrap HEARTBEAT.md if doesn't exist
+if [ ! -f "$HOME/HEARTBEAT.md" ]; then
+  cp "$REPO_DIR/HEARTBEAT.md.template" "$HOME/HEARTBEAT.md"
+  echo "✓ Created ~/HEARTBEAT.md (scheduled tasks for check-ins)"
+fi
+
 # Check for API keys
 if [ -z "$BRAVE_API_KEY" ]; then
   echo ""
