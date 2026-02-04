@@ -6,13 +6,12 @@
  *   ~/.pi/brain/memory.jsonl   - learnings, preferences (grows, has lifecycle)
  *   ~/.pi/brain/context.jsonl  - project contexts (matched by cwd)
  *   ~/.pi/brain/archive.jsonl  - decayed entries
+ *   ~/.pi/brain/memory/YYYY-MM-DD.md - daily markdown memory log
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { convertToLlm, serializeConversation } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { StringEnum, complete } from "@mariozechner/pi-ai";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { StringEnum } from "@mariozechner/pi-ai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -24,14 +23,6 @@ const CORE_FILE = path.join(BRAIN_DIR, "core.jsonl");
 const MEMORY_FILE = path.join(BRAIN_DIR, "memory.jsonl");
 const CONTEXT_FILE = path.join(BRAIN_DIR, "context.jsonl");
 const ARCHIVE_FILE = path.join(BRAIN_DIR, "archive.jsonl");
-
-// Auto-memory config
-const AUTO_MEMORY_ENABLED = process.env.RHO_AUTO_MEMORY !== "0";
-const AUTO_MEMORY_DEBUG = process.env.RHO_AUTO_MEMORY_DEBUG === "1" || process.env.RHO_AUTO_MEMORY_DEBUG === "true";
-const AUTO_MEMORY_MAX_ITEMS = 3;
-const AUTO_MEMORY_MAX_TEXT = 200;
-const AUTO_MEMORY_DEFAULT_CATEGORY = "General";
-const AUTO_MEMORY_ALLOWED_CATEGORIES = new Set(["Communication", "Code", "Tools", "Workflow", "General"]);
 
 // Types
 interface BaseEntry {
@@ -113,208 +104,6 @@ function appendJsonl<T>(file: string, entry: T): void {
 function writeJsonl<T>(file: string, entries: T[]): void {
   ensureDir();
   fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + (entries.length ? "\n" : ""));
-}
-
-type StoreResult = { stored: boolean; id?: string; reason?: "empty" | "duplicate" | "too_long" };
-
-type AutoMemoryResponse = {
-  learnings?: Array<{ text?: string }>;
-  preferences?: Array<{ text?: string; category?: string }>;
-};
-
-function normalizeMemoryText(text: string): string {
-  return text.trim().replace(/\s+/g, " ");
-}
-
-function sanitizeCategory(category?: string): string {
-  if (!category) return AUTO_MEMORY_DEFAULT_CATEGORY;
-  const trimmed = category.trim();
-  if (!trimmed) return AUTO_MEMORY_DEFAULT_CATEGORY;
-  for (const allowed of AUTO_MEMORY_ALLOWED_CATEGORIES) {
-    if (allowed.toLowerCase() === trimmed.toLowerCase()) return allowed;
-  }
-  return AUTO_MEMORY_DEFAULT_CATEGORY;
-}
-
-function isDuplicateLearning(existing: Entry[], text: string): boolean {
-  const normalized = normalizeMemoryText(text).toLowerCase();
-  return existing.some(
-    (e) => e.type === "learning" && normalizeMemoryText((e as LearningEntry).text).toLowerCase() === normalized
-  );
-}
-
-function isDuplicatePreference(existing: Entry[], text: string, category: string): boolean {
-  const normalized = normalizeMemoryText(text).toLowerCase();
-  return existing.some(
-    (e) =>
-      e.type === "preference" &&
-      normalizeMemoryText((e as PreferenceEntry).text).toLowerCase() === normalized &&
-      (e as PreferenceEntry).category === category
-  );
-}
-
-function storeLearningEntry(text: string, options?: { source?: string; maxLength?: number }): StoreResult {
-  const normalized = normalizeMemoryText(text);
-  if (!normalized) return { stored: false, reason: "empty" };
-  if (options?.maxLength && normalized.length > options.maxLength) {
-    return { stored: false, reason: "too_long" };
-  }
-  const existing = readJsonl<Entry>(MEMORY_FILE);
-  if (isDuplicateLearning(existing, normalized)) {
-    return { stored: false, reason: "duplicate" };
-  }
-  const entry: LearningEntry = {
-    id: nanoid(),
-    type: "learning",
-    text: normalized,
-    used: 0,
-    last_used: today(),
-    created: today(),
-    source: options?.source,
-  };
-  appendJsonl(MEMORY_FILE, entry);
-  return { stored: true, id: entry.id };
-}
-
-function storePreferenceEntry(text: string, category: string, options?: { maxLength?: number }): StoreResult {
-  const normalized = normalizeMemoryText(text);
-  if (!normalized) return { stored: false, reason: "empty" };
-  if (options?.maxLength && normalized.length > options.maxLength) {
-    return { stored: false, reason: "too_long" };
-  }
-  const normalizedCategory = sanitizeCategory(category);
-  const existing = readJsonl<Entry>(MEMORY_FILE);
-  if (isDuplicatePreference(existing, normalized, normalizedCategory)) {
-    return { stored: false, reason: "duplicate" };
-  }
-  const entry: PreferenceEntry = {
-    id: nanoid(),
-    type: "preference",
-    category: normalizedCategory,
-    text: normalized,
-    created: today(),
-  };
-  appendJsonl(MEMORY_FILE, entry);
-  return { stored: true, id: entry.id };
-}
-
-function extractJsonObject(text: string): string | null {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
-  const match = trimmed.match(/\{[\s\S]*\}/);
-  return match ? match[0] : null;
-}
-
-function parseAutoMemoryResponse(text: string): AutoMemoryResponse | null {
-  const jsonText = extractJsonObject(text);
-  if (!jsonText) return null;
-  try {
-    return JSON.parse(jsonText) as AutoMemoryResponse;
-  } catch {
-    return null;
-  }
-}
-
-function buildAutoMemoryPrompt(conversationText: string): string {
-  return [
-    "You are a memory extraction system for a personal assistant.",
-    "Extract durable learnings and user preferences that will remain useful across sessions.",
-    "Only include stable facts or clear preferences. Skip one-off tasks, transient requests, and generic facts.",
-    "Keep each entry concise (under 120 characters).",
-    "Output strict JSON only with this shape:",
-    '{"learnings":[{"text":"..."}],"preferences":[{"category":"Communication|Code|Tools|Workflow|General","text":"..."}]}',
-    "If there are no items, return {\"learnings\":[],\"preferences\":[]}.",
-    "",
-    "<conversation>",
-    conversationText,
-    "</conversation>",
-  ].join("\n");
-}
-
-async function runAutoMemoryExtraction(
-  messages: AgentMessage[],
-  ctx: ExtensionContext
-): Promise<{ storedLearnings: number; storedPrefs: number } | null> {
-  if (!AUTO_MEMORY_ENABLED) return null;
-  const model = ctx.model;
-  if (!model) return null;
-
-  const apiKey = await ctx.modelRegistry.getApiKey(model);
-  if (!apiKey) return null;
-
-  const conversationText = serializeConversation(convertToLlm(messages));
-  if (!conversationText.trim()) return null;
-
-  if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
-    ctx.ui.notify("Auto-memory: extracting learnings...", "info");
-  }
-
-  const prompt = buildAutoMemoryPrompt(conversationText);
-  const response = await complete(
-    model,
-    {
-      messages: [
-        {
-          role: "user" as const,
-          content: [{ type: "text" as const, text: prompt }],
-          timestamp: Date.now(),
-        },
-      ],
-    },
-    { apiKey, maxTokens: 512 }
-  );
-
-  const responseText = response.content
-    .filter((c): c is { type: "text"; text: string } => c.type === "text")
-    .map((c) => c.text)
-    .join("\n")
-    .trim();
-
-  const parsed = parseAutoMemoryResponse(responseText);
-  if (!parsed) {
-    if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
-      ctx.ui.notify("Auto-memory: no JSON response", "warning");
-    }
-    return null;
-  }
-
-  const learnings = (parsed.learnings ?? [])
-    .map((l) => normalizeMemoryText(l.text ?? ""))
-    .filter(Boolean);
-  const preferences = (parsed.preferences ?? [])
-    .map((p) => ({
-      text: normalizeMemoryText(p.text ?? ""),
-      category: sanitizeCategory(p.category),
-    }))
-    .filter((p) => p.text.length > 0);
-
-  let remaining = AUTO_MEMORY_MAX_ITEMS;
-  let storedLearnings = 0;
-  let storedPrefs = 0;
-
-  for (const text of learnings) {
-    if (remaining <= 0) break;
-    const result = storeLearningEntry(text, { source: "auto", maxLength: AUTO_MEMORY_MAX_TEXT });
-    if (result.stored) {
-      storedLearnings += 1;
-      remaining -= 1;
-    }
-  }
-
-  for (const pref of preferences) {
-    if (remaining <= 0) break;
-    const result = storePreferenceEntry(pref.text, pref.category, { maxLength: AUTO_MEMORY_MAX_TEXT });
-    if (result.stored) {
-      storedPrefs += 1;
-      remaining -= 1;
-    }
-  }
-
-  if ((storedLearnings > 0 || storedPrefs > 0) && ctx.hasUI) {
-    ctx.ui.notify(`Auto-memory stored: ${storedLearnings}L ${storedPrefs}P`, "info");
-  }
-
-  return { storedLearnings, storedPrefs };
 }
 
 // Bootstrap from defaults
@@ -422,8 +211,6 @@ export default function (pi: ExtensionAPI) {
   // Bootstrap on load
   bootstrapDefaults(__dirname);
 
-  let autoMemoryInFlight = false;
-
   // Update widget on session start
   pi.on("session_start", async (_event, ctx) => {
     updateBrainWidget(ctx);
@@ -436,25 +223,6 @@ export default function (pi: ExtensionAPI) {
       return {
         systemPrompt: event.systemPrompt + "\n\n# Memory\n\n" + MEMORY_INSTRUCTIONS + "\n\n" + brainContext,
       };
-    }
-  });
-
-  // LLM-based auto-memory extraction
-  pi.on("agent_end", async (event, ctx) => {
-    if (!AUTO_MEMORY_ENABLED || autoMemoryInFlight) return;
-    autoMemoryInFlight = true;
-    try {
-      const result = await runAutoMemoryExtraction(event.messages, ctx);
-      if (result && (result.storedLearnings > 0 || result.storedPrefs > 0)) {
-        updateBrainWidget(ctx);
-      }
-    } catch (error) {
-      if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Auto-memory error: ${message}`, "error");
-      }
-    } finally {
-      autoMemoryInFlight = false;
     }
   });
 
@@ -495,18 +263,30 @@ export default function (pi: ExtensionAPI) {
           if (!params.content) {
             return { content: [{ type: "text", text: "Error: content required" }], details: { error: true } };
           }
-          const result = storeLearningEntry(params.content);
-          if (!result.stored) {
-            const message = result.reason === "duplicate" ? "Already stored" : "Not stored";
+          // Check for duplicates
+          const existing = readJsonl<Entry>(MEMORY_FILE);
+          const isDupe = existing.some(
+            (e) => e.type === "learning" && (e as LearningEntry).text.toLowerCase() === params.content!.toLowerCase()
+          );
+          if (isDupe) {
             return {
-              content: [{ type: "text", text: message }],
-              details: { duplicate: result.reason === "duplicate" },
+              content: [{ type: "text", text: "Already stored" }],
+              details: { duplicate: true },
             };
           }
+          const entry: LearningEntry = {
+            id: nanoid(),
+            type: "learning",
+            text: params.content,
+            used: 0,
+            last_used: today(),
+            created: today(),
+          };
+          appendJsonl(MEMORY_FILE, entry);
           updateBrainWidget(ctx);
           return {
             content: [{ type: "text", text: `Stored: ${params.content}` }],
-            details: { id: result.id },
+            details: { id: entry.id },
           };
         }
 
@@ -514,19 +294,33 @@ export default function (pi: ExtensionAPI) {
           if (!params.content) {
             return { content: [{ type: "text", text: "Error: content required" }], details: { error: true } };
           }
-          const category = sanitizeCategory(params.category);
-          const result = storePreferenceEntry(params.content, category);
-          if (!result.stored) {
-            const message = result.reason === "duplicate" ? "Already stored" : "Not stored";
+          const category = params.category || "General";
+          // Check for duplicates
+          const existing = readJsonl<Entry>(MEMORY_FILE);
+          const isDupe = existing.some(
+            (e) =>
+              e.type === "preference" &&
+              (e as PreferenceEntry).text.toLowerCase() === params.content!.toLowerCase() &&
+              (e as PreferenceEntry).category === category
+          );
+          if (isDupe) {
             return {
-              content: [{ type: "text", text: message }],
-              details: { duplicate: result.reason === "duplicate" },
+              content: [{ type: "text", text: "Already stored" }],
+              details: { duplicate: true },
             };
           }
+          const entry: PreferenceEntry = {
+            id: nanoid(),
+            type: "preference",
+            category,
+            text: params.content,
+            created: today(),
+          };
+          appendJsonl(MEMORY_FILE, entry);
           updateBrainWidget(ctx);
           return {
             content: [{ type: "text", text: `Stored [${category}]: ${params.content}` }],
-            details: { id: result.id },
+            details: { id: entry.id },
           };
         }
 

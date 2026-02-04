@@ -47,16 +47,6 @@ interface RhoDetails {
 	wasTriggered?: boolean;
 }
 
-type HeartbeatStatus = "ok" | "alert";
-
-interface HeartbeatEntry {
-	timestamp: string;
-	status: HeartbeatStatus;
-	summary: string;
-	duration_ms: number;
-	output_path?: string | null;
-}
-
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes minimum
 const MAX_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours maximum
@@ -64,12 +54,10 @@ const MAX_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours maximum
 const STATE_DIR = join(process.env.HOME || "", ".pi", "agent");
 const STATE_PATH = join(STATE_DIR, "rho-state.json");
 const RESULTS_DIR = join(process.env.HOME || "", ".rho", "results");
-const HEARTBEAT_HISTORY_PATH = join(process.env.HOME || "", ".rho", "heartbeats.jsonl");
 const HEARTBEAT_PROMPT_FILE = join(process.env.HOME || "", ".rho", "heartbeat-prompt.txt");
 const DEFAULT_SESSION_NAME = "rho";
 const HEARTBEAT_WINDOW_NAME = "heartbeat";
 const MAX_WINDOW_NAME = 50;
-const HEARTBEAT_NOTIFICATION_ID = "rho-heartbeat-alert";
 
 const RHO_PROMPT = `This is a rho check-in. Review the following:
 
@@ -95,7 +83,6 @@ export default function (pi: ExtensionAPI) {
 		checkCount: 0,
 	};
 
-	let lastHeartbeatNotifiedAt: string | null = null;
 	let timer: NodeJS.Timeout | null = null;
 
 	const normalizeInterval = (value: unknown): number => {
@@ -213,93 +200,6 @@ export default function (pi: ExtensionAPI) {
 			return name || DEFAULT_SESSION_NAME;
 		} catch {
 			return DEFAULT_SESSION_NAME;
-		}
-	};
-
-	const parseHeartbeatEntry = (raw: string): HeartbeatEntry | null => {
-		try {
-			const parsed = JSON.parse(raw) as Partial<HeartbeatEntry>;
-			if (!parsed || typeof parsed.timestamp !== "string") return null;
-			if (parsed.status !== "ok" && parsed.status !== "alert") return null;
-			if (typeof parsed.summary !== "string") return null;
-			if (typeof parsed.duration_ms !== "number") return null;
-			return {
-				timestamp: parsed.timestamp,
-				status: parsed.status,
-				summary: parsed.summary,
-				duration_ms: parsed.duration_ms,
-				output_path: typeof parsed.output_path === "string" ? parsed.output_path : parsed.output_path ?? null,
-			};
-		} catch {
-			return null;
-		}
-	};
-
-	const readLastHeartbeatEntry = (): HeartbeatEntry | null => {
-		try {
-			const raw = readFileSync(HEARTBEAT_HISTORY_PATH, "utf-8").trim();
-			if (!raw) return null;
-			const lines = raw
-				.split("\n")
-				.map((line) => line.trim())
-				.filter(Boolean);
-			if (!lines.length) return null;
-			return parseHeartbeatEntry(lines[lines.length - 1]);
-		} catch {
-			return null;
-		}
-	};
-
-	const formatHeartbeatSummary = (summary: string): string => {
-		const cleaned = summary
-			.split("\n")
-			.map((line) => line.trim())
-			.filter(Boolean)
-			.join(" ");
-		if (!cleaned) return "";
-		const maxLength = 200;
-		return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1)}…` : cleaned;
-	};
-
-	const sendHeartbeatAlert = (ctx: ExtensionContext, entry: HeartbeatEntry) => {
-		const sessionName = getTmuxSessionName();
-		const summary = formatHeartbeatSummary(entry.summary);
-		const hint = `Open: tmux attach -t ${sessionName} (window ${HEARTBEAT_WINDOW_NAME})`;
-		const content = summary ? `${summary}\n${hint}` : hint;
-		const action = `tmux attach -t ${sessionName}`;
-		let notified = false;
-
-		try {
-			execSync("command -v termux-notification", { stdio: "ignore" });
-			const command = [
-				"termux-notification",
-				"--title",
-				shellEscape("ρ heartbeat alert"),
-				"--content",
-				shellEscape(content),
-				"--id",
-				shellEscape(HEARTBEAT_NOTIFICATION_ID),
-				"--button1",
-				shellEscape("Open heartbeat"),
-				"--button1-action",
-				shellEscape(action),
-			].join(" ");
-			execSync(command, { stdio: "ignore" });
-			notified = true;
-		} catch {
-			// Ignore failures; fallback below.
-		}
-
-		if (!notified) {
-			const fallback = summary ? `ρ alert: ${summary}` : "ρ heartbeat alert";
-			ctx.ui.notify(`${fallback} (${hint})`, "warning");
-		}
-	};
-
-	const seedLastHeartbeatNotification = () => {
-		const lastEntry = readLastHeartbeatEntry();
-		if (lastEntry?.timestamp) {
-			lastHeartbeatNotifiedAt = lastEntry.timestamp;
 		}
 	};
 
@@ -471,7 +371,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		loadStateFromDisk();
 		reconstructState(ctx);
-		seedLastHeartbeatNotification();
 		scheduleNext(ctx);
 		updateStatus(ctx);
 	});
@@ -479,7 +378,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_switch", async (_event, ctx) => {
 		loadStateFromDisk();
 		reconstructState(ctx);
-		seedLastHeartbeatNotification();
 		scheduleNext(ctx);
 		updateStatus(ctx);
 	});
@@ -487,7 +385,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_fork", async (_event, ctx) => {
 		loadStateFromDisk();
 		reconstructState(ctx);
-		seedLastHeartbeatNotification();
 		scheduleNext(ctx);
 		updateStatus(ctx);
 	});
@@ -500,14 +397,26 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	// Notify on heartbeat alerts only
-	pi.on("agent_end", async (_event, ctx) => {
-		const lastEntry = readLastHeartbeatEntry();
-		if (lastEntry?.timestamp && lastEntry.timestamp !== lastHeartbeatNotifiedAt) {
-			if (lastEntry.status === "alert") {
-				sendHeartbeatAlert(ctx, lastEntry);
+	// Listen for RHO_OK responses to suppress them
+	pi.on("agent_end", async (event, ctx) => {
+		const lastMessage = event.messages[event.messages.length - 1];
+		if (lastMessage?.role === "assistant" && lastMessage.content) {
+			const text = lastMessage.content
+				.filter((c) => c.type === "text")
+				.map((c) => c.text)
+				.join("");
+
+			// Check for RHO_OK at start or end
+			const trimmed = text.trim();
+			const isRhoOk =
+				trimmed === "RHO_OK" ||
+				trimmed.startsWith("RHO_OK\n") ||
+				trimmed.endsWith("\nRHO_OK");
+
+			if (isRhoOk && trimmed.length <= 300) {
+				// Suppress this message
+				ctx.ui.notify("ρ: OK (no alerts)", "info");
 			}
-			lastHeartbeatNotifiedAt = lastEntry.timestamp;
 		}
 
 		// Update status after each turn
