@@ -78,6 +78,9 @@
 - Use skills (`{{SKILLS_PATH}}`) for reusable patterns
 - Create new skills for patterns that repeat across check-ins
 
+### Tmux Usage
+- When opening Claude in tmux, use the existing `rho` session and a vertical split.
+
 ### Verification Before Declaration
 - Run tests before declaring code done
 - Verify files were actually written/modified
