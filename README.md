@@ -61,7 +61,7 @@ Continuous presence system. Periodic check-ins to surface urgent tasks, follow-u
 **Agent loop (pi extension wiring):**
 ```mermaid
 flowchart TD
-    A[Pi loads extension] --> B[rho.ts default(pi)]
+    A[Pi loads extension] --> B["rho.ts default(pi)"]
     B --> C[register tools + /rho command]
     B --> D[listen: session_start/switch/fork]
     D --> E[load state + schedule timer]
