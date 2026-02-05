@@ -91,7 +91,7 @@ curl -s -H "$AUTH" "$API/agents/$AGENT_ID/inbox?status=unread&limit=20" | jq .
 ```
 
 Parameters:
-- `status`: `unread` (default), `read`, `acted`, `archived`, `held`
+- `status`: `unread` (default), `read`, `acted`, `archived`, `held`. Omit to list all messages regardless of status.
 - `limit`: max results (default 20)
 - `offset`: pagination offset (default 0)
 
@@ -232,6 +232,40 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 ```
 
 Report the limit to the user. Do not retry automatically.
+
+## Check Outbox
+
+Review previously sent messages:
+
+```bash
+curl -s -H "$AUTH" "$API/agents/$AGENT_ID/outbox?limit=20" | jq .
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "id": "01jk...",
+      "agent_id": "...",
+      "recipient": "user@example.com",
+      "subject": "Re: Hello",
+      "body": "...",
+      "status": "sent",
+      "queued_at": "2026-02-05T...",
+      "sent_at": "2026-02-05T..."
+    }
+  ],
+  "pagination": { "total": 1, "limit": 20, "offset": 0 }
+}
+```
+
+To view a specific sent message:
+
+```bash
+curl -s -H "$AUTH" "$API/agents/$AGENT_ID/outbox/{outbox_id}" | jq .
+```
 
 ## Typical Workflows
 
