@@ -12,6 +12,7 @@
 
 | Date | Task | Method | Details |
 |------|------|--------|---------|
+| 2026-02-05 | Landing site in repo + updates | Direct | Moved rho-site into `site/`. Universal bootstrap.sh (Termux/macOS/Linux). Providers, iPhone/SSH, cost comparison sections. Canonical install URL. |
 | 2026-02-05 | iPhone/Termius support | Direct | SSH-friendly tmux config, setup guides (iPhone + VPS), install.sh integration, README update. 28 new tests. |
 | 2026-02-05 | Smart heartbeat routing | Direct | Cross-provider cheapest model resolution, --thinking off, /rho model command, pinning, 15 BDD scenarios. |
 | 2026-02-05 | `rho login` command | Direct (trivial) | New subcommand: `rho login`, `--status`, `--logout`. 7 acceptance tests. |
@@ -26,15 +27,16 @@
 
 ## Build Health
 
-- **GitHub Issues**: 1 open (#1 README diagram -- likely resolved by cross-platform README rewrite, pending push)
+- **GitHub Issues**: 1 open (#1 README diagram -- verified resolved by cross-platform README rewrite, close after push)
 - **CI**: No CI configured yet
 - **Site**: https://runrho.dev -- deployed via `wr pages deploy`
-- **Local vs Remote**: 21 commits ahead of origin/main (cross-platform refactor + rho login + smart heartbeat + iPhone/Termius)
+- **Local vs Remote**: 23 commits ahead of origin/main (cross-platform + rho login + smart heartbeat + iPhone/Termius + site-in-repo)
 
 ## Pending Approval (External Actions)
 
-- `cd ~/projects/rho && git push origin main` -- Push 21 commits (cross-platform refactor + rho login + smart heartbeat routing + iPhone/Termius support)
+- `cd ~/projects/rho && git push origin main` -- Push 23 commits (cross-platform + rho login + smart heartbeat + iPhone/Termius + site-in-repo)
 - `gh issue close 1 -R mikeyobrien/rho -c "Resolved by cross-platform README rewrite"` -- Close issue #1 after push
+- `cd ~/projects/rho/site && wr pages deploy . --project-name=rho-site` -- Deploy updated site (providers, iPhone/SSH, cost sections)
 
 ## Architecture Decisions
 
@@ -51,6 +53,6 @@
 
 - [ ] No CI/CD pipeline -- deploys are manual `wr pages deploy`
 - [x] ~~No automated tests~~ -- 35 tests across 3 suites (rho-login: 7, tmux-config: 11, iphone-docs: 17)
-- [ ] rho-site not in git yet
+- [x] ~~rho-site not in git yet~~ -- moved to `site/` 2026-02-05
 - [ ] bootstrap.sh untested on fresh Termux
 - [x] ~~features/ not committed to repo yet~~ -- committed 2026-02-05

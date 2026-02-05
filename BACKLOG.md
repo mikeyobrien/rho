@@ -8,11 +8,8 @@
 _(none)_
 
 ## Ready (Prioritized)
-- [ ] **Landing site updates** — Add iPhone/Termius section. "Use your existing subscription" messaging. Cost comparison vs OpenClaw. Provider logos. **P1**
-- [ ] **Fix README diagram** — GitHub issue #1. Formatting broken on agent loop diagram. **P1** _(likely resolved by cross-platform README rewrite — verify after push)_
-- [ ] **Landing site in repo** — Move `~/projects/rho-site/` into repo or separate repo. Set up CI deploy to Cloudflare Pages. **P1**
-- [ ] **Install redirect** — Update bootstrap.sh to use `curl -fsSL https://runrho.dev/install | bash` as canonical URL. **P1**
 - [ ] **/tasks command** — Lightweight task queue extension. See TODO.md for spec. **P2**
+- [ ] **CI deploy** — Set up Cloudflare Pages CI from repo `site/` directory. Currently manual `wr pages deploy`. **P2**
 
 ## Icebox
 
@@ -28,6 +25,9 @@ _(none)_
 
 ## Done
 
+- [x] **Landing site in repo + updates** — Moved rho-site into `site/`. Universal cross-platform bootstrap.sh. Added providers section, iPhone/SSH section, sharper cost comparison. Canonical install URL in README. **P1** — 2026-02-05
+- [x] **Fix README diagram** — Issue #1. Verified resolved by cross-platform README rewrite (no diagram in old or new README). Close after push. **P1** — 2026-02-05
+- [x] **Install redirect** — Universal bootstrap.sh at root. README uses `runrho.dev/install` canonical URL. Site `_redirects` already points to `main/bootstrap.sh`. **P1** — 2026-02-05
 - [x] **iPhone/Termius support** — SSH-friendly tmux config, Termius setup guide, VPS guide (Oracle free tier, Hetzner, DO), install.sh auto-installs tmux config on linux/macos, README iPhone section. 28 tests. **P1** — 2026-02-05
 - [x] **Smart heartbeat routing** — Heartbeat auto-resolves cheapest model across all providers. Cross-provider resolution, 5m cache, --thinking off, /rho model command, pinning support. BDD spec: 15 scenarios. **P1** — 2026-02-05
 - [x] **`rho login` command** — `rho login` opens pi's OAuth flow, `--status` shows providers, `--logout` removes creds. 7 acceptance tests pass. **P0** — 2026-02-05
