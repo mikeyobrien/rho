@@ -26,6 +26,11 @@ case "${1:-}" in
         rho-stop
         exit $?
         ;;
+    login)
+        shift
+        rho-login "$@"
+        exit $?
+        ;;
     -d|--daemon)
         # Start in background only
         if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then

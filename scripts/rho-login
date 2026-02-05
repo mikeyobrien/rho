@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# rho-login -- authenticate with LLM providers
+#
+# Usage:
+#   rho login              Open pi to authenticate via /login
+#   rho login --status     Show current auth state
+#   rho login --logout <p> Remove credentials for provider
+#
+# Wraps pi's built-in /login OAuth flow. Credentials stored in
+# ~/.pi/agent/auth.json and shared by rho, pi, and hats.
+
+set -e
+
+AUTH_FILE="$HOME/.pi/agent/auth.json"
+
+usage() {
+    cat <<EOF
+Usage: rho login [options]
+
+Authenticate with LLM providers using your existing subscriptions.
+
+Options:
+  (no args)              Open pi session -- type /login to authenticate
+  --status               Show which providers are configured
+  --logout <provider>    Remove credentials for a provider
+  -h, --help             Show this help
+
+Supported providers: anthropic, openai-codex, google-antigravity
+
+Credentials are stored in ~/.pi/agent/auth.json and shared
+across rho, pi, and hats.
+EOF
+}
+
+show_status() {
+    if [ ! -f "$AUTH_FILE" ]; then
+        echo "No credentials configured."
+        echo "Run 'rho login' to authenticate."
+        return 0
+    fi
+
+    echo "Provider credentials (~/.pi/agent/auth.json):"
+    echo ""
+
+    node -e "
+const auth = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+const now = Date.now();
+for (const [provider, cred] of Object.entries(auth)) {
+    const type = cred.type || 'unknown';
+    let status = '';
+    if (cred.expires) {
+        if (now > cred.expires) {
+            status = 'expired';
+        } else {
+            const hours = Math.round((cred.expires - now) / 3600000);
+            status = hours > 24 ? Math.round(hours/24) + 'd remaining' : hours + 'h remaining';
+        }
+    } else {
+        status = 'no expiry';
+    }
+    const refreshable = cred.refresh ? ', auto-refresh' : '';
+    console.log('  ' + provider.padEnd(22) + type.padEnd(10) + status + refreshable);
+}
+" "$AUTH_FILE"
+}
+
+do_logout() {
+    local provider="$1"
+    if [ -z "$provider" ]; then
+        echo "Usage: rho login --logout <provider>"
+        echo ""
+        echo "Available providers:"
+        show_status
+        return 1
+    fi
+
+    if [ ! -f "$AUTH_FILE" ]; then
+        echo "No credentials configured."
+        return 1
+    fi
+
+    node -e "
+const fs = require('fs');
+const path = process.argv[1];
+const provider = process.argv[2];
+const auth = JSON.parse(fs.readFileSync(path, 'utf8'));
+if (!auth[provider]) {
+    console.error('Provider \"' + provider + '\" not found.');
+    console.error('Configured: ' + Object.keys(auth).join(', '));
+    process.exit(1);
+}
+delete auth[provider];
+fs.writeFileSync(path, JSON.stringify(auth, null, 2) + '\n');
+console.log('Removed credentials for ' + provider);
+" "$AUTH_FILE" "$provider"
+}
+
+do_login() {
+    if ! command -v pi &>/dev/null; then
+        echo "Error: pi is not installed."
+        echo "Install: npm i -g @mariozechner/pi-coding-agent"
+        return 1
+    fi
+
+    echo "Starting pi session for authentication."
+    echo "Type /login to open the provider selector."
+    echo ""
+    exec pi
+}
+
+# Parse arguments
+case "${1:-}" in
+    --status|-s)
+        show_status
+        ;;
+    --logout)
+        do_logout "${2:-}"
+        ;;
+    -h|--help)
+        usage
+        ;;
+    "")
+        do_login
+        ;;
+    *)
+        echo "Unknown option: $1"
+        usage
+        exit 1
+        ;;
+esac
