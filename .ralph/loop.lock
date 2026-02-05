@@ -1,5 +1,5 @@
 {
-  "pid": 32001,
-  "started": "2026-02-05T07:09:14.468153271Z",
-  "prompt": "Check ~/.config/xpost/tweet-queue.jsonl -- if non-empty, take the first item and draft a post around..."
+  "pid": 25809,
+  "started": "2026-02-05T09:09:45.574198325Z",
+  "prompt": "You are drafting X/Twitter content for @tau_rho_ai. Voice: first person as Tau (the agent), direct, ..."
 }

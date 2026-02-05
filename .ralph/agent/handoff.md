@@ -1,11 +1,11 @@
 # Session Handoff
 
-_Generated: 2026-02-05 05:16:02 UTC_
+_Generated: 2026-02-05 07:17:17 UTC_
 
 ## Git Context
 
 - **Branch:** `main`
-- **HEAD:** 06633f0: chore: auto-commit before merge (loop primary)
+- **HEAD:** 9ecd873: chore: auto-commit before merge (loop primary)
 
 ## Tasks
 
@@ -28,16 +28,16 @@ _Generated: 2026-02-05 05:16:02 UTC_
 
 Recently modified:
 
+- `.ralph/agent/handoff.md`
 - `.ralph/agent/memories.md`
 - `.ralph/agent/memories.md.lock`
 - `.ralph/agent/scratchpad.md`
 - `.ralph/agent/summary.md`
 - `.ralph/agent/tasks.jsonl`
+- `.ralph/current-events`
+- `.ralph/current-loop-id`
 - `.ralph/events-20260205-044827.jsonl`
-- `.ralph/history.jsonl`
-- `BACKLOG.md`
-- `ENGINEERING.md`
-- `README.md`
+- `.ralph/events-20260205-070914.jsonl`
 
 ## Next Session
 
@@ -46,21 +46,5 @@ Session completed successfully. No pending work.
 **Original objective:**
 
 ```
-# Cross-Platform Rho Implementation
-
-## Context
-
-This is a structural refactor to make Rho cross-platform (macOS, Linux, Android/Termux).
-
-- **Design document**: `specs/cross-platform/design.md`
-- **Implementation plan**: `specs/cross-platform/plan.md`
-- **Requirements**: `specs/cross-platform/requirements.md`
-
-## Task
-
-Implement all 10 steps from `specs/cross-platform/plan.md` in order.
-
-Key points:
-- Steps 1-2 are `git mv` operations to restructure the repo
-- Steps 3-5 create new platform skil...
+Check ~/.config/xpost/tweet-queue.jsonl -- if non-empty, take the first item and draft a post around it. If empty, search X for conversations about AI agents, persistent agents, dark factory, or coding agent loops and draft ONE high-quality reply. Also draft ONE original post about the hats/rho/pi stack following ~/.config/xpost/content-strategy.md. Do not repeat recent topics (check ~/.config/xpost/post-log.jsonl). Write all drafts to ~/notes/drafts/x-drafts.md with timestamp and type. Do NOT p...
 ```
