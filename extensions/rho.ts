@@ -14,7 +14,7 @@
  *   /rho disable          - Disable rho check-ins
  *   /rho now              - Trigger a check-in immediately
  *   /rho interval 30m     - Set interval (e.g., 30m, 1h, 0 to disable)
- *   /rho model auto       - Auto-resolve cheapest model for heartbeat
+ *   /rho model auto       - Use the main session's model for heartbeat
  *   /rho model <p>/<m>    - Pin a specific model for heartbeat
  *
  * The LLM can also use tools:
@@ -421,20 +421,49 @@ export default function (pi: ExtensionAPI) {
 
 	/**
 	 * Build --provider/--model/--thinking CLI flags for the heartbeat subagent.
-	 * Returns empty string if model resolution fails (pi will use its defaults).
+	 * Default: use the same model as the main session.
+	 * Falls back to auto-resolve if the main model is unavailable.
 	 */
 	const buildModelFlags = async (ctx: ExtensionContext): Promise<string> => {
+		// If pinned via /rho model, use that
+		if (state.heartbeatModel) {
+			const parts = state.heartbeatModel.split("/");
+			if (parts.length === 2) {
+				const model = ctx.modelRegistry.find(parts[0], parts[1]);
+				if (model) {
+					const apiKey = await ctx.modelRegistry.getApiKey(model);
+					if (apiKey) {
+						let flags = `--provider ${shellEscape(parts[0])} --model ${shellEscape(parts[1])}`;
+						flags += " --thinking off";
+						return flags;
+					}
+				}
+			}
+		}
+
+		// Default: inherit the main session's model
+		if (ctx.model) {
+			const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
+			if (apiKey) {
+				let flags = `--provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)}`;
+				flags += " --thinking off";
+				return flags;
+			}
+		}
+
+		// Fallback: auto-resolve cheapest available
 		try {
 			const resolved = await resolveHeartbeatModel(ctx);
-			if (!resolved) return "";
-
-			let flags = `--provider ${shellEscape(resolved.provider)} --model ${shellEscape(resolved.model)}`;
-			// Always disable thinking for heartbeat to minimize cost
-			flags += " --thinking off";
-			return flags;
+			if (resolved) {
+				let flags = `--provider ${shellEscape(resolved.provider)} --model ${shellEscape(resolved.model)}`;
+				flags += " --thinking off";
+				return flags;
+			}
 		} catch {
-			return "";
+			// not critical
 		}
+
+		return "";
 	};
 
 	/**
@@ -481,7 +510,7 @@ export default function (pi: ExtensionAPI) {
 			fullPrompt += `\n\n---\n\n${tasksSection}`;
 		}
 
-		// Resolve cheapest model async, then dispatch
+		// Resolve model (session model > pinned > auto) async, then dispatch
 		buildModelFlags(ctx).then((modelFlags) => {
 			const sentToTmux = runHeartbeatInTmux(fullPrompt, modelFlags || undefined);
 			if (!sentToTmux) {
@@ -585,7 +614,7 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			action: StringEnum(["enable", "disable", "trigger", "status", "interval", "model"] as const),
 			interval: Type.Optional(Type.String({ description: "Interval string for 'interval' action (e.g., '30m', '1h', '15min'). Use '0' to disable." })),
-			model: Type.Optional(Type.String({ description: "Model for 'model' action. 'auto' to auto-resolve cheapest, or 'provider/model-id' to pin." })),
+			model: Type.Optional(Type.String({ description: "Model for 'model' action. 'auto' to use session model, or 'provider/model-id' to pin." })),
 		}),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -678,22 +707,22 @@ export default function (pi: ExtensionAPI) {
 					]);
 
 					// Resolve heartbeat model for display
-					let hbModelText = "auto (resolving...)";
+					let hbModelText: string;
 					let hbModelSource: "auto" | "pinned" = "auto";
 					let hbModelCost: number | undefined;
-					try {
-						const resolved = await resolveHeartbeatModel(ctx);
-						if (state.heartbeatModel) {
-							hbModelSource = "pinned";
-							hbModelText = `${state.heartbeatModel} (pinned)`;
-						} else if (resolved) {
-							hbModelText = `${resolved.provider}/${resolved.model} (auto, $${resolved.cost}/M output)`;
-						} else {
-							hbModelText = "default (no cheaper model found)";
+					if (state.heartbeatModel) {
+						hbModelSource = "pinned";
+						hbModelText = `${state.heartbeatModel} (pinned)`;
+						const parts = state.heartbeatModel.split("/");
+						if (parts.length === 2) {
+							const m = ctx.modelRegistry.find(parts[0], parts[1]);
+							if (m) hbModelCost = m.cost.output;
 						}
-						if (resolved) hbModelCost = resolved.cost;
-					} catch {
-						hbModelText = "auto (resolution failed)";
+					} else if (ctx.model) {
+						hbModelText = `${ctx.model.provider}/${ctx.model.id} (session)`;
+						hbModelCost = ctx.model.cost.output;
+					} else {
+						hbModelText = "auto";
 					}
 
 					let text = `Rho status:\n`;
@@ -748,7 +777,7 @@ export default function (pi: ExtensionAPI) {
 						cachedModel = null;
 						saveStateToDisk();
 						return {
-							content: [{ type: "text", text: "Heartbeat model set to auto (cheapest available)" }],
+							content: [{ type: "text", text: "Heartbeat model set to auto (uses session model)" }],
 							details: {
 								action: "model",
 								heartbeatModel: null,
@@ -874,11 +903,17 @@ export default function (pi: ExtensionAPI) {
 					: join(ctx.cwd, outputFileRaw)
 				: join(RESULTS_DIR, `${Date.now()}.json`);
 
+			// Inherit the main session's model for subagents
+			let modelFlags = "";
+			if (ctx.model) {
+				modelFlags = ` --provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)}`;
+			}
+
 			const shellPath = process.env.SHELL || "bash";
 			const script =
 				mode === "print"
-					? `RHO_SUBAGENT=1 pi -p --no-session ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
-					: `RHO_SUBAGENT=1 pi --no-session ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
+					? `RHO_SUBAGENT=1 pi -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
+					: `RHO_SUBAGENT=1 pi --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
 			const innerCommand = `bash -lc ${shellEscape(script)}`;
 			const tmuxCommand = `tmux new-window -d -P -F "#{session_name}:#{window_index}" -t ${shellEscape(sessionName)} -n ${shellEscape(windowName)} ${shellEscape(innerCommand)}`;
 
@@ -916,16 +951,13 @@ export default function (pi: ExtensionAPI) {
 			switch (subcmd) {
 				case "status":
 				case "": {
-					let modelInfo = state.heartbeatModel ? `${state.heartbeatModel} (pinned)` : "auto";
-					try {
-						if (!state.heartbeatModel) {
-							const resolved = await resolveHeartbeatModel(ctx);
-							if (resolved) {
-								modelInfo = `${resolved.provider}/${resolved.model} (auto)`;
-							}
-						}
-					} catch {
-						// ignore
+					let modelInfo: string;
+					if (state.heartbeatModel) {
+						modelInfo = `${state.heartbeatModel} (pinned)`;
+					} else if (ctx.model) {
+						modelInfo = `${ctx.model.provider}/${ctx.model.id} (session)`;
+					} else {
+						modelInfo = "auto";
 					}
 					ctx.ui.notify(
 						`Rho: ${state.enabled ? "enabled" : "disabled"}, ` +
@@ -989,8 +1021,15 @@ export default function (pi: ExtensionAPI) {
 
 				case "model": {
 					if (!arg) {
-						const source = state.heartbeatModel ? "pinned" : "auto";
-						ctx.ui.notify(`Heartbeat model: ${state.heartbeatModel || "auto"} (${source})`, "info");
+						let modelDisplay: string;
+						if (state.heartbeatModel) {
+							modelDisplay = `${state.heartbeatModel} (pinned)`;
+						} else if (ctx.model) {
+							modelDisplay = `${ctx.model.provider}/${ctx.model.id} (session)`;
+						} else {
+							modelDisplay = "auto";
+						}
+						ctx.ui.notify(`Heartbeat model: ${modelDisplay}`, "info");
 						return;
 					}
 
@@ -998,7 +1037,7 @@ export default function (pi: ExtensionAPI) {
 						state.heartbeatModel = null;
 						cachedModel = null;
 						saveStateToDisk();
-						ctx.ui.notify("Heartbeat model set to auto (cheapest available)", "success");
+						ctx.ui.notify("Heartbeat model set to auto (uses session model)", "success");
 						return;
 					}
 
