@@ -4,6 +4,12 @@ Micro AI assistant that lives in Termux, built on [pi coding agent](https://gith
 
 Influenced by [OpenClaw](https://github.com/openclaw/openclaw) — the idea of an agent with continuous presence, periodic check-ins, and persistent memory.
 
+## Demo
+
+![Rho demo](docs/demo.gif)
+
+Run it locally: [docs/demo.md](docs/demo.md)
+
 ## Structure
 
 ```
