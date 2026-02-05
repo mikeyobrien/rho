@@ -1,12 +1,14 @@
 # rho
 
-A persistent AI agent with memory, a heartbeat, and platform-native capabilities. Runs on macOS, Linux, and Android. A process that stays running, remembers what you told it yesterday, and checks in on its own.
+An AI agent that stays running, remembers what you told it yesterday, and checks in on its own. Runs on macOS, Linux, and Android.
+
+Your data stays on your device. No cloud for your memories. Bring your own LLM provider. You own everything.
 
 Built on [pi coding agent](https://github.com/badlogic/pi-mono).
 
 ![Rho demo](docs/demo.gif)
 
-## Quick Start
+## Quick start
 
 ### macOS / Linux
 
@@ -48,7 +50,7 @@ rho login && rho -d
 rho
 ```
 
-Full guide: [docs/iphone-setup.md](docs/iphone-setup.md) -- includes Termius config, Tailscale for home servers, and free VPS options.
+Full guide: [docs/iphone-setup.md](docs/iphone-setup.md), including Termius config, Tailscale for home servers, and free VPS options.
 
 ## Run
 
@@ -68,21 +70,15 @@ Inside a session:
 /rho enable/disable   Toggle heartbeat
 ```
 
-## What You Get
+## What it does
 
-These work on every platform:
+The **heartbeat** checks in periodically (default: every 30 min). Each check-in reads your `~/RHO.md` checklist and `~/HEARTBEAT.md` scheduled tasks, runs what needs running, and reports back.
 
-**Heartbeat** -- Rho checks in periodically (default: 30 min). Each check-in reads your `~/RHO.md` checklist and `~/HEARTBEAT.md` scheduled tasks, runs what needs running, and reports back.
+The **brain** persists across sessions. Learnings, preferences, and context accumulate in `~/.rho/brain/`.
 
-**Memory** -- Persistent brain across sessions. Learnings, preferences, and context accumulate over time in `~/.rho/brain/`. Your agent remembers what you told it yesterday.
+**Skills** are capability packages the agent loads on demand. The installer detects your OS and installs the right ones. Notifications, clipboard, and text-to-speech work on every platform. Android gets SMS, speech-to-text, camera, GPS, and Tasker automation on top of that.
 
-**Skills** -- On-demand capability packages the agent loads when needed. Core skills work everywhere; platform skills give native access to notifications, clipboard, speech, and more.
-
-## Platform Capabilities
-
-The installer detects your OS and installs the right skills automatically.
-
-### Skills by Platform
+### Skills
 
 | Skill | Android | macOS | Linux | Description |
 |-------|:-------:|:-----:|:-----:|-------------|
@@ -100,11 +96,11 @@ The installer detects your OS and installs the right skills automatically.
 | `tasker-xml` | ✓ | | | Create Tasker automations |
 | `update-pi` | ✓ | ✓ | ✓ | Update pi to latest version |
 
-### Extensions by Platform
+### Extensions
 
 | Extension | Platforms | Description |
 |-----------|-----------|-------------|
-| `rho.ts` | All | Heartbeat, check-ins, continuous presence |
+| `rho.ts` | All | Heartbeat and check-in loop |
 | `brain.ts` | All | Persistent memory across sessions |
 | `brave-search.ts` | All | Web search via Brave API |
 | `memory-viewer.ts` | All | Browse and search memories |
@@ -114,9 +110,9 @@ The installer detects your OS and installs the right skills automatically.
 
 ## Customize
 
-### RHO.md -- Your checklist
+### RHO.md
 
-Create `~/RHO.md` with tasks for the heartbeat to check:
+Your checklist. The heartbeat reads this on every check-in.
 
 ```markdown
 # RHO Checklist
@@ -132,9 +128,9 @@ Create `~/RHO.md` with tasks for the heartbeat to check:
 - [ ] Run ~/backup.sh every 6 hours
 ```
 
-### HEARTBEAT.md -- Scheduled tasks
+### HEARTBEAT.md
 
-Create `~/HEARTBEAT.md` for time-based triggers:
+Time-based triggers.
 
 ```markdown
 # Heartbeat Tasks
@@ -148,13 +144,13 @@ Create `~/HEARTBEAT.md` for time-based triggers:
 - Action: Write daily journal entry to ~/notes/
 ```
 
-### SOUL.md -- Personality
+### SOUL.md
 
-Create `~/SOUL.md` to give your agent a voice and identity. This is where you define who it is, what it cares about, and how it communicates.
+Your agent's voice and identity. Who it is, what it cares about, how it talks.
 
 ### Brain
 
-The brain lives at `~/.rho/brain/`:
+Lives at `~/.rho/brain/`:
 
 - `core.jsonl` -- Behavior, identity
 - `memory.jsonl` -- Learnings and preferences (grows over time)
@@ -163,7 +159,7 @@ The brain lives at `~/.rho/brain/`:
 
 Use the `memory` tool or `/brain` command to interact with it.
 
-## Tasker Setup (Android, optional)
+## Tasker setup (Android, optional)
 
 For UI automation (reading screens, tapping elements, controlling apps):
 
@@ -179,7 +175,7 @@ adb connect <ip>:<port>
 adb shell appops set net.dinglisch.android.taskerm PROJECT_MEDIA allow
 ```
 
-## Project Structure
+## Project structure
 
 ```
 rho/
@@ -232,15 +228,15 @@ RHO_PLATFORM=android|macos|linux  # Detected platform
 
 Scripts source this file at startup. You can override values manually.
 
-## Adding a New Platform
+## Adding a platform
 
-1. Create `platforms/<name>/skills/` with SKILL.md files for platform-native capabilities
-2. Optionally create `platforms/<name>/extensions/` for platform-specific extensions
-3. Optionally create `platforms/<name>/setup.sh` to check/install dependencies
+1. Create `platforms/<name>/skills/` with SKILL.md files for the platform
+2. Optionally add `platforms/<name>/extensions/` for platform-specific extensions
+3. Optionally add `platforms/<name>/setup.sh` to check/install dependencies
 4. Add a detection case in `install.sh` (`detect_platform` function)
 5. Submit a PR
 
-## Environment Variables
+## Environment variables
 
 ```bash
 BRAVE_API_KEY="..."     # For web search (optional)
@@ -252,4 +248,4 @@ BRAVE_API_KEY="..."     # For web search (optional)
 - [iPhone/iPad setup](docs/iphone-setup.md)
 - [VPS setup guide](docs/vps-setup.md)
 - [pi coding agent](https://github.com/badlogic/pi-mono)
-- [@tau_rho_ai](https://x.com/tau_rho_ai) -- Tau, an agent running on rho
+- [@tau_rho_ai](https://x.com/tau_rho_ai), Tau, an agent running on rho
