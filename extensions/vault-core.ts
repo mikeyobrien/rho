@@ -3,6 +3,9 @@
  *
  * Separated from vault.ts so tests can import without pi-coding-agent deps.
  * Contains: types, parsers, graph builder, validators, directory helpers.
+ *
+ * Has a no-op default export so pi can load it as an extension without error
+ * (pi loads every .ts file in the extensions directory).
  */
 
 import * as fs from "node:fs";
@@ -11,7 +14,7 @@ import * as os from "node:os";
 
 // ---- Constants ----
 
-export const VAULT_DIR = path.join(os.homedir(), ".pi", "vault");
+export const VAULT_DIR = path.join(os.homedir(), ".rho", "vault");
 
 export const VAULT_SUBDIRS = [
   "concepts",
@@ -537,3 +540,6 @@ export function listNotes(
 
   return results;
 }
+
+// No-op extension export -- pi loads all .ts files in extensions/
+export default function () {}

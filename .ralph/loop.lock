@@ -1,5 +1,0 @@
-{
-  "pid": 3994,
-  "started": "2026-02-05T14:58:46.858814451Z",
-  "prompt": "# Vault Extension -- Phase 1 Implementation\n\n## What\n\nImplement `vault.ts`, a new pi extension that ..."
-}

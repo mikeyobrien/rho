@@ -2,6 +2,9 @@
 site/.wrangler/
 site/node_modules/
 
+# Ralph orchestrator state
+.ralph/
+
 # Ignore all skills by default
 skills/*/
 
