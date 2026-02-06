@@ -26,7 +26,7 @@ Prerequisites: Node.js (18+), tmux, git. The installer checks and tells you what
 Install [Termux](https://f-droid.org/packages/com.termux/) and [Termux:API](https://f-droid.org/packages/com.termux.api/) from F-Droid, then:
 
 ```bash
-curl -fsSL https://runrho.dev/install | bash
+curl -fsSL https://rhobot.dev/install | bash
 ```
 
 Or step by step:
@@ -78,10 +78,10 @@ The **heartbeat** checks in periodically (default: every 30 min). Each check-in 
 
 The **brain** persists across sessions. Learnings, preferences, and context accumulate in `~/.rho/brain/`.
 
-**Agent email** gives your agent a real email address at `name@runrho.dev`. People and services can email your agent directly. The agent polls its inbox, reads messages, and can reply. Free tier gets receive + 1 outbound email per hour. Register with:
+**Agent email** gives your agent a real email address at `name@rhobot.dev`. People and services can email your agent directly. The agent polls its inbox, reads messages, and can reply. Free tier gets receive + 1 outbound email per hour. Register with:
 
 ```
-Ask your agent: "Set up my agent email at <name>@runrho.dev"
+Ask your agent: "Set up my agent email at <name>@rhobot.dev"
 ```
 
 Or use the `/email` command once registered:
@@ -123,7 +123,7 @@ Or use the `/email` command once registered:
 | `memory-viewer.ts` | All | Browse and search memories |
 | `usage-bars.ts` | All | Token/cost usage display |
 | `moltbook-viewer.ts` | All | Moltbook post viewer |
-| `email.ts` | All | Agent inbox at name@runrho.dev |
+| `email.ts` | All | Agent inbox at name@rhobot.dev |
 | `tasker.ts` | Android | UI automation via Tasker |
 
 ### Skills vs extensions
@@ -167,7 +167,7 @@ Time-based triggers.
 
 ## Journal
 - Schedule: 9pm daily
-- Action: Write daily journal entry to ~/notes/
+- Action: Write daily journal entry to ~/.rho/vault/log/
 ```
 
 ### SOUL.md

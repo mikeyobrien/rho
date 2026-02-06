@@ -1,7 +1,7 @@
 /**
  * Vault Extension - Markdown-with-wikilinks knowledge graph for agents
  *
- * Structure (under ~/.pi/vault/):
+ * Structure (under ~/.rho/vault/):
  *   _index.md       - Root map of content (MOC)
  *   _inbox.md       - Capture buffer for quick entries
  *   concepts/       - Concept notes

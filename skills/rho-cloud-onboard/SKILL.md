@@ -1,21 +1,27 @@
 ---
 name: rho-cloud-onboard
-description: Register an agent email address on Rho Cloud (name@runrho.dev). Use when the user wants to set up agent email, register a Rho Cloud account, claim an email handle, or onboard to runrho.dev.
+description: Register an agent email address on Rhobot Mail (name@rhobot.dev). Use when the user wants to set up agent email, register a Rhobot Mail account, claim an email handle, or onboard to rhobot.dev.
 ---
 
-# Rho Cloud Onboarding
+# Rhobot Mail Onboarding
 
-Register an agent email address on Rho Cloud and configure local credentials. The agent gets an inbox at `name@runrho.dev` that can be polled via API.
+Register an agent email address on Rhobot Mail and configure local credentials. The agent gets an inbox at `name@rhobot.dev` that can be polled via API.
 
 ## Parameters
 
-- **handle** (required): The desired email local part (e.g. `tau` for `tau@runrho.dev`)
+- **handle** (required): The desired email local part (e.g. `tau` for `tau@rhobot.dev`)
 - **display_name** (optional): Human-readable name for the agent
+
+## URLs
+
+- **Landing page**: `https://rhobot.dev/email`
+- **Skill reference**: `https://rhobot.dev/skill.md`
+- **API endpoint**: `https://api.rhobot.dev` (all API calls go here)
 
 ## Prerequisites
 
 - `curl` and `jq` installed
-- Internet access to `api.runrho.dev`
+- Internet access to `api.rhobot.dev`
 
 ## Steps
 
@@ -28,7 +34,7 @@ Ask the user what email handle they want. If not provided, suggest one based on 
 - Handle MUST NOT start or end with a hyphen
 - Handle MUST NOT be a reserved name: `admin`, `postmaster`, `abuse`, `noreply`, `no-reply`, `support`, `help`, `info`, `security`, `webmaster`, `hostmaster`, `mailer-daemon`, `root`, `dmarc`
 - You MUST validate the handle format locally before making the API call
-- You MUST confirm the handle with the user before registering: "Register as `{handle}@runrho.dev`?"
+- You MUST confirm the handle with the user before registering: "Register as `{handle}@rhobot.dev`?"
 
 ### 2. Check Existing Credentials
 
@@ -48,7 +54,7 @@ cat ~/.config/rho-cloud/credentials.json 2>/dev/null
 Call the registration endpoint.
 
 ```bash
-curl -s -X POST https://api.runrho.dev/v1/register \
+curl -s -X POST https://api.rhobot.dev/v1/register \
   -H "Content-Type: application/json" \
   -d '{"name": "{handle}", "display_name": "{display_name}"}' | jq .
 ```
@@ -60,9 +66,9 @@ curl -s -X POST https://api.runrho.dev/v1/register \
 | HTTP Status | Error | Action |
 |-------------|-------|--------|
 | 400 | Invalid name format | Show the validation rules. Ask user to pick a different handle. Return to Step 1. |
-| 409 | Handle already taken | Tell user `{handle}@runrho.dev` is taken. Suggest alternatives: `{handle}-agent`, `{handle}-bot`, `{handle}-ai`, or ask user for another name. Return to Step 1. |
+| 409 | Handle already taken | Tell user `{handle}@rhobot.dev` is taken. Suggest alternatives: `{handle}-agent`, `{handle}-bot`, `{handle}-ai`, or ask user for another name. Return to Step 1. |
 | 500 | Server error | Report the error. Suggest retrying in a few minutes. |
-| Network error | Connection failed | Check internet. Suggest `curl -s https://api.runrho.dev/v1/health | jq .` to verify the API is up. |
+| Network error | Connection failed | Check internet. Suggest `curl -s https://api.rhobot.dev/v1/health | jq .` to verify the API is up. |
 
 - You MUST NOT proceed if registration fails
 - On 409 (taken), you MUST suggest at least 3 alternative handles
@@ -94,11 +100,11 @@ Confirm the credentials work by hitting the health and status endpoints.
 
 ```bash
 # Health check
-curl -s https://api.runrho.dev/v1/health | jq .
+curl -s https://api.rhobot.dev/v1/health | jq .
 
 # Auth check
 curl -s -H "Authorization: Bearer {api_key}" \
-  https://api.runrho.dev/v1/agents/status | jq .
+  https://api.rhobot.dev/v1/agents/status | jq .
 ```
 
 **Constraints:**
@@ -108,12 +114,12 @@ curl -s -H "Authorization: Bearer {api_key}" \
 
 ### 6. Claim Your Agent
 
-The registration response includes a `claim_url` for GitHub OAuth verification. This links the agent to a GitHub account and activates full functionality.
+The registration response includes a `claim_url` for identity verification.
 
 **Constraints:**
 - You MUST show the claim URL to the user
 - You SHOULD offer to open the claim URL on the device using the open-url skill or `termux-open-url`
-- Claiming verifies ownership via GitHub. Unclaimed agents have restricted capabilities and may be reclaimed or removed.
+- Claiming verifies ownership. Unclaimed agents cannot receive email and may be removed.
 - You MUST strongly encourage the user to complete the claim flow immediately.
 
 ### 7. Report
@@ -122,13 +128,13 @@ Summarize what was set up.
 
 **Report template:**
 ```
-Registered: {handle}@runrho.dev
+Registered: {handle}@rhobot.dev
 Agent ID:   {agent_id}
 Credentials: ~/.config/rho-cloud/credentials.json
 Claim URL:  {claim_url}
 Status:     {claimed or pending}
 
-Send a test email to {handle}@runrho.dev to verify delivery.
+Send a test email to {handle}@rhobot.dev to verify delivery.
 Use the rho-cloud-email skill to check your inbox.
 ```
 
@@ -137,6 +143,6 @@ Use the rho-cloud-email skill to check your inbox.
 | Problem | Solution |
 |---------|----------|
 | "already taken" on a handle you own | You may have registered previously. Check `~/.config/rho-cloud/credentials.json` for existing credentials. |
-| Health check fails | API may be down. Try again in a few minutes. Check `dig api.runrho.dev` for DNS resolution. |
+| Health check fails | API may be down. Try again in a few minutes. Check `dig api.rhobot.dev` for DNS resolution. |
 | Auth check returns 401 | API key may be invalid or corrupted. Re-register with a new handle. |
 | Claim URL returns 404 | Claim token may have expired. Re-register to get a fresh claim URL. |

@@ -1,12 +1,12 @@
 /**
  * Rho Email Extension -- inbox polling and management for agent email
  *
- * Polls tau@runrho.dev inbox every 5 minutes. Shows unread count in
- * the status bar, fires notifications on new mail, and exposes an
+ * Polls the agent's rhobot.dev inbox every 5 minutes. Shows unread count
+ * in the status bar, fires notifications on new mail, and exposes an
  * `email` tool for the LLM to read and act on messages.
  *
  * Credentials: ~/.config/rho-cloud/credentials.json
- *   { "api_key": "...", "agent_id": "...", "email": "tau@runrho.dev" }
+ *   { "api_key": "...", "agent_id": "...", "email": "<handle>@rhobot.dev" }
  *
  * Usage:
  *   /email              -- Show unread count
@@ -39,7 +39,7 @@ import { execSync } from "node:child_process";
 const CREDS_PATH = join(process.env.HOME || "", ".config", "rho-cloud", "credentials.json");
 const CONFIG_PATH = join(process.env.HOME || "", ".config", "rho-cloud", "config.json");
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-const API_BASE = "https://api.runrho.dev/v1";
+const API_BASE = "https://api.rhobot.dev/v1";
 
 interface Credentials {
   api_key: string;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rho Bootstrap -- Universal installer
 # Works on Android/Termux, macOS, and Linux.
-# Usage: curl -fsSL https://runrho.dev/install | bash
+# Usage: curl -fsSL https://rhobot.dev/install | bash
 set -e
 
 # Colors

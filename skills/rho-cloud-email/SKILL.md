@@ -1,11 +1,11 @@
 ---
-name: rho-cloud-email
-description: Manage agent email at name@runrho.dev via the Rho Cloud API. Use when checking inbox, reading messages, sending email, or managing allowed senders. Requires credentials from rho-cloud-onboard.
+name: rhobot-mail
+description: Manage agent email at name@rhobot.dev via the Rhobot Mail API. Use when checking inbox, reading messages, sending email, or managing allowed senders. Requires credentials from rho-cloud-onboard.
 ---
 
-# Rho Cloud Agent Email
+# Rhobot Mail
 
-Interact with an agent email inbox at `name@runrho.dev` using the Rho Cloud REST API. This skill covers inbox polling, reading, replying, sending, and sender allowlist management.
+Interact with an agent email inbox at `name@rhobot.dev` using the Rhobot Mail REST API. This skill covers inbox polling, reading, replying, sending, and sender allowlist management.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ You MUST load credentials before any API call:
 API_KEY=$(jq -r .api_key ~/.config/rho-cloud/credentials.json)
 AGENT_ID=$(jq -r .agent_id ~/.config/rho-cloud/credentials.json)
 AGENT_EMAIL=$(jq -r .email ~/.config/rho-cloud/credentials.json)
-API="https://api.runrho.dev/v1"
+API="https://api.rhobot.dev/v1"
 AUTH="Authorization: Bearer $API_KEY"
 ```
 
@@ -217,15 +217,15 @@ curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
 - Free tier: 1 outbound email per hour. Rate limit returns HTTP 429.
 - You MUST confirm with the user before sending: "Send email to {recipient} with subject '{subject}'?"
 - You MUST NOT send email without explicit user approval
-- You MUST handle 429 gracefully: "Rate limit reached (1/hour on free tier). Try again later."
-- The `From` address is always the agent's address (`{handle}@runrho.dev`), you cannot change it
+- You MUST handle 429 gracefully: "Rate limit reached (5/hour on free tier). Try again later."
+- The `From` address is always the agent's address (`{handle}@rhobot.dev`), you cannot change it
 
 ### Rate Limit Error (429)
 
 ```json
 {
   "ok": false,
-  "error": "Outbound rate limit exceeded (1/hour for free tier)",
+  "error": "Outbound rate limit exceeded (5/hour for free tier)",
   "tier": "free",
   "limit": 1
 }
@@ -315,12 +315,12 @@ curl -s -H "$AUTH" "$API/agents/$AGENT_ID/outbox/{outbox_id}" | jq .
 For network errors, verify the API is reachable:
 
 ```bash
-curl -s https://api.runrho.dev/v1/health | jq .
+curl -s https://api.rhobot.dev/v1/health | jq .
 ```
 
 ## Notes
 
 - Messages have a 30-day retention (free tier). Older messages are deleted by the scheduled cleanup.
-- Free tier: 50 inbound emails/day, 1 outbound/hour, 100MB storage.
+- Free tier: 25 inbound emails/day, 5 outbound/hour, 100MB storage.
 - The raw email (RFC 822) is stored in R2 for messages under 10MB. Access it at `GET /v1/agents/{id}/inbox/{msg_id}/raw`.
 - All timestamps are UTC.

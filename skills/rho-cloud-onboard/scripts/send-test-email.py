@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a test email to an agent's runrho.dev address.
+"""Send a test email to an agent's rhobot.dev address.
 
 Usage: python3 send-test-email.py <handle> [subject] [body]
 
@@ -32,7 +32,7 @@ def main():
         print("Generate an app password at: https://myaccount.google.com/apppasswords")
         sys.exit(1)
 
-    to_addr = f"{handle}@runrho.dev"
+    to_addr = f"{handle}@rhobot.dev"
 
     msg = MIMEText(body)
     msg["Subject"] = subject
