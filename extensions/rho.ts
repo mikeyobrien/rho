@@ -1,81 +1,1520 @@
 /**
- * Rho Extension - OpenClaw-style periodic check-ins for pi
+ * Rho Core Extension
  *
- * Rho runs periodic "heartbeat" turns where the agent checks on:
- * - Outstanding tasks and follow-ups
- * - RHO.md checklist in workspace
- * - Anything needing attention
+ * The core runtime for Rho: persistent memory (brain), task queue,
+ * knowledge vault, and heartbeat check-ins.
  *
- * Named after the Greek letter ρ (rho), representing continuous presence.
- *
- * Usage:
- *   /rho status           - Show current rho state
- *   /rho enable           - Enable rho check-ins
- *   /rho disable          - Disable rho check-ins
- *   /rho now              - Trigger a check-in immediately
- *   /rho interval 30m     - Set interval (e.g., 30m, 1h, 0 to disable)
- *   /rho model auto       - Use the main session's model for heartbeat
- *   /rho model <p>/<m>    - Pin a specific model for heartbeat
- *
- * The LLM can also use tools:
- *   - rho_control(action: "enable" | "disable" | "trigger" | "interval" | "model", interval?: string, model?: string)
- *   - rho_status()
+ * Tools:  memory, tasks, vault, rho_control, rho_subagent
+ * Commands: /brain, /tasks, /vault, /rho
+ * Events: session_start, session_switch, session_fork, session_shutdown,
+ *         before_agent_start, agent_end, session_before_compact
  */
 
+// ─── Imports ──────────────────────────────────────────────────────────────────
+
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { StringEnum } from "@mariozechner/pi-ai";
+import { convertToLlm, serializeConversation } from "@mariozechner/pi-coding-agent";
+import { StringEnum, complete } from "@mariozechner/pi-ai";
+import type { Api, Model } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import * as crypto from "node:crypto";
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { rhoDir, stateFile, configFile, resultsDir } from "./workspace.ts";
-import { buildHeartbeatSection } from "./tasks-core.ts";
 
-// State stored in memory (reconstructed from session entries and persisted to disk)
-interface RhoState {
-	enabled: boolean;
-	intervalMs: number;
-	lastCheckAt: number | null;
-	nextCheckAt: number | null;
-	checkCount: number;
-	heartbeatModel: string | null; // null = auto-resolve, "provider/model" = pinned
+// ─── Path Constants ───────────────────────────────────────────────────────────
+
+const HOME = os.homedir();
+const RHO_DIR = path.join(HOME, ".rho");
+const BRAIN_DIR = path.join(RHO_DIR, "brain");
+export const VAULT_DIR = path.join(RHO_DIR, "vault");
+const RESULTS_DIR = path.join(RHO_DIR, "results");
+const TASKS_PATH = path.join(RHO_DIR, "tasks.jsonl");
+const STATE_PATH = path.join(RHO_DIR, "rho-state.json");
+const CONFIG_PATH = path.join(RHO_DIR, "config.json");
+
+const LEGACY_BRAIN_DIR = path.join(HOME, ".pi", "brain");
+const LEGACY_STATE_PATH = path.join(HOME, ".pi", "agent", "rho-state.json");
+
+const CORE_FILE = path.join(BRAIN_DIR, "core.jsonl");
+const MEMORY_FILE = path.join(BRAIN_DIR, "memory.jsonl");
+const CONTEXT_FILE = path.join(BRAIN_DIR, "context.jsonl");
+const ARCHIVE_FILE = path.join(BRAIN_DIR, "archive.jsonl");
+const DAILY_MEMORY_DIR = path.join(BRAIN_DIR, "memory");
+
+const HEARTBEAT_PROMPT_FILE = path.join(RHO_DIR, "heartbeat-prompt.txt");
+
+// ─── Shared Config ────────────────────────────────────────────────────────────
+
+interface RhoConfig {
+  autoMemory?: boolean;
 }
 
-// Cached result of auto-resolved heartbeat model (not persisted)
+function readConfig(): RhoConfig {
+  try {
+    if (!fs.existsSync(CONFIG_PATH)) return {};
+    const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      const autoMemory =
+        typeof obj.autoMemory === "boolean"
+          ? obj.autoMemory
+          : typeof obj.auto_memory === "boolean"
+            ? obj.auto_memory
+            : undefined;
+      return { autoMemory };
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function writeConfig(next: Partial<RhoConfig>): void {
+  try {
+    fs.mkdirSync(RHO_DIR, { recursive: true });
+    let base: Record<string, unknown> = {};
+    try {
+      const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object") base = parsed as Record<string, unknown>;
+    } catch {
+      // ignore
+    }
+    if (typeof next.autoMemory === "boolean") base.autoMemory = next.autoMemory;
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));
+  } catch {
+    // ignore
+  }
+}
+
+function getAutoMemoryEffective(): { enabled: boolean; source: "env" | "config" | "default" } {
+  if (process.env.RHO_SUBAGENT === "1") return { enabled: false, source: "env" };
+
+  const env = (process.env.RHO_AUTO_MEMORY || "").trim().toLowerCase();
+  if (env === "0" || env === "false" || env === "off") return { enabled: false, source: "env" };
+  if (env === "1" || env === "true" || env === "on") return { enabled: true, source: "env" };
+
+  const cfg = readConfig();
+  if (typeof cfg.autoMemory === "boolean") return { enabled: cfg.autoMemory, source: "config" };
+  return { enabled: true, source: "default" };
+}
+
+// ─── Shared Helpers ───────────────────────────────────────────────────────────
+
+function nanoid(size = 8): string {
+  return crypto.randomBytes(size).toString("base64url").slice(0, size);
+}
+
+function today(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+function ensureRhoDir(): void {
+  if (!fs.existsSync(RHO_DIR)) {
+    fs.mkdirSync(RHO_DIR, { recursive: true });
+  }
+}
+
+function readJsonl<T>(file: string): T[] {
+  if (!fs.existsSync(file)) return [];
+  const content = fs.readFileSync(file, "utf-8");
+  const entries: T[] = [];
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      entries.push(JSON.parse(trimmed) as T);
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return entries;
+}
+
+function appendJsonl<T>(file: string, entry: T): void {
+  ensureRhoDir();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify(entry) + "\n");
+}
+
+function writeJsonl<T>(file: string, entries: T[]): void {
+  ensureRhoDir();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + (entries.length ? "\n" : ""));
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
+}
+
+function extractJsonObject(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
+  const match = trimmed.match(/\{[\s\S]*\}/);
+  return match ? match[0] : null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  BRAIN (Persistent Memory)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Brain Types ──────────────────────────────────────────────────────────────
+
+interface BaseEntry {
+  id: string;
+  type: string;
+  created: string;
+}
+
+interface IdentityEntry extends BaseEntry {
+  type: "identity";
+  key: string;
+  value: string;
+}
+
+interface BehaviorEntry extends BaseEntry {
+  type: "behavior";
+  category: "do" | "dont" | "value";
+  text: string;
+}
+
+interface UserEntry extends BaseEntry {
+  type: "user";
+  key: string;
+  value: string;
+}
+
+interface LearningEntry extends BaseEntry {
+  type: "learning";
+  text: string;
+  used: number;
+  last_used: string;
+  source?: string;
+}
+
+interface PreferenceEntry extends BaseEntry {
+  type: "preference";
+  category: string;
+  text: string;
+}
+
+interface ContextEntry extends BaseEntry {
+  type: "context";
+  project: string;
+  path: string;
+  content: string;
+}
+
+type Entry = IdentityEntry | BehaviorEntry | UserEntry | LearningEntry | PreferenceEntry | ContextEntry;
+
+// ─── Brain Config ─────────────────────────────────────────────────────────────
+
+const AUTO_MEMORY_DEBUG = process.env.RHO_AUTO_MEMORY_DEBUG === "1" || process.env.RHO_AUTO_MEMORY_DEBUG === "true";
+const AUTO_MEMORY_MAX_ITEMS = 3;
+const AUTO_MEMORY_MAX_TEXT = 200;
+const AUTO_MEMORY_DEFAULT_CATEGORY = "General";
+const AUTO_MEMORY_ALLOWED_CATEGORIES = new Set(["Communication", "Code", "Tools", "Workflow", "General"]);
+const DAILY_MEMORY_ENABLED = process.env.RHO_DAILY_MEMORY !== "0";
+const COMPACT_MEMORY_FLUSH_ENABLED = process.env.RHO_COMPACT_MEMORY_FLUSH !== "0";
+
+// ─── Brain: Model Resolution ─────────────────────────────────────────────────
+
+async function resolveSmallModel(
+  ctx: ExtensionContext
+): Promise<{ model: Model<Api>; apiKey: string } | null> {
+  const currentModel = ctx.model;
+  if (!currentModel) return null;
+
+  const currentApiKey = await ctx.modelRegistry.getApiKey(currentModel);
+  if (!currentApiKey) return null;
+
+  const sameProvider = ctx.modelRegistry
+    .getAll()
+    .filter((m) => m.provider === currentModel.provider)
+    .sort((a, b) => a.cost.output - b.cost.output);
+
+  for (const candidate of sameProvider) {
+    const apiKey = await ctx.modelRegistry.getApiKey(candidate);
+    if (apiKey) {
+      return { model: candidate, apiKey };
+    }
+  }
+
+  return { model: currentModel, apiKey: currentApiKey };
+}
+
+// ─── Brain: Daily Memory Log ──────────────────────────────────────────────────
+
+function appendDailyMemoryEntry(entry: LearningEntry | PreferenceEntry): void {
+  if (!DAILY_MEMORY_ENABLED) return;
+  fs.mkdirSync(DAILY_MEMORY_DIR, { recursive: true });
+  const date = entry.created || today();
+  const file = path.join(DAILY_MEMORY_DIR, `${date}.md`);
+  const needsHeader = !fs.existsSync(file);
+  const label =
+    entry.type === "learning" ? "Learning" : `Preference (${(entry as PreferenceEntry).category})`;
+  const header = needsHeader ? `# Memory ${date}\n\n` : "";
+  fs.appendFileSync(file, `${header}- **${label}:** ${entry.text}\n`);
+}
+
+// ─── Brain: Store Functions ───────────────────────────────────────────────────
+
+type StoreResult = { stored: boolean; id?: string; reason?: "empty" | "duplicate" | "too_long" };
+
+function normalizeMemoryText(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
+
+function sanitizeCategory(category?: string): string {
+  if (!category) return AUTO_MEMORY_DEFAULT_CATEGORY;
+  const trimmed = category.trim();
+  if (!trimmed) return AUTO_MEMORY_DEFAULT_CATEGORY;
+  for (const allowed of AUTO_MEMORY_ALLOWED_CATEGORIES) {
+    if (allowed.toLowerCase() === trimmed.toLowerCase()) return allowed;
+  }
+  return AUTO_MEMORY_DEFAULT_CATEGORY;
+}
+
+function isDuplicateLearning(existing: Entry[], text: string): boolean {
+  const normalized = normalizeMemoryText(text).toLowerCase();
+  return existing.some(
+    (e) => e.type === "learning" && normalizeMemoryText((e as LearningEntry).text).toLowerCase() === normalized
+  );
+}
+
+function isDuplicatePreference(existing: Entry[], text: string, category: string): boolean {
+  const normalized = normalizeMemoryText(text).toLowerCase();
+  return existing.some(
+    (e) =>
+      e.type === "preference" &&
+      normalizeMemoryText((e as PreferenceEntry).text).toLowerCase() === normalized &&
+      (e as PreferenceEntry).category === category
+  );
+}
+
+function storeLearningEntry(text: string, options?: { source?: string; maxLength?: number }): StoreResult {
+  const normalized = normalizeMemoryText(text);
+  if (!normalized) return { stored: false, reason: "empty" };
+  if (options?.maxLength && normalized.length > options.maxLength) {
+    return { stored: false, reason: "too_long" };
+  }
+  const existing = readJsonl<Entry>(MEMORY_FILE);
+  if (isDuplicateLearning(existing, normalized)) {
+    return { stored: false, reason: "duplicate" };
+  }
+  const entry: LearningEntry = {
+    id: nanoid(),
+    type: "learning",
+    text: normalized,
+    used: 0,
+    last_used: today(),
+    created: today(),
+    source: options?.source,
+  };
+  appendJsonl(MEMORY_FILE, entry);
+  appendDailyMemoryEntry(entry);
+  return { stored: true, id: entry.id };
+}
+
+function storePreferenceEntry(
+  text: string,
+  category: string,
+  options?: { maxLength?: number }
+): StoreResult {
+  const normalized = normalizeMemoryText(text);
+  if (!normalized) return { stored: false, reason: "empty" };
+  if (options?.maxLength && normalized.length > options.maxLength) {
+    return { stored: false, reason: "too_long" };
+  }
+  const normalizedCategory = sanitizeCategory(category);
+  const existing = readJsonl<Entry>(MEMORY_FILE);
+  if (isDuplicatePreference(existing, normalized, normalizedCategory)) {
+    return { stored: false, reason: "duplicate" };
+  }
+  const entry: PreferenceEntry = {
+    id: nanoid(),
+    type: "preference",
+    category: normalizedCategory,
+    text: normalized,
+    created: today(),
+  };
+  appendJsonl(MEMORY_FILE, entry);
+  appendDailyMemoryEntry(entry);
+  return { stored: true, id: entry.id };
+}
+
+// ─── Brain: Context Builder ───────────────────────────────────────────────────
+
+function buildBrainContext(cwd: string): string {
+  const sections: string[] = [];
+
+  const core = readJsonl<Entry>(CORE_FILE);
+
+  const identity = core.filter((e): e is IdentityEntry => e.type === "identity");
+  if (identity.length > 0) {
+    sections.push("## Identity\n" + identity.map((e) => `- ${e.key}: ${e.value}`).join("\n"));
+  }
+
+  const user = core.filter((e): e is UserEntry => e.type === "user");
+  if (user.length > 0) {
+    sections.push("## User\n" + user.map((e) => `- ${e.key}: ${e.value}`).join("\n"));
+  }
+
+  const behaviors = core.filter((e): e is BehaviorEntry => e.type === "behavior");
+  if (behaviors.length > 0) {
+    const dos = behaviors.filter((b) => b.category === "do").map((b) => b.text);
+    const donts = behaviors.filter((b) => b.category === "dont").map((b) => b.text);
+    const values = behaviors.filter((b) => b.category === "value").map((b) => b.text);
+
+    let behaviorSection = "## Behavior\n";
+    if (dos.length > 0) behaviorSection += `**Do:** ${dos.join(". ")}.\n`;
+    if (donts.length > 0) behaviorSection += `**Don't:** ${donts.join(". ")}.\n`;
+    if (values.length > 0) behaviorSection += `**Values:** ${values.join(". ")}.`;
+    sections.push(behaviorSection.trim());
+  }
+
+  const memory = readJsonl<Entry>(MEMORY_FILE);
+  const learnings = memory.filter((e): e is LearningEntry => e.type === "learning");
+  const preferences = memory.filter((e): e is PreferenceEntry => e.type === "preference");
+
+  if (learnings.length > 0) {
+    const sorted = [...learnings].sort((a, b) => {
+      if (b.used !== a.used) return b.used - a.used;
+      return b.last_used.localeCompare(a.last_used);
+    });
+    sections.push("## Learnings\n" + sorted.map((l) => `- ${l.text}`).join("\n"));
+  }
+
+  if (preferences.length > 0) {
+    const byCategory = new Map<string, string[]>();
+    for (const p of preferences) {
+      const list = byCategory.get(p.category) || [];
+      list.push(p.text);
+      byCategory.set(p.category, list);
+    }
+    let prefSection = "## Preferences\n";
+    for (const [cat, items] of byCategory) {
+      prefSection += `**${cat}:** ${items.join(". ")}.\n`;
+    }
+    sections.push(prefSection.trim());
+  }
+
+  const contexts = readJsonl<ContextEntry>(CONTEXT_FILE);
+  const matched = contexts.find((c) => cwd.startsWith(c.path));
+  if (matched) {
+    sections.push(`## Project: ${matched.project}\n\n${matched.content}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+const MEMORY_INSTRUCTIONS = `## Memory
+
+You have persistent memory via the \`memory\` tool. Store insights that help future sessions.
+
+**Store when:**
+- User corrects you → learning
+- You discover a pattern/convention → learning  
+- User states a preference → preference with category
+
+**Good learnings:** "User prefers early returns over nested ifs", "This repo uses pnpm not npm", "API uses snake_case"
+**Bad learnings:** "User asked about X", "Fixed a bug", "Session went well"
+
+**Don't store:** obvious things, duplicates, session-specific details.`.trim();
+
+// ─── Brain: Auto-Memory Extraction ───────────────────────────────────────────
+
+type AutoMemoryResponse = {
+  learnings?: Array<{ text?: string }>;
+  preferences?: Array<{ text?: string; category?: string }>;
+};
+
+function formatExistingMemories(entries: Entry[]): string {
+  const learnings = entries.filter((e): e is LearningEntry => e.type === "learning");
+  const preferences = entries.filter((e): e is PreferenceEntry => e.type === "preference");
+  const lines: string[] = [];
+  for (const l of learnings) lines.push(`- ${l.text}`);
+  for (const p of preferences) lines.push(`- [${p.category}] ${p.text}`);
+  return lines.join("\n");
+}
+
+function buildAutoMemoryPrompt(conversationText: string, existingMemories?: string): string {
+  const parts = [
+    "You are a memory extraction system for a personal assistant.",
+    "Extract durable learnings and user preferences that will remain useful across sessions.",
+    "Only include stable facts or clear preferences. Skip one-off tasks, transient requests, and generic facts.",
+    "Keep each entry concise (under 120 characters).",
+  ];
+
+  if (existingMemories) {
+    parts.push(
+      "",
+      "IMPORTANT: These memories are already stored. Do NOT extract anything that restates, overlaps with, or is a subset of these:",
+      "<existing_memories>",
+      existingMemories,
+      "</existing_memories>",
+      "",
+      "Only extract genuinely NEW information not covered above."
+    );
+  }
+
+  parts.push(
+    "Output strict JSON only with this shape:",
+    '{"learnings":[{"text":"..."}],"preferences":[{"category":"Communication|Code|Tools|Workflow|General","text":"..."}]}',
+    "If there are no NEW items to add, return {\"learnings\":[],\"preferences\":[]}.",
+    "",
+    "<conversation>",
+    conversationText,
+    "</conversation>"
+  );
+
+  return parts.join("\n");
+}
+
+function parseAutoMemoryResponse(text: string): AutoMemoryResponse | null {
+  const jsonText = extractJsonObject(text);
+  if (!jsonText) return null;
+  try {
+    return JSON.parse(jsonText) as AutoMemoryResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function runAutoMemoryExtraction(
+  messages: AgentMessage[],
+  ctx: ExtensionContext,
+  options?: { source?: string; signal?: AbortSignal; maxItems?: number; maxText?: number }
+): Promise<{ storedLearnings: number; storedPrefs: number } | null> {
+  if (!getAutoMemoryEffective().enabled) return null;
+
+  const resolved = await resolveSmallModel(ctx);
+  if (!resolved) return null;
+  const { model } = resolved;
+
+  const conversationText = serializeConversation(convertToLlm(messages));
+  if (!conversationText.trim()) return null;
+
+  if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
+    ctx.ui.notify(`Auto-memory: extracting via ${model.name}...`, "info");
+  }
+
+  const existing = readJsonl<Entry>(MEMORY_FILE);
+  const existingText = existing.length > 0 ? formatExistingMemories(existing) : undefined;
+  const prompt = buildAutoMemoryPrompt(conversationText, existingText);
+
+  let response;
+  const candidates = [resolved];
+  if (resolved.model.id !== ctx.model?.id && ctx.model) {
+    const fallbackKey = await ctx.modelRegistry.getApiKey(ctx.model);
+    if (fallbackKey) candidates.push({ model: ctx.model, apiKey: fallbackKey });
+  }
+
+  for (const { model, apiKey } of candidates) {
+    try {
+      const maxTokens = Math.min(512, model.maxTokens || 512);
+      const result = await complete(
+        model,
+        {
+          messages: [
+            { role: "user" as const, content: [{ type: "text" as const, text: prompt }], timestamp: Date.now() },
+          ],
+        },
+        { apiKey, maxTokens, signal: options?.signal }
+      );
+      if (result.stopReason === "error") {
+        if (AUTO_MEMORY_DEBUG) {
+          console.error(`Auto-memory error from ${model.id}: ${result.errorMessage}`);
+        }
+        continue;
+      }
+      response = result;
+      break;
+    } catch (e) {
+      if (AUTO_MEMORY_DEBUG) {
+        console.error(`Auto-memory failed with ${model.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  if (!response) return null;
+
+  const responseText = response.content
+    .filter((c): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text)
+    .join("\n")
+    .trim();
+
+  const parsed = parseAutoMemoryResponse(responseText);
+  if (!parsed) {
+    if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
+      ctx.ui.notify("Auto-memory: no JSON response", "warning");
+    }
+    return null;
+  }
+
+  const extractedLearnings = (parsed.learnings ?? [])
+    .map((l) => normalizeMemoryText(l.text ?? ""))
+    .filter(Boolean);
+  const extractedPreferences = (parsed.preferences ?? [])
+    .map((p) => ({
+      text: normalizeMemoryText(p.text ?? ""),
+      category: sanitizeCategory(p.category),
+    }))
+    .filter((p) => p.text.length > 0);
+
+  const maxItems = options?.maxItems ?? AUTO_MEMORY_MAX_ITEMS;
+  const maxText = options?.maxText ?? AUTO_MEMORY_MAX_TEXT;
+  const source = options?.source ?? "auto";
+  let remaining = maxItems;
+  let storedLearnings = 0;
+  let storedPrefs = 0;
+
+  for (const text of extractedLearnings) {
+    if (remaining <= 0) break;
+    const result = storeLearningEntry(text, { source, maxLength: maxText });
+    if (result.stored) {
+      storedLearnings += 1;
+      remaining -= 1;
+    }
+  }
+
+  for (const pref of extractedPreferences) {
+    if (remaining <= 0) break;
+    const result = storePreferenceEntry(pref.text, pref.category, { maxLength: maxText });
+    if (result.stored) {
+      storedPrefs += 1;
+      remaining -= 1;
+    }
+  }
+
+  if ((storedLearnings > 0 || storedPrefs > 0) && ctx.hasUI) {
+    ctx.ui.notify(`Auto-memory stored: ${storedLearnings}L ${storedPrefs}P`, "info");
+  }
+
+  return { storedLearnings, storedPrefs };
+}
+
+// ─── Brain: Memory Consolidation ──────────────────────────────────────────────
+
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s/._-]/g, "").split(/\s+/).filter(w => w.length > 2)
+  );
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  let intersection = 0;
+  for (const w of a) { if (b.has(w)) intersection++; }
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+const JACCARD_THRESHOLD = 0.6;
+const CONTAINMENT_THRESHOLD = 0.8;
+
+function containmentRatio(smaller: Set<string>, larger: Set<string>): number {
+  if (smaller.size === 0) return 1;
+  let contained = 0;
+  for (const w of smaller) { if (larger.has(w)) contained++; }
+  return contained / smaller.size;
+}
+
+function deterministicDedup(entries: Entry[]): { kept: Entry[]; removed: Entry[] } {
+  const learnings = entries.filter((e): e is LearningEntry => e.type === "learning");
+  const preferences = entries.filter((e): e is PreferenceEntry => e.type === "preference");
+  const others = entries.filter(e => e.type !== "learning" && e.type !== "preference");
+
+  function dedupGroup<T extends LearningEntry | PreferenceEntry>(
+    items: T[],
+    getText: (e: T) => string
+  ): { kept: T[]; removed: T[] } {
+    const tokenized = items.map(e => ({ entry: e, tokens: tokenize(getText(e)), len: getText(e).length }));
+    const removed = new Set<string>();
+
+    const clusters: T[][] = [];
+    for (let i = 0; i < tokenized.length; i++) {
+      if (removed.has(tokenized[i].entry.id)) continue;
+      const cluster: T[] = [tokenized[i].entry];
+      for (let j = i + 1; j < tokenized.length; j++) {
+        if (removed.has(tokenized[j].entry.id)) continue;
+        if (jaccardSimilarity(tokenized[i].tokens, tokenized[j].tokens) >= JACCARD_THRESHOLD) {
+          cluster.push(tokenized[j].entry);
+          removed.add(tokenized[j].entry.id);
+        }
+      }
+      clusters.push(cluster);
+    }
+
+    const keptAfterJaccard: T[] = [];
+    const removedEntries: T[] = [];
+    for (const cluster of clusters) {
+      const sorted = cluster.sort((a, b) => getText(b).length - getText(a).length);
+      keptAfterJaccard.push(sorted[0]);
+      removedEntries.push(...sorted.slice(1));
+    }
+
+    const keptTokenized = keptAfterJaccard.map(e => ({ entry: e, tokens: tokenize(getText(e)), len: getText(e).length }));
+    const containmentRemoved = new Set<string>();
+    for (let i = 0; i < keptTokenized.length; i++) {
+      if (containmentRemoved.has(keptTokenized[i].entry.id)) continue;
+      for (let j = 0; j < keptTokenized.length; j++) {
+        if (i === j || containmentRemoved.has(keptTokenized[j].entry.id)) continue;
+        if (keptTokenized[j].len < keptTokenized[i].len) {
+          if (containmentRatio(keptTokenized[j].tokens, keptTokenized[i].tokens) >= CONTAINMENT_THRESHOLD) {
+            containmentRemoved.add(keptTokenized[j].entry.id);
+          }
+        }
+      }
+    }
+
+    const finalKept = keptAfterJaccard.filter(e => !containmentRemoved.has(e.id));
+    const containmentRemovedEntries = keptAfterJaccard.filter(e => containmentRemoved.has(e.id));
+
+    return { kept: finalKept, removed: [...removedEntries, ...containmentRemovedEntries] };
+  }
+
+  const dedupedLearnings = dedupGroup(learnings, e => e.text);
+  const dedupedPreferences = dedupGroup(preferences, e => e.text);
+
+  return {
+    kept: [...others, ...dedupedLearnings.kept, ...dedupedPreferences.kept],
+    removed: [...dedupedLearnings.removed, ...dedupedPreferences.removed],
+  };
+}
+
+type SemanticResponse = {
+  remove: string[];
+  rewrite: Array<{ id: string; text: string }>;
+};
+
+function buildSemanticPrompt(entries: Entry[]): string {
+  const learnings = entries.filter((e): e is LearningEntry => e.type === "learning");
+  const preferences = entries.filter((e): e is PreferenceEntry => e.type === "preference");
+
+  let entriesText = "LEARNINGS:\n";
+  for (const l of learnings) entriesText += `[${l.id}] ${l.text}\n`;
+  entriesText += "\nPREFERENCES:\n";
+  for (const p of preferences) entriesText += `[${p.id}] [${p.category}] ${p.text}\n`;
+
+  return [
+    "You are a memory consolidation system. Review these entries and identify IDs to REMOVE.",
+    "",
+    "ONLY remove entries that are clearly one of:",
+    "1. SEMANTIC DUPLICATES: nearly identical meaning to another entry (keep the longer one, remove the shorter)",
+    "2. SUPERSEDED: directly contradicted by a newer entry about the same specific topic",
+    "",
+    "KEEP everything else. When in doubt, KEEP. Be very conservative.",
+    "Do NOT remove: environment setup, API details, config paths, tool usage patterns, architecture facts, user preferences.",
+    "Do NOT remove entries just because they seem old or specific -- specificity is valuable.",
+    "",
+    "Also identify entries to REWRITE: where 2 entries about the exact same topic should merge (use the surviving entry's ID).",
+    "",
+    entriesText,
+    "",
+    "IMPORTANT: Output ONLY a JSON object with two keys: 'remove' (array of IDs to delete) and 'rewrite' (array of {id, text} to update).",
+    "Do NOT return all entries. Do NOT echo back entries you want to keep. ONLY list changes.",
+    "No markdown, no code fences, no explanation. Raw JSON only.",
+    "Example: {\"remove\":[\"abc\",\"def\"],\"rewrite\":[{\"id\":\"ghi\",\"text\":\"merged text\"}]}",
+  ].join("\n");
+}
+
+function parseSemanticResponse(text: string): SemanticResponse | null {
+  const jsonText = extractJsonObject(text);
+  if (!jsonText) return null;
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (!Array.isArray(parsed.remove)) return null;
+    if (!Array.isArray(parsed.rewrite)) return null;
+    return parsed as SemanticResponse;
+  } catch {
+    return null;
+  }
+}
+
+async function runConsolidation(
+  ctx: ExtensionContext,
+  options?: { signal?: AbortSignal; dryRun?: boolean }
+): Promise<{ before: number; after: number; removed: number; error?: string } | null> {
+  const entries = readJsonl<Entry>(MEMORY_FILE);
+  if (entries.length < 5) return { before: entries.length, after: entries.length, removed: 0, error: "too few entries (< 5)" };
+
+  const { kept: phase1Kept, removed: phase1Removed } = deterministicDedup(entries);
+  const phase1Count = phase1Removed.length;
+
+  let phase2Removes: string[] = [];
+  let phase2Rewrites: SemanticResponse["rewrite"] = [];
+  let llmError: string | undefined;
+
+  const resolved = await resolveSmallModel(ctx);
+  if (resolved && phase1Kept.length > 5) {
+    const candidates = [resolved];
+    if (resolved.model.id !== ctx.model?.id && ctx.model) {
+      const fallbackKey = await ctx.modelRegistry.getApiKey(ctx.model);
+      if (fallbackKey) candidates.push({ model: ctx.model, apiKey: fallbackKey });
+    }
+
+    const prompt = buildSemanticPrompt(phase1Kept);
+    let semantic: SemanticResponse | null = null;
+
+    for (const { model, apiKey } of candidates) {
+      if (options?.signal?.aborted) break;
+      try {
+        const maxTokens = Math.min(4096, model.maxTokens || 4096);
+        const result = await complete(
+          model,
+          {
+            messages: [
+              { role: "user" as const, content: [{ type: "text" as const, text: prompt }], timestamp: Date.now() },
+              { role: "assistant" as const, content: [{ type: "text" as const, text: '{"remove":[' }], timestamp: Date.now() },
+            ],
+          },
+          { apiKey, maxTokens, signal: options?.signal }
+        );
+        if (result.stopReason === "error") {
+          llmError = `${model.id}: ${result.errorMessage || "error"}`;
+          continue;
+        }
+        const responseText = result.content
+          .filter((c): c is { type: "text"; text: string } => c.type === "text")
+          .map((c) => c.text).join("\n").trim();
+        semantic = parseSemanticResponse('{"remove":[' + responseText);
+        if (semantic) break;
+        llmError = `${model.id}: JSON parse failed`;
+      } catch (e) {
+        llmError = `${model.id}: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+
+    if (semantic) {
+      const maxRemoves = Math.max(5, Math.floor(phase1Kept.length * 0.15));
+      phase2Removes = semantic.remove.slice(0, maxRemoves);
+      phase2Rewrites = semantic.rewrite.slice(0, 20);
+    }
+  }
+
+  const removeSet = new Set(phase2Removes);
+  const rewriteMap = new Map(phase2Rewrites.map(r => [r.id, r.text]));
+
+  const newEntries: Entry[] = [];
+  for (const entry of phase1Kept) {
+    if (removeSet.has(entry.id)) continue;
+    const rewrite = rewriteMap.get(entry.id);
+    if (rewrite) {
+      const normalized = normalizeMemoryText(rewrite);
+      if (entry.type === "learning") {
+        newEntries.push({ ...entry, text: normalized, last_used: today() } as LearningEntry);
+      } else if (entry.type === "preference") {
+        newEntries.push({ ...entry, text: normalized } as PreferenceEntry);
+      } else {
+        newEntries.push(entry);
+      }
+    } else {
+      newEntries.push(entry);
+    }
+  }
+
+  const before = entries.length;
+  const after = newEntries.length;
+  const totalRemoved = before - after;
+
+  if (options?.dryRun) {
+    return { before, after, removed: totalRemoved, error: llmError ? `phase2: ${llmError}` : undefined };
+  }
+
+  if (after < before * 0.6) {
+    return { before, after, removed: totalRemoved, error: `too aggressive: ${after}/${before} kept (${Math.round(after/before*100)}%), need > 60%` };
+  }
+
+  const keptIds = new Set(newEntries.map(e => e.id));
+  const allRemoved = entries.filter(e => !keptIds.has(e.id));
+  if (allRemoved.length > 0) {
+    ensureRhoDir();
+    for (const r of allRemoved) {
+      appendJsonl(ARCHIVE_FILE, { ...r, archived: today(), reason: "consolidation" });
+    }
+  }
+
+  writeJsonl(MEMORY_FILE, newEntries);
+
+  return { before, after, removed: totalRemoved, error: llmError ? `phase2: ${llmError}` : undefined };
+}
+
+// ─── Brain: Legacy Migration ──────────────────────────────────────────────────
+
+function migrateLegacyBrain(): void {
+  if (!fs.existsSync(LEGACY_BRAIN_DIR)) return;
+  if (fs.existsSync(BRAIN_DIR) && fs.readdirSync(BRAIN_DIR).length > 0) return;
+
+  fs.mkdirSync(BRAIN_DIR, { recursive: true });
+
+  for (const entry of fs.readdirSync(LEGACY_BRAIN_DIR, { withFileTypes: true })) {
+    const src = path.join(LEGACY_BRAIN_DIR, entry.name);
+    const dst = path.join(BRAIN_DIR, entry.name);
+    if (entry.isDirectory()) {
+      if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+      for (const sub of fs.readdirSync(src)) {
+        fs.copyFileSync(path.join(src, sub), path.join(dst, sub));
+      }
+    } else {
+      fs.copyFileSync(src, dst);
+    }
+  }
+}
+
+function bootstrapBrainDefaults(extensionDir: string): void {
+  const defaultsDir = path.join(path.dirname(extensionDir), "brain");
+  if (!fs.existsSync(defaultsDir)) return;
+
+  fs.mkdirSync(BRAIN_DIR, { recursive: true });
+  for (const file of fs.readdirSync(defaultsDir)) {
+    if (!file.endsWith(".jsonl.default")) continue;
+    const target = path.join(BRAIN_DIR, file.replace(".default", ""));
+    if (!fs.existsSync(target)) {
+      fs.copyFileSync(path.join(defaultsDir, file), target);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  TASKS (Lightweight Task Queue)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Task Types ───────────────────────────────────────────────────────────────
+
+export type TaskPriority = "urgent" | "high" | "normal" | "low";
+export type TaskStatus = "pending" | "done";
+
+export interface Task {
+  id: string;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  tags: string[];
+  created: string;
+  due: string | null;
+  completedAt: string | null;
+}
+
+interface TaskAddParams {
+  description: string;
+  priority?: TaskPriority;
+  tags?: string;
+  due?: string;
+}
+
+interface TaskResult {
+  ok: boolean;
+  message: string;
+  task?: Task;
+  tasks?: Task[];
+  count?: number;
+}
+
+const PRIORITY_ORDER: Record<TaskPriority, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+const VALID_PRIORITIES: TaskPriority[] = ["urgent", "high", "normal", "low"];
+
+// ─── Task ID Generation ──────────────────────────────────────────────────────
+
+export function generateId(existing: Task[]): string {
+  const ids = new Set(existing.map((t) => t.id));
+  for (let i = 0; i < 100; i++) {
+    const id = crypto.randomBytes(4).toString("hex");
+    if (!ids.has(id)) return id;
+  }
+  return crypto.randomBytes(8).toString("hex");
+}
+
+// ─── Task Persistence ─────────────────────────────────────────────────────────
+
+export function loadTasks(filePath: string = TASKS_PATH): Task[] {
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8").trim();
+    if (!raw) return [];
+    return raw
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => {
+        const parsed = JSON.parse(line) as Task;
+        if (!parsed.tags) parsed.tags = [];
+        if (!parsed.due) parsed.due = null;
+        if (!parsed.completedAt) parsed.completedAt = null;
+        if (!parsed.priority) parsed.priority = "normal";
+        if (!parsed.status) parsed.status = "pending";
+        return parsed;
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function saveTasks(tasks: Task[], filePath: string = TASKS_PATH): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const lines = tasks.map((t) => JSON.stringify(t));
+  fs.writeFileSync(filePath, lines.join("\n") + "\n", "utf-8");
+}
+
+// ─── Task Operations ──────────────────────────────────────────────────────────
+
+export function addTask(params: TaskAddParams, filePath: string = TASKS_PATH): TaskResult {
+  const desc = params.description?.trim();
+  if (!desc) return { ok: false, message: "Error: description is required" };
+
+  const priority = params.priority || "normal";
+  if (!VALID_PRIORITIES.includes(priority)) {
+    return { ok: false, message: `Error: invalid priority '${priority}'. Must be: ${VALID_PRIORITIES.join(", ")}` };
+  }
+
+  const tags = params.tags
+    ? params.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean)
+    : [];
+
+  const due = params.due?.trim() || null;
+  if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) {
+    return { ok: false, message: `Error: invalid due date '${due}'. Use YYYY-MM-DD format.` };
+  }
+
+  const tasks = loadTasks(filePath);
+  const task: Task = {
+    id: generateId(tasks),
+    description: desc,
+    status: "pending",
+    priority,
+    tags,
+    created: new Date().toISOString(),
+    due,
+    completedAt: null,
+  };
+
+  tasks.push(task);
+  saveTasks(tasks, filePath);
+  return { ok: true, message: `Task added: [${task.id}] ${desc}`, task };
+}
+
+export function listTasks(filter?: string, filePath: string = TASKS_PATH): TaskResult {
+  const tasks = loadTasks(filePath);
+
+  let filtered: Task[];
+  if (!filter || filter === "pending") {
+    filtered = tasks.filter((t) => t.status === "pending");
+  } else if (filter === "all") {
+    filtered = tasks;
+  } else if (filter === "done") {
+    filtered = tasks.filter((t) => t.status === "done");
+  } else {
+    const tag = filter.toLowerCase();
+    filtered = tasks.filter((t) => t.status === "pending" && t.tags.includes(tag));
+  }
+
+  filtered.sort((a, b) => {
+    const pa = PRIORITY_ORDER[a.priority] ?? 2;
+    const pb = PRIORITY_ORDER[b.priority] ?? 2;
+    if (pa !== pb) return pa - pb;
+    return a.created > b.created ? -1 : a.created < b.created ? 1 : 0;
+  });
+
+  if (filtered.length === 0) {
+    const label = filter === "all" ? "tasks" : filter === "done" ? "completed tasks" : "pending tasks";
+    return { ok: true, message: `No ${label}.`, tasks: [], count: 0 };
+  }
+
+  const lines = filtered.map((t) => formatTask(t));
+  const header =
+    filter === "all"
+      ? `${filtered.length} task(s):`
+      : filter === "done"
+        ? `${filtered.length} completed task(s):`
+        : `${filtered.length} pending task(s):`;
+
+  return { ok: true, message: `${header}\n${lines.join("\n")}`, tasks: filtered, count: filtered.length };
+}
+
+export function completeTask(id: string, filePath: string = TASKS_PATH): TaskResult {
+  if (!id?.trim()) return { ok: false, message: "Error: task ID is required" };
+
+  const tasks = loadTasks(filePath);
+  const task = findTaskById(tasks, id.trim());
+  if (!task) return { ok: false, message: `Error: task '${id}' not found` };
+  if (task.status === "done") return { ok: true, message: `Task [${task.id}] is already done.`, task };
+
+  task.status = "done";
+  task.completedAt = new Date().toISOString();
+  saveTasks(tasks, filePath);
+  return { ok: true, message: `Done: [${task.id}] ${task.description}`, task };
+}
+
+export function removeTask(id: string, filePath: string = TASKS_PATH): TaskResult {
+  if (!id?.trim()) return { ok: false, message: "Error: task ID is required" };
+
+  const tasks = loadTasks(filePath);
+  const task = findTaskById(tasks, id.trim());
+  if (!task) return { ok: false, message: `Error: task '${id}' not found` };
+
+  const remaining = tasks.filter((t) => t.id !== task.id);
+  saveTasks(remaining, filePath);
+  return { ok: true, message: `Removed: [${task.id}] ${task.description}`, task };
+}
+
+export function clearDone(filePath: string = TASKS_PATH): TaskResult {
+  const tasks = loadTasks(filePath);
+  const done = tasks.filter((t) => t.status === "done");
+  const remaining = tasks.filter((t) => t.status !== "done");
+
+  if (done.length === 0) return { ok: true, message: "No completed tasks to clear.", count: 0 };
+
+  saveTasks(remaining, filePath);
+  return { ok: true, message: `Cleared ${done.length} completed task(s).`, count: done.length };
+}
+
+// ─── Task Helpers ─────────────────────────────────────────────────────────────
+
+export function findTaskById(tasks: Task[], idPrefix: string): Task | null {
+  const prefix = idPrefix.toLowerCase();
+  const exact = tasks.find((t) => t.id === prefix);
+  if (exact) return exact;
+  if (prefix.length < 4) return null;
+  const matches = tasks.filter((t) => t.id.startsWith(prefix));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function formatTask(task: Task): string {
+  const status = task.status === "done" ? "[x]" : "[ ]";
+  let line = `${status} [${task.id}] ${task.description}`;
+  if (task.priority !== "normal") line += ` (${task.priority})`;
+  if (task.due) line += ` due:${task.due}`;
+  if (task.tags.length > 0) line += ` #${task.tags.join(" #")}`;
+  if (task.completedAt) line += ` done:${task.completedAt.slice(0, 10)}`;
+  return line;
+}
+
+export function buildHeartbeatSection(filePath: string = TASKS_PATH): string | null {
+  const tasks = loadTasks(filePath);
+  const pending = tasks.filter((t) => t.status === "pending");
+  if (pending.length === 0) return null;
+
+  pending.sort((a, b) => {
+    const pa = PRIORITY_ORDER[a.priority] ?? 2;
+    const pb = PRIORITY_ORDER[b.priority] ?? 2;
+    return pa - pb;
+  });
+
+  const now = new Date().toISOString().slice(0, 10);
+  const lines = pending.map((t) => {
+    let line = `- [${t.id}] ${t.description}`;
+    if (t.priority !== "normal") line += ` (${t.priority})`;
+    if (t.due) {
+      if (t.due < now) line += ` **OVERDUE** (due ${t.due})`;
+      else line += ` (due ${t.due})`;
+    }
+    if (t.tags.length > 0) line += ` [${t.tags.join(", ")}]`;
+    return line;
+  });
+
+  return `Pending tasks (${pending.length}):\n${lines.join("\n")}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  VAULT (Knowledge Graph)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Vault Types ──────────────────────────────────────────────────────────────
+
+export const VAULT_SUBDIRS = ["concepts", "projects", "patterns", "references", "log"] as const;
+
+const TYPES_REQUIRING_CONNECTIONS = new Set(["concept", "project", "pattern", "reference", "moc"]);
+
+export interface VaultNote {
+  slug: string;
+  path: string;
+  title: string;
+  type: string;
+  tags: string[];
+  created: string;
+  updated: string;
+  source: string;
+  links: Set<string>;
+  backlinks: Set<string>;
+  size: number;
+}
+
+export type VaultGraph = Map<string, VaultNote>;
+
+export interface Frontmatter {
+  type?: string;
+  created?: string;
+  updated?: string;
+  tags?: string[];
+  source?: string;
+  [key: string]: unknown;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  reason?: string;
+}
+
+interface VaultStatus {
+  totalNotes: number;
+  byType: Record<string, number>;
+  orphanCount: number;
+  inboxItems: number;
+  avgLinksPerNote: number;
+}
+
+interface NoteListEntry {
+  slug: string;
+  title: string;
+  type: string;
+  linkCount: number;
+  backlinkCount: number;
+  updated: string;
+  tags: string[];
+}
+
+// ─── Vault: Frontmatter Parser ────────────────────────────────────────────────
+
+export function parseFrontmatter(content: string): Frontmatter {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+
+  const yaml = match[1];
+  const result: Frontmatter = {};
+
+  for (const line of yaml.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx === -1) continue;
+
+    const key = trimmed.slice(0, colonIdx).trim();
+    let value = trimmed.slice(colonIdx + 1).trim();
+
+    if (value.startsWith("[") && value.endsWith("]")) {
+      const inner = value.slice(1, -1).trim();
+      if (inner === "") {
+        result[key] = [];
+      } else {
+        result[key] = inner.split(",").map((s) => s.trim());
+      }
+    } else {
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      result[key] = value;
+    }
+  }
+
+  return result;
+}
+
+// ─── Vault: Wikilink Extractor ────────────────────────────────────────────────
+
+const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+
+export function extractWikilinks(content: string): string[] {
+  const slugs = new Set<string>();
+  let m: RegExpExecArray | null;
+  WIKILINK_RE.lastIndex = 0;
+  while ((m = WIKILINK_RE.exec(content)) !== null) {
+    slugs.add(m[1].trim());
+  }
+  return Array.from(slugs);
+}
+
+// ─── Vault: Helpers ───────────────────────────────────────────────────────────
+
+function extractTitle(content: string, fallback: string): string {
+  const match = content.match(/^#\s+(.+)$/m);
+  return match ? match[1].trim() : fallback;
+}
+
+function slugFromPath(filePath: string): string {
+  return path.basename(filePath, ".md");
+}
+
+const TYPE_DIR_MAP: Record<string, string> = {
+  concept: "concepts",
+  project: "projects",
+  pattern: "patterns",
+  reference: "references",
+  log: "log",
+};
+
+export function typeToDir(type: string): string {
+  return TYPE_DIR_MAP[type] ?? "";
+}
+
+// ─── Vault: Directory Setup ───────────────────────────────────────────────────
+
+export function ensureVaultDirs(vaultDir: string = VAULT_DIR): void {
+  fs.mkdirSync(vaultDir, { recursive: true });
+  for (const sub of VAULT_SUBDIRS) {
+    fs.mkdirSync(path.join(vaultDir, sub), { recursive: true });
+  }
+}
+
+export function createDefaultFiles(vaultDir: string = VAULT_DIR): void {
+  const indexPath = path.join(vaultDir, "_index.md");
+  const inboxPath = path.join(vaultDir, "_inbox.md");
+  const dateStr = new Date().toISOString().split("T")[0];
+
+  if (!fs.existsSync(indexPath)) {
+    fs.writeFileSync(indexPath, `---\ntype: moc\ncreated: ${dateStr}\nupdated: ${dateStr}\ntags: []\n---\n\n# Vault Index\n\n## Connections\n\nThis is the root map of content for the vault.\n\n## Body\n\nStart linking notes here as the vault grows.\n`);
+  }
+  if (!fs.existsSync(inboxPath)) {
+    fs.writeFileSync(inboxPath, "# Inbox\n\nCaptured items waiting to be processed into notes.\n");
+  }
+}
+
+// ─── Vault: Graph Builder ─────────────────────────────────────────────────────
+
+function findMdFiles(dir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
+
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...findMdFiles(full));
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
+export function buildGraph(vaultDir: string = VAULT_DIR): VaultGraph {
+  const graph: VaultGraph = new Map();
+  const files = findMdFiles(vaultDir);
+
+  for (const file of files) {
+    const slug = slugFromPath(file);
+    const content = fs.readFileSync(file, "utf-8");
+    const fm = parseFrontmatter(content);
+    const links = extractWikilinks(content);
+    const stat = fs.statSync(file);
+
+    graph.set(slug, {
+      slug,
+      path: file,
+      title: extractTitle(content, slug),
+      type: (fm.type as string) || "unknown",
+      tags: (fm.tags as string[]) || [],
+      created: (fm.created as string) || "",
+      updated: (fm.updated as string) || "",
+      source: (fm.source as string) || "",
+      links: new Set(links),
+      backlinks: new Set(),
+      size: stat.size,
+    });
+  }
+
+  for (const [slug, note] of graph) {
+    for (const target of note.links) {
+      const targetNote = graph.get(target);
+      if (targetNote) targetNote.backlinks.add(slug);
+    }
+  }
+
+  return graph;
+}
+
+// ─── Vault: Note Operations ───────────────────────────────────────────────────
+
+export function captureToInbox(vaultDir: string, text: string, source?: string, context?: string): string {
+  const inboxPath = path.join(vaultDir, "_inbox.md");
+  const timestamp = new Date().toISOString();
+
+  const lines: string[] = ["", "---", "", `**${timestamp}**`];
+  if (source) lines.push(`> Source: ${source}`);
+  if (context) lines.push(`> Context: ${context}`);
+  lines.push("", text, "");
+
+  const entry = lines.join("\n");
+  fs.appendFileSync(inboxPath, entry);
+  return entry.trim();
+}
+
+export function readNote(
+  vaultDir: string,
+  slug: string,
+  graph: VaultGraph
+): { content: string; backlinks: string[] } | null {
+  const note = graph.get(slug);
+  if (!note) {
+    const candidates = findNoteFile(vaultDir, slug);
+    if (!candidates) return null;
+    const content = fs.readFileSync(candidates, "utf-8");
+    return { content, backlinks: [] };
+  }
+
+  const content = fs.readFileSync(note.path, "utf-8");
+  return { content, backlinks: Array.from(note.backlinks) };
+}
+
+function findNoteFile(vaultDir: string, slug: string): string | null {
+  const filename = `${slug}.md`;
+  const rootPath = path.join(vaultDir, filename);
+  if (fs.existsSync(rootPath)) return rootPath;
+
+  for (const sub of VAULT_SUBDIRS) {
+    const subPath = path.join(vaultDir, sub, filename);
+    if (fs.existsSync(subPath)) return subPath;
+  }
+  return null;
+}
+
+export function writeNote(
+  vaultDir: string,
+  slug: string,
+  content: string,
+  type: string
+): ValidationResult & { path?: string } {
+  const validation = validateNote(content, type);
+  if (!validation.valid) return validation;
+
+  const subdir = typeToDir(type);
+  const targetDir = subdir ? path.join(vaultDir, subdir) : vaultDir;
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const filePath = path.join(targetDir, `${slug}.md`);
+  fs.writeFileSync(filePath, content);
+  return { valid: true, path: filePath };
+}
+
+export function validateNote(content: string, type: string): ValidationResult {
+  const fm = parseFrontmatter(content);
+  if (!fm.type) {
+    return { valid: false, reason: "Missing frontmatter: note must have --- delimited frontmatter with at least a 'type' field." };
+  }
+
+  if (type === "log") return { valid: true };
+
+  if (TYPES_REQUIRING_CONNECTIONS.has(type)) {
+    const hasConnections = /^##\s+Connections/m.test(content);
+    if (!hasConnections) {
+      return { valid: false, reason: "Missing '## Connections' section. Non-log notes must have a Connections section with wikilinks." };
+    }
+
+    const links = extractWikilinks(content);
+    if (links.length === 0) {
+      return { valid: false, reason: "No wikilinks found. Notes must have at least 1 [[wikilink]] to connect to the knowledge graph." };
+    }
+  }
+
+  return { valid: true };
+}
+
+// ─── Vault: Status & Listing ──────────────────────────────────────────────────
+
+function countInboxItems(vaultDir: string): number {
+  const inboxPath = path.join(vaultDir, "_inbox.md");
+  if (!fs.existsSync(inboxPath)) return 0;
+  const content = fs.readFileSync(inboxPath, "utf-8");
+  const separators = content.match(/^---$/gm);
+  return separators ? separators.length : 0;
+}
+
+export function getVaultStatus(vaultDir: string, graph: VaultGraph): VaultStatus {
+  const byType: Record<string, number> = {};
+  let orphanCount = 0;
+  let totalLinks = 0;
+
+  for (const note of graph.values()) {
+    byType[note.type] = (byType[note.type] || 0) + 1;
+    totalLinks += note.links.size;
+    if (note.backlinks.size === 0 && !note.slug.startsWith("_")) orphanCount++;
+  }
+
+  return {
+    totalNotes: graph.size,
+    byType,
+    orphanCount,
+    inboxItems: countInboxItems(vaultDir),
+    avgLinksPerNote: graph.size > 0 ? totalLinks / graph.size : 0,
+  };
+}
+
+export function listNotes(graph: VaultGraph, type?: string, query?: string): NoteListEntry[] {
+  const results: NoteListEntry[] = [];
+  const q = query?.toLowerCase();
+
+  for (const note of graph.values()) {
+    if (type && note.type !== type) continue;
+    if (q) {
+      const matchesSlug = note.slug.toLowerCase().includes(q);
+      const matchesTitle = note.title.toLowerCase().includes(q);
+      if (!matchesSlug && !matchesTitle) continue;
+    }
+
+    results.push({
+      slug: note.slug,
+      title: note.title,
+      type: note.type,
+      linkCount: note.links.size,
+      backlinkCount: note.backlinks.size,
+      updated: note.updated,
+      tags: note.tags,
+    });
+  }
+
+  return results;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  HEARTBEAT (Periodic Check-ins)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Heartbeat Types ──────────────────────────────────────────────────────────
+
+interface RhoState {
+  enabled: boolean;
+  intervalMs: number;
+  lastCheckAt: number | null;
+  nextCheckAt: number | null;
+  checkCount: number;
+  heartbeatModel: string | null;
+}
+
 interface ResolvedModel {
-	provider: string;
-	model: string;
-	cost: number; // output cost per M tokens
-	resolvedAt: number;
+  provider: string;
+  model: string;
+  cost: number;
+  resolvedAt: number;
 }
 
 interface RhoDetails {
-	action: "enable" | "disable" | "trigger" | "interval" | "status" | "model";
-	intervalMs?: number;
-	enabled?: boolean;
-	lastCheckAt?: number | null;
-	nextCheckAt?: number | null;
-	checkCount?: number;
-	wasTriggered?: boolean;
-	heartbeatModel?: string | null;
-	heartbeatModelSource?: "auto" | "pinned";
-	heartbeatModelCost?: number;
+  action: "enable" | "disable" | "trigger" | "interval" | "status" | "model";
+  intervalMs?: number;
+  enabled?: boolean;
+  lastCheckAt?: number | null;
+  nextCheckAt?: number | null;
+  checkCount?: number;
+  wasTriggered?: boolean;
+  heartbeatModel?: string | null;
+  heartbeatModelSource?: "auto" | "pinned";
+  heartbeatModelCost?: number;
 }
 
-const DEFAULT_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
-const MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes minimum
-const MAX_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours maximum
+// ─── Heartbeat Constants ──────────────────────────────────────────────────────
 
-const RHO_DIR = rhoDir();
-const LEGACY_STATE_PATH = join(process.env.HOME || "", ".pi", "agent", "rho-state.json");
-const STATE_PATH = stateFile();
-const CONFIG_PATH = configFile();
-const RESULTS_DIR = resultsDir();
-const HEARTBEAT_PROMPT_FILE = join(RHO_DIR, "heartbeat-prompt.txt");
+const DEFAULT_INTERVAL_MS = 30 * 60 * 1000;
+const MIN_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SESSION_NAME = "rho";
 const HEARTBEAT_WINDOW_NAME = "heartbeat";
 const MAX_WINDOW_NAME = 50;
+const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const RHO_PROMPT = `This is a rho check-in. Review the following:
 
@@ -88,1071 +1527,1181 @@ If nothing needs attention, reply with exactly: RHO_OK
 If something needs attention, reply with the alert (do NOT include RHO_OK).
 If the user asks for scheduled tasks or recurring reminders, add them to HEARTBEAT.md.`;
 
+// ─── Heartbeat Helpers ────────────────────────────────────────────────────────
+
+function normalizeInterval(value: unknown): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return DEFAULT_INTERVAL_MS;
+  if (value === 0) return 0;
+  if (value < MIN_INTERVAL_MS || value > MAX_INTERVAL_MS) return DEFAULT_INTERVAL_MS;
+  return Math.floor(value);
+}
+
+function parseInterval(input: string): number | null {
+  const match = input.trim().toLowerCase().match(/^(\d+)\s*(m|min|minute|minutes|h|hr|hour|hours)?$/);
+  if (!match) return null;
+  const value = parseInt(match[1], 10);
+  const unit = match[2] || "m";
+  if (unit.startsWith("h")) return value * 60 * 60 * 1000;
+  return value * 60 * 1000;
+}
+
+function formatInterval(ms: number): string {
+  if (ms >= 60 * 60 * 1000) return `${ms / (60 * 60 * 1000)}h`;
+  return `${ms / (60 * 1000)}m`;
+}
+
+function sanitizeWindowName(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, MAX_WINDOW_NAME);
+  return cleaned || "subagent";
+}
+
+// ─── Heartbeat: Tmux Integration ──────────────────────────────────────────────
+
+function getTmuxSessionName(): string {
+  if (!process.env.TMUX) return DEFAULT_SESSION_NAME;
+  try {
+    return execSync("tmux display-message -p '#S'", { encoding: "utf-8" }).trim() || DEFAULT_SESSION_NAME;
+  } catch {
+    return DEFAULT_SESSION_NAME;
+  }
+}
+
+function heartbeatWindowExists(sessionName: string): boolean {
+  try {
+    const output = execSync(`tmux list-windows -t ${shellEscape(sessionName)} -F "#{window_name}"`, { encoding: "utf-8" });
+    return output.split("\n").map((name) => name.trim()).filter(Boolean).includes(HEARTBEAT_WINDOW_NAME);
+  } catch {
+    return false;
+  }
+}
+
+function ensureTmuxSession(sessionName: string): boolean {
+  try {
+    execSync(`tmux has-session -t ${shellEscape(sessionName)}`, { stdio: "ignore" });
+    return true;
+  } catch {
+    try {
+      execSync(`tmux new-session -d -s ${shellEscape(sessionName)}`, { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
+  try {
+    execSync("command -v tmux", { stdio: "ignore" });
+  } catch {
+    return false;
+  }
+
+  const sessionName = getTmuxSessionName();
+  if (!ensureTmuxSession(sessionName)) return false;
+
+  try {
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    fs.writeFileSync(HEARTBEAT_PROMPT_FILE, prompt, "utf-8");
+  } catch {
+    return false;
+  }
+
+  const target = `${sessionName}:${HEARTBEAT_WINDOW_NAME}`;
+  const promptArg = `@${HEARTBEAT_PROMPT_FILE}`;
+  const flags = modelFlags ? ` ${modelFlags}` : "";
+  const command = `clear; RHO_SUBAGENT=1 pi --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
+
+  try {
+    if (!heartbeatWindowExists(sessionName)) {
+      execSync(`tmux new-window -d -t ${shellEscape(sessionName)} -n ${shellEscape(HEARTBEAT_WINDOW_NAME)}`, { stdio: "ignore" });
+    }
+    execSync(`tmux send-keys -t ${shellEscape(target)} C-c`, { stdio: "ignore" });
+    execSync(`tmux send-keys -t ${shellEscape(target)} ${shellEscape(command)} C-m`, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readMarkdownFile(paths: string[]): string | null {
+  for (const filePath of paths) {
+    if (fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath, "utf-8").trim();
+        const hasContent = content
+          .split("\n")
+          .some((line) => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith("#")) return false;
+            if (trimmed.startsWith("-")) return /^-\s*\[[ xX]\]/.test(trimmed);
+            return true;
+          });
+        return hasContent ? content : null;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  EXTENSION ENTRY POINT
+// ═══════════════════════════════════════════════════════════════════════════════
+
 export default function (pi: ExtensionAPI) {
-	if (process.env.RHO_SUBAGENT === "1") {
-		return;
-	}
-
-	// In-memory state (reconstructed from session)
-	let state: RhoState = {
-		enabled: true,
-		intervalMs: DEFAULT_INTERVAL_MS,
-		lastCheckAt: null,
-		nextCheckAt: null,
-		checkCount: 0,
-		heartbeatModel: null,
-	};
-
-	let timer: NodeJS.Timeout | null = null;
-	let cachedModel: ResolvedModel | null = null;
-	const MODEL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-	const normalizeInterval = (value: unknown): number => {
-		if (typeof value !== "number" || Number.isNaN(value)) return DEFAULT_INTERVAL_MS;
-		if (value === 0) return 0;
-		if (value < MIN_INTERVAL_MS || value > MAX_INTERVAL_MS) return DEFAULT_INTERVAL_MS;
-		return Math.floor(value);
-	};
-
-	/**
-	 * Resolve the cheapest available model across all providers for heartbeat use.
-	 * Returns provider/model strings suitable for --provider and --model CLI flags.
-	 * Returns null if resolution fails (caller should omit flags and use pi defaults).
-	 */
-	const resolveHeartbeatModel = async (ctx: ExtensionContext): Promise<ResolvedModel | null> => {
-		// If pinned, parse and return the pinned model
-		if (state.heartbeatModel) {
-			const parts = state.heartbeatModel.split("/");
-			if (parts.length === 2) {
-				// Verify the pinned model still has auth
-				const model = ctx.modelRegistry.find(parts[0], parts[1]);
-				if (model) {
-					const apiKey = await ctx.modelRegistry.getApiKey(model);
-					if (apiKey) {
-						return { provider: parts[0], model: parts[1], cost: model.cost.output, resolvedAt: Date.now() };
-					}
-				}
-				// Pinned model unavailable -- fall through to auto-resolve
-			}
-		}
-
-		// Use cache if fresh
-		if (cachedModel && (Date.now() - cachedModel.resolvedAt) < MODEL_CACHE_TTL_MS) {
-			return cachedModel;
-		}
-
-		try {
-			// Get all models with valid auth, sorted by output cost (cheapest first)
-			const available = ctx.modelRegistry.getAvailable();
-			if (!available.length) return null;
-
-			const sorted = [...available].sort((a, b) => a.cost.output - b.cost.output);
-
-			// Try cheapest models until we find one with a working API key
-			for (const candidate of sorted) {
-				const apiKey = await ctx.modelRegistry.getApiKey(candidate);
-				if (apiKey) {
-					cachedModel = {
-						provider: candidate.provider,
-						model: candidate.id,
-						cost: candidate.cost.output,
-						resolvedAt: Date.now(),
-					};
-					return cachedModel;
-				}
-			}
-		} catch {
-			// Model resolution failed -- not critical
-		}
-
-		return null;
-	};
-
-	interface RhoConfig {
-		autoMemory?: boolean;
-	}
-
-	const loadConfigFromDisk = (): RhoConfig => {
-		try {
-			const raw = readFileSync(CONFIG_PATH, "utf-8");
-			const parsed = JSON.parse(raw) as unknown;
-			if (parsed && typeof parsed === "object") {
-				const obj = parsed as Record<string, unknown>;
-				const autoMemory =
-					typeof obj.autoMemory === "boolean"
-						? (obj.autoMemory as boolean)
-						: typeof obj.auto_memory === "boolean"
-							? (obj.auto_memory as boolean)
-							: undefined;
-				return { autoMemory };
-			}
-		} catch {
-			// ignore
-		}
-		return {};
-	};
-
-	const saveConfigToDisk = (next: RhoConfig) => {
-		try {
-			mkdirSync(RHO_DIR, { recursive: true });
-			let base: Record<string, unknown> = {};
-			try {
-				const raw = readFileSync(CONFIG_PATH, "utf-8");
-				const parsed = JSON.parse(raw) as unknown;
-				if (parsed && typeof parsed === "object") base = parsed as Record<string, unknown>;
-			} catch {
-				// ignore
-			}
-			if (typeof next.autoMemory === "boolean") base.autoMemory = next.autoMemory;
-			writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));
-		} catch {
-			// ignore
-		}
-	};
-
-	const getAutoMemoryEffective = (): { enabled: boolean; source: "env" | "config" | "default" } => {
-		const env = (process.env.RHO_AUTO_MEMORY || "").trim().toLowerCase();
-		if (env === "0" || env === "false" || env === "off") return { enabled: false, source: "env" };
-		if (env === "1" || env === "true" || env === "on") return { enabled: true, source: "env" };
-
-		const cfg = loadConfigFromDisk();
-		if (typeof cfg.autoMemory === "boolean") return { enabled: cfg.autoMemory, source: "config" };
-		return { enabled: true, source: "default" };
-	};
-
-	const loadStateFromDisk = () => {
-		// Migrate legacy state from ~/.pi/agent/rho-state.json
-		try {
-			if (!existsSync(STATE_PATH) && existsSync(LEGACY_STATE_PATH)) {
-				mkdirSync(RHO_DIR, { recursive: true });
-				const legacyRaw = readFileSync(LEGACY_STATE_PATH, "utf-8");
-				writeFileSync(STATE_PATH, legacyRaw);
-			}
-		} catch { /* ignore migration errors */ }
-
-		try {
-			const raw = readFileSync(STATE_PATH, "utf-8");
-			const parsed = JSON.parse(raw) as Partial<RhoState>;
-			if (typeof parsed.enabled === "boolean") state.enabled = parsed.enabled;
-			if (parsed.intervalMs !== undefined) state.intervalMs = normalizeInterval(parsed.intervalMs);
-			if (typeof parsed.lastCheckAt === "number") state.lastCheckAt = parsed.lastCheckAt;
-			if (typeof parsed.nextCheckAt === "number") state.nextCheckAt = parsed.nextCheckAt;
-			if (typeof parsed.checkCount === "number" && parsed.checkCount >= 0) state.checkCount = parsed.checkCount;
-			if (parsed.heartbeatModel === null || typeof parsed.heartbeatModel === "string") {
-				state.heartbeatModel = parsed.heartbeatModel;
-			}
-		} catch {
-			// Ignore missing or invalid state
-		}
-
-		if (state.intervalMs === 0) state.enabled = false;
-	};
-
-	const saveStateToDisk = () => {
-		try {
-			mkdirSync(RHO_DIR, { recursive: true });
-			writeFileSync(
-				STATE_PATH,
-				JSON.stringify(
-					{
-						enabled: state.enabled,
-						intervalMs: state.intervalMs,
-						lastCheckAt: state.lastCheckAt,
-						nextCheckAt: state.nextCheckAt,
-						checkCount: state.checkCount,
-						heartbeatModel: state.heartbeatModel,
-					},
-					null,
-					2
-				)
-			);
-		} catch {
-			// Ignore persistence failures
-		}
-	};
-
-	/**
-	 * Reconstruct state from session entries
-	 */
-	const reconstructState = (ctx: ExtensionContext) => {
-		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type !== "message") continue;
-			const msg = entry.message;
-			if (msg.role !== "toolResult" || msg.toolName !== "rho_control") continue;
-
-			const details = msg.details as RhoDetails | undefined;
-			if (details) {
-				if (details.enabled !== undefined) state.enabled = details.enabled;
-				if (details.intervalMs !== undefined) state.intervalMs = details.intervalMs;
-				if (details.lastCheckAt !== undefined) state.lastCheckAt = details.lastCheckAt;
-				if (details.nextCheckAt !== undefined) state.nextCheckAt = details.nextCheckAt;
-				if (details.checkCount !== undefined) state.checkCount = details.checkCount;
-				if (details.heartbeatModel !== undefined) state.heartbeatModel = details.heartbeatModel;
-			}
-		}
-	};
-
-	/**
-	 * Parse interval string (e.g., "30m", "1h", "15min")
-	 */
-	const parseInterval = (input: string): number | null => {
-		const match = input.trim().toLowerCase().match(/^(\d+)\s*(m|min|minute|minutes|h|hr|hour|hours)?$/);
-		if (!match) return null;
-
-		const value = parseInt(match[1], 10);
-		const unit = match[2] || "m";
-
-		if (unit.startsWith("h")) {
-			return value * 60 * 60 * 1000;
-		}
-		return value * 60 * 1000;
-	};
-
-	/**
-	 * Format interval for display
-	 */
-	const formatInterval = (ms: number): string => {
-		if (ms >= 60 * 60 * 1000) {
-			const hours = ms / (60 * 60 * 1000);
-			return `${hours}h`;
-		}
-		const minutes = ms / (60 * 1000);
-		return `${minutes}m`;
-	};
-
-	const shellEscape = (value: string): string => `'${value.replace(/'/g, "'\"'\"'")}'`;
-
-	const sanitizeWindowName = (value: string): string => {
-		const cleaned = value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, MAX_WINDOW_NAME);
-		return cleaned || "subagent";
-	};
-
-	const ensureResultsDir = () => {
-		try {
-			mkdirSync(RESULTS_DIR, { recursive: true });
-		} catch {
-			// Ignore errors
-		}
-	};
-
-	const getTmuxSessionName = (): string => {
-		if (!process.env.TMUX) return DEFAULT_SESSION_NAME;
-		try {
-			const name = execSync("tmux display-message -p '#S'", { encoding: "utf-8" }).trim();
-			return name || DEFAULT_SESSION_NAME;
-		} catch {
-			return DEFAULT_SESSION_NAME;
-		}
-	};
-
-	const heartbeatWindowExists = (sessionName: string): boolean => {
-		try {
-			const output = execSync(`tmux list-windows -t ${shellEscape(sessionName)} -F "#{window_name}"`, {
-				encoding: "utf-8",
-			});
-			return output
-				.split("\n")
-				.map((name) => name.trim())
-				.filter(Boolean)
-				.includes(HEARTBEAT_WINDOW_NAME);
-		} catch {
-			return false;
-		}
-	};
-
-	const ensureTmuxSession = (sessionName: string): boolean => {
-		try {
-			execSync(`tmux has-session -t ${shellEscape(sessionName)}`, { stdio: "ignore" });
-			return true;
-		} catch {
-			try {
-				execSync(`tmux new-session -d -s ${shellEscape(sessionName)}`, { stdio: "ignore" });
-				return true;
-			} catch {
-				return false;
-			}
-		}
-	};
-
-	const runHeartbeatInTmux = (prompt: string, modelFlags?: string): boolean => {
-		try {
-			execSync("command -v tmux", { stdio: "ignore" });
-		} catch {
-			return false;
-		}
-
-		const sessionName = getTmuxSessionName();
-		if (!ensureTmuxSession(sessionName)) {
-			return false;
-		}
-
-		try {
-			ensureResultsDir();
-			writeFileSync(HEARTBEAT_PROMPT_FILE, prompt, "utf-8");
-		} catch {
-			return false;
-		}
-
-		const target = `${sessionName}:${HEARTBEAT_WINDOW_NAME}`;
-		const promptArg = `@${HEARTBEAT_PROMPT_FILE}`;
-		const flags = modelFlags ? ` ${modelFlags}` : "";
-		const command = `clear; RHO_SUBAGENT=1 pi --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
-
-		try {
-			if (!heartbeatWindowExists(sessionName)) {
-				execSync(
-					`tmux new-window -d -t ${shellEscape(sessionName)} -n ${shellEscape(HEARTBEAT_WINDOW_NAME)}`,
-					{ stdio: "ignore" }
-				);
-			}
-
-			execSync(`tmux send-keys -t ${shellEscape(target)} C-c`, { stdio: "ignore" });
-			execSync(`tmux send-keys -t ${shellEscape(target)} ${shellEscape(command)} C-m`, { stdio: "ignore" });
-			return true;
-		} catch {
-			return false;
-		}
-	};
-
-	/**
-	 * Schedule the next check-in
-	 */
-	const scheduleNext = (ctx: ExtensionContext) => {
-		if (timer) {
-			clearTimeout(timer);
-			timer = null;
-		}
-
-		if (!state.enabled || state.intervalMs === 0) {
-			state.nextCheckAt = null;
-			saveStateToDisk();
-			return;
-		}
-
-		const now = Date.now();
-		const base = state.lastCheckAt && state.lastCheckAt <= now ? state.lastCheckAt : now;
-		let nextAt = base + state.intervalMs;
-		if (nextAt <= now) {
-			nextAt = now + 1000;
-		}
-		state.nextCheckAt = nextAt;
-
-		const delay = Math.max(0, nextAt - now);
-		timer = setTimeout(() => {
-			triggerCheck(ctx);
-		}, delay);
-
-		saveStateToDisk();
-	};
-
-	/**
-	 * Read a markdown file from a list of candidate paths
-	 */
-	const readMarkdownFile = (paths: string[]): string | null => {
-		for (const filePath of paths) {
-			if (existsSync(filePath)) {
-				try {
-					const content = readFileSync(filePath, "utf-8").trim();
-					// Check if effectively empty (only whitespace and headers)
-					const hasContent = content
-						.split("\n")
-						.some((line) => {
-							const trimmed = line.trim();
-							if (!trimmed || trimmed.startsWith("#")) return false;
-							if (trimmed.startsWith("-")) {
-								return /^-\s*\[[ xX]\]/.test(trimmed);
-							}
-							return true;
-						});
-					return hasContent ? content : null;
-				} catch {
-					continue;
-				}
-			}
-		}
-		return null;
-	};
-
-	/**
-	 * Build --provider/--model/--thinking CLI flags for the heartbeat subagent.
-	 * Default: use the same model as the main session.
-	 * Falls back to auto-resolve if the main model is unavailable.
-	 */
-	const buildModelFlags = async (ctx: ExtensionContext): Promise<string> => {
-		// If pinned via /rho model, use that
-		if (state.heartbeatModel) {
-			const parts = state.heartbeatModel.split("/");
-			if (parts.length === 2) {
-				const model = ctx.modelRegistry.find(parts[0], parts[1]);
-				if (model) {
-					const apiKey = await ctx.modelRegistry.getApiKey(model);
-					if (apiKey) {
-						let flags = `--provider ${shellEscape(parts[0])} --model ${shellEscape(parts[1])}`;
-						flags += " --thinking off";
-						return flags;
-					}
-				}
-			}
-		}
-
-		// Default: inherit the main session's model
-		if (ctx.model) {
-			const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
-			if (apiKey) {
-				let flags = `--provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)}`;
-				flags += " --thinking off";
-				return flags;
-			}
-		}
-
-		// Fallback: auto-resolve cheapest available
-		try {
-			const resolved = await resolveHeartbeatModel(ctx);
-			if (resolved) {
-				let flags = `--provider ${shellEscape(resolved.provider)} --model ${shellEscape(resolved.model)}`;
-				flags += " --thinking off";
-				return flags;
-			}
-		} catch {
-			// not critical
-		}
-
-		return "";
-	};
-
-	/**
-	 * Trigger a check-in immediately
-	 */
-	const triggerCheck = (ctx: ExtensionContext) => {
-		if (!ctx.hasUI) return;
-
-		state.lastCheckAt = Date.now();
-		state.checkCount++;
-
-		// Build the full prompt with RHO.md / HEARTBEAT.md content if available
-		let fullPrompt = RHO_PROMPT;
-		const rhoMd = readMarkdownFile([
-			join(ctx.cwd, "RHO.md"),
-			join(ctx.cwd, ".pi", "RHO.md"),
-			join(ctx.cwd, ".rho.md"),
-		]);
-		const heartbeatMd = readMarkdownFile([
-			join(ctx.cwd, "HEARTBEAT.md"),
-			join(ctx.cwd, ".pi", "HEARTBEAT.md"),
-			join(ctx.cwd, ".heartbeat.md"),
-			join(ctx.cwd, ".rho-heartbeat.md"),
-		]);
-		// Build tasks section from task queue
-		let tasksSection: string | null = null;
-		try {
-			tasksSection = buildHeartbeatSection();
-		} catch {
-			// Tasks module not available or error -- not critical
-		}
-
-		if (!rhoMd && !heartbeatMd && !tasksSection) {
-			scheduleNext(ctx);
-			return;
-		}
-		if (rhoMd) {
-			fullPrompt += `\n\n---\n\nRHO.md content:\n${rhoMd}`;
-		}
-		if (heartbeatMd) {
-			fullPrompt += `\n\n---\n\nHEARTBEAT.md content:\n${heartbeatMd}`;
-		}
-		if (tasksSection) {
-			fullPrompt += `\n\n---\n\n${tasksSection}`;
-		}
-
-		// Resolve model (session model > pinned > auto) async, then dispatch
-		buildModelFlags(ctx).then((modelFlags) => {
-			const sentToTmux = runHeartbeatInTmux(fullPrompt, modelFlags || undefined);
-			if (!sentToTmux) {
-				// Send as user message (appears as system event style)
-				pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
-			}
-		}).catch(() => {
-			// Fallback: no model flags
-			const sentToTmux = runHeartbeatInTmux(fullPrompt);
-			if (!sentToTmux) {
-				pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
-			}
-		});
-
-		// Schedule next
-		scheduleNext(ctx);
-	};
-
-	/**
-	 * Update status line
-	 */
-	const updateStatus = (ctx: ExtensionContext) => {
-		if (!ctx.hasUI) return;
-
-		const theme = ctx.ui.theme;
-		if (!state.enabled || state.intervalMs === 0) {
-			ctx.ui.setStatus("rho", theme.fg("dim", "ρ off"));
-			return;
-		}
-
-		const interval = formatInterval(state.intervalMs);
-		if (state.nextCheckAt) {
-			const mins = Math.ceil((state.nextCheckAt - Date.now()) / (60 * 1000));
-			ctx.ui.setStatus("rho", theme.fg("dim", `ρ ${interval} (${mins}m)`));
-		} else {
-			ctx.ui.setStatus("rho", theme.fg("dim", `ρ ${interval}`));
-		}
-	};
-
-	// Reconstruct state on session events
-	pi.on("session_start", async (_event, ctx) => {
-		loadStateFromDisk();
-		reconstructState(ctx);
-		scheduleNext(ctx);
-		updateStatus(ctx);
-	});
-
-	pi.on("session_switch", async (_event, ctx) => {
-		loadStateFromDisk();
-		reconstructState(ctx);
-		scheduleNext(ctx);
-		updateStatus(ctx);
-	});
-
-	pi.on("session_fork", async (_event, ctx) => {
-		loadStateFromDisk();
-		reconstructState(ctx);
-		scheduleNext(ctx);
-		updateStatus(ctx);
-	});
-
-	// Clean up on shutdown
-	pi.on("session_shutdown", async () => {
-		if (timer) {
-			clearTimeout(timer);
-			timer = null;
-		}
-	});
-
-	// Detect RHO_OK responses and show a notification (no suppression)
-	pi.on("agent_end", async (event, ctx) => {
-		const lastMessage = event.messages[event.messages.length - 1];
-		if (lastMessage?.role === "assistant" && lastMessage.content) {
-			const text = lastMessage.content
-				.filter((c) => c.type === "text")
-				.map((c) => c.text)
-				.join("");
-
-			// Check for RHO_OK at start or end
-			const trimmed = text.trim();
-			const isRhoOk =
-				trimmed === "RHO_OK" ||
-				trimmed.startsWith("RHO_OK\n") ||
-				trimmed.endsWith("\nRHO_OK");
-
-			if (isRhoOk && trimmed.length <= 300) {
-				// Notify that the check-in is OK
-				ctx.ui.notify("ρ: OK (no alerts)", "info");
-			}
-		}
-
-		// Update status after each turn
-		updateStatus(ctx);
-	});
-
-	// Register rho_control tool for the LLM
-	pi.registerTool({
-		name: "rho_control",
-		label: "Rho",
-		description: "Control the rho check-in system. Actions: enable, disable, trigger (immediate), status (get info), interval (set with interval string like '30m' or '1h'), model (set heartbeat model: 'auto' or 'provider/model-id')",
-		parameters: Type.Object({
-			action: StringEnum(["enable", "disable", "trigger", "status", "interval", "model"] as const),
-			interval: Type.Optional(Type.String({ description: "Interval string for 'interval' action (e.g., '30m', '1h', '15min'). Use '0' to disable." })),
-			model: Type.Optional(Type.String({ description: "Model for 'model' action. 'auto' to use session model, or 'provider/model-id' to pin." })),
-		}),
-
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			switch (params.action) {
-				case "enable":
-					state.enabled = true;
-					scheduleNext(ctx);
-					updateStatus(ctx);
-					return {
-						content: [{ type: "text", text: "Rho enabled" }],
-						details: { action: "enable", enabled: state.enabled } as RhoDetails,
-					};
-
-				case "disable":
-					state.enabled = false;
-					scheduleNext(ctx);
-					updateStatus(ctx);
-					return {
-						content: [{ type: "text", text: "Rho disabled" }],
-						details: { action: "disable", enabled: state.enabled } as RhoDetails,
-					};
-
-				case "trigger":
-					if (!ctx.hasUI) {
-						return {
-							content: [{ type: "text", text: "Error: Cannot trigger rho in non-interactive mode" }],
-							details: { action: "trigger", wasTriggered: false } as RhoDetails,
-						};
-					}
-					triggerCheck(ctx);
-					return {
-						content: [{ type: "text", text: "Rho check-in triggered" }],
-						details: {
-							action: "trigger",
-							wasTriggered: true,
-							lastCheckAt: state.lastCheckAt,
-							checkCount: state.checkCount,
-						} as RhoDetails,
-					};
-
-				case "interval": {
-					if (!params.interval) {
-						return {
-							content: [{ type: "text", text: `Current interval: ${formatInterval(state.intervalMs)}` }],
-							details: {
-								action: "interval",
-								intervalMs: state.intervalMs,
-							} as RhoDetails,
-						};
-					}
-
-					const intervalMs = parseInterval(params.interval);
-					if (intervalMs === null) {
-						return {
-							content: [{ type: "text", text: `Error: Invalid interval '${params.interval}'. Use format like '30m', '1h', or '0' to disable.` }],
-							details: { action: "interval", intervalMs: state.intervalMs, error: "invalid interval" } as RhoDetails,
-						};
-					}
-
-					if (intervalMs !== 0 && (intervalMs < MIN_INTERVAL_MS || intervalMs > MAX_INTERVAL_MS)) {
-						return {
-							content: [{ type: "text", text: `Error: Interval must be between 5m and 24h (or 0 to disable)` }],
-							details: { action: "interval", intervalMs: state.intervalMs, error: "out of range" } as RhoDetails,
-						};
-					}
-
-					state.intervalMs = intervalMs;
-					if (intervalMs === 0) {
-						state.enabled = false;
-					}
-					scheduleNext(ctx);
-					updateStatus(ctx);
-
-					const status = intervalMs === 0 ? "disabled" : `set to ${formatInterval(intervalMs)}`;
-					return {
-						content: [{ type: "text", text: `Rho interval ${status}` }],
-						details: {
-							action: "interval",
-							intervalMs: state.intervalMs,
-							enabled: state.enabled,
-						} as RhoDetails,
-					};
-				}
-
-				case "status": {
-					const rhoMd = readMarkdownFile([
-						join(ctx.cwd, "RHO.md"),
-						join(ctx.cwd, ".pi", "RHO.md"),
-						join(ctx.cwd, ".rho.md"),
-					]);
-
-					// Resolve heartbeat model for display
-					let hbModelText: string;
-					let hbModelSource: "auto" | "pinned" = "auto";
-					let hbModelCost: number | undefined;
-					if (state.heartbeatModel) {
-						hbModelSource = "pinned";
-						hbModelText = `${state.heartbeatModel} (pinned)`;
-						const parts = state.heartbeatModel.split("/");
-						if (parts.length === 2) {
-							const m = ctx.modelRegistry.find(parts[0], parts[1]);
-							if (m) hbModelCost = m.cost.output;
-						}
-					} else if (ctx.model) {
-						hbModelText = `${ctx.model.provider}/${ctx.model.id} (session)`;
-						hbModelCost = ctx.model.cost.output;
-					} else {
-						hbModelText = "auto";
-					}
-
-					let text = `Rho status:\n`;
-					text += `- Enabled: ${state.enabled}\n`;
-					text += `- Interval: ${formatInterval(state.intervalMs)}\n`;
-					text += `- Heartbeat model: ${hbModelText}\n`;
-					text += `- Total check-ins this session: ${state.checkCount}\n`;
-					if (state.lastCheckAt) {
-						const ago = Math.floor((Date.now() - state.lastCheckAt) / (60 * 1000));
-						text += `- Last check-in: ${ago}m ago\n`;
-					} else {
-						text += `- Last check-in: never\n`;
-					}
-					if (state.nextCheckAt && state.enabled && state.intervalMs > 0) {
-						const inMins = Math.ceil((state.nextCheckAt - Date.now()) / (60 * 1000));
-						text += `- Next check-in: in ${inMins}m\n`;
-					}
-					text += `- RHO.md: ${rhoMd ? "found" : "not found"}`;
-
-					return {
-						content: [{ type: "text", text }],
-						details: {
-							action: "status",
-							enabled: state.enabled,
-							intervalMs: state.intervalMs,
-							lastCheckAt: state.lastCheckAt,
-							nextCheckAt: state.nextCheckAt,
-							checkCount: state.checkCount,
-							heartbeatModel: state.heartbeatModel,
-							heartbeatModelSource: hbModelSource,
-							heartbeatModelCost: hbModelCost,
-						} as RhoDetails,
-					};
-				}
-
-				case "model": {
-					const modelArg = params.model?.trim();
-					if (!modelArg) {
-						const source = state.heartbeatModel ? "pinned" : "auto";
-						return {
-							content: [{ type: "text", text: `Heartbeat model: ${state.heartbeatModel || "auto"} (${source})` }],
-							details: {
-								action: "model",
-								heartbeatModel: state.heartbeatModel,
-								heartbeatModelSource: source,
-							} as RhoDetails,
-						};
-					}
-
-					if (modelArg === "auto") {
-						state.heartbeatModel = null;
-						cachedModel = null;
-						saveStateToDisk();
-						return {
-							content: [{ type: "text", text: "Heartbeat model set to auto (uses session model)" }],
-							details: {
-								action: "model",
-								heartbeatModel: null,
-								heartbeatModelSource: "auto",
-							} as RhoDetails,
-						};
-					}
-
-					// Validate provider/model format
-					const parts = modelArg.split("/");
-					if (parts.length !== 2) {
-						return {
-							content: [{ type: "text", text: `Error: Model must be 'provider/model-id' or 'auto'. Got: '${modelArg}'` }],
-							details: { action: "model" } as RhoDetails,
-						};
-					}
-
-					// Verify model exists
-					const model = ctx.modelRegistry.find(parts[0], parts[1]);
-					if (!model) {
-						return {
-							content: [{ type: "text", text: `Error: Model '${modelArg}' not found. Use --list-models to see available models.` }],
-							details: { action: "model" } as RhoDetails,
-						};
-					}
-
-					state.heartbeatModel = modelArg;
-					saveStateToDisk();
-					return {
-						content: [{ type: "text", text: `Heartbeat model pinned to ${modelArg} ($${model.cost.output}/M output)` }],
-						details: {
-							action: "model",
-							heartbeatModel: modelArg,
-							heartbeatModelSource: "pinned",
-							heartbeatModelCost: model.cost.output,
-						} as RhoDetails,
-					};
-				}
-			}
-		},
-
-		renderCall(args, theme) {
-			let text = theme.fg("toolTitle", theme.bold("rho ")) + theme.fg("muted", args.action);
-			if (args.interval) {
-				text += ` ${theme.fg("accent", args.interval)}`;
-			}
-			if (args.model) {
-				text += ` ${theme.fg("accent", args.model)}`;
-			}
-			return new Text(text, 0, 0);
-		},
-
-		renderResult(result, _options, theme) {
-			const details = result.details as RhoDetails | undefined;
-			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
-			}
-
-			if (details.action === "status") {
-				return new Text(theme.fg("dim", `ρ ${formatInterval(details.intervalMs || DEFAULT_INTERVAL_MS)}`), 0, 0);
-			}
-
-			if (details.action === "trigger") {
-				return new Text(theme.fg("success", "✓ Triggered"), 0, 0);
-			}
-
-			const status = details.enabled ? theme.fg("success", "on") : theme.fg("dim", "off");
-			return new Text(theme.fg("success", "✓ ") + theme.fg("muted", `${details.action} `) + status, 0, 0);
-		},
-	});
-
-	// Register rho_subagent tool
-	pi.registerTool({
-		name: "rho_subagent",
-		label: "Subagent",
-		description:
-			"Run a pi subagent in a new tmux window (session 'rho' by default). Default mode is interactive; print mode writes results to ~/.rho/results.",
-		parameters: Type.Object({
-			prompt: Type.String({ description: "Prompt to run in the subagent" }),
-			session: Type.Optional(Type.String({ description: "tmux session name (default: rho)" })),
-			window: Type.Optional(Type.String({ description: "tmux window name (auto-generated if omitted)" })),
-			mode: Type.Optional(StringEnum(["interactive", "print"] as const)),
-			outputFile: Type.Optional(Type.String({ description: "Output file path (print mode only; default: ~/.rho/results/<timestamp>.json)" })),
-		}),
-
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const prompt = params.prompt?.trim();
-			if (!prompt) {
-				return { content: [{ type: "text", text: "Error: prompt required" }], details: { error: true } };
-			}
-
-			try {
-				execSync("command -v tmux", { stdio: "ignore" });
-			} catch {
-				return { content: [{ type: "text", text: "Error: tmux not installed" }], details: { error: true } };
-			}
-
-			const sessionName = (params.session || DEFAULT_SESSION_NAME).trim() || DEFAULT_SESSION_NAME;
-		const mode = (params.mode || "interactive").trim().toLowerCase();
-		if (mode !== "interactive" && mode !== "print") {
-			return { content: [{ type: "text", text: "Error: mode must be 'interactive' or 'print'" }], details: { error: true } };
-		}
-
-			try {
-				execSync(`tmux has-session -t ${shellEscape(sessionName)}`, { stdio: "ignore" });
-			} catch {
-				return {
-					content: [{ type: "text", text: `Error: tmux session '${sessionName}' not found` }],
-					details: { error: true },
-				};
-			}
-
-			ensureResultsDir();
-
-			const windowSeed = new Date().toISOString().slice(11, 16).replace(":", "");
-			const windowName = sanitizeWindowName(params.window?.trim() || `subagent-${windowSeed}`);
-
-			const outputFileRaw = params.outputFile?.trim();
-			const outputFile = outputFileRaw
-				? outputFileRaw.startsWith("/")
-					? outputFileRaw
-					: join(ctx.cwd, outputFileRaw)
-				: join(RESULTS_DIR, `${Date.now()}.json`);
-
-			// Inherit the main session's model for subagents
-			let modelFlags = "";
-			if (ctx.model) {
-				modelFlags = ` --provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)}`;
-			}
-
-			const shellPath = process.env.SHELL || "bash";
-			const script =
-				mode === "print"
-					? `RHO_SUBAGENT=1 pi -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
-					: `RHO_SUBAGENT=1 pi --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
-			const innerCommand = `bash -lc ${shellEscape(script)}`;
-			const tmuxCommand = `tmux new-window -d -P -F "#{session_name}:#{window_index}" -t ${shellEscape(sessionName)} -n ${shellEscape(windowName)} ${shellEscape(innerCommand)}`;
-
-			let windowId = "";
-			try {
-				windowId = execSync(tmuxCommand, { encoding: "utf-8" }).trim();
-				if (windowId) {
-					execSync(`tmux set-option -t ${shellEscape(windowId)} remain-on-exit on`, { stdio: "ignore" });
-				}
-			} catch {
-				return {
-					content: [{ type: "text", text: "Error: failed to create tmux window" }],
-					details: { error: true },
-				};
-			}
-
-			const message =
-				mode === "print"
-					? `Started subagent in ${windowId} (output: ${outputFile})`
-					: `Started subagent in ${windowId} (interactive mode)`;
-			return {
-				content: [{ type: "text", text: message }],
-				details: { session: sessionName, window: windowId, outputFile: mode === "print" ? outputFile : undefined, mode },
-			};
-		},
-	});
-
-	// Register /rho command
-	pi.registerCommand("rho", {
-		description: "Control rho check-in system: status, enable, disable, now, interval <time>, model <auto|provider/model>, automemory <on|off|toggle>",
-		handler: async (args, ctx) => {
-			const [subcmd, ...rest] = args.trim().split(/\s+/);
-			const arg = rest.join(" ");
-
-			switch (subcmd) {
-				case "status":
-				case "": {
-					let modelInfo: string;
-					if (state.heartbeatModel) {
-						modelInfo = `${state.heartbeatModel} (pinned)`;
-					} else if (ctx.model) {
-						modelInfo = `${ctx.model.provider}/${ctx.model.id} (session)`;
-					} else {
-						modelInfo = "auto";
-					}
-					const am = getAutoMemoryEffective();
-					ctx.ui.notify(
-						`Rho: ${state.enabled ? "enabled" : "disabled"}, ` +
-						`interval: ${formatInterval(state.intervalMs)}, ` +
-						`model: ${modelInfo}, ` +
-						`auto-memory: ${am.enabled ? "on" : "off"} (${am.source}), ` +
-						`count: ${state.checkCount}`,
-						"info"
-					);
-					break;
-				}
-
-				case "enable":
-					state.enabled = true;
-					scheduleNext(ctx);
-					updateStatus(ctx);
-					ctx.ui.notify("Rho enabled", "success");
-					break;
-
-				case "disable":
-					state.enabled = false;
-					scheduleNext(ctx);
-					updateStatus(ctx);
-					ctx.ui.notify("Rho disabled", "info");
-					break;
-
-				case "now":
-					if (!ctx.hasUI) {
-						ctx.ui.notify("Rho requires interactive mode", "error");
-						return;
-					}
-					triggerCheck(ctx);
-					ctx.ui.notify("Rho check-in triggered", "success");
-					break;
-
-				case "interval": {
-					if (!arg) {
-						ctx.ui.notify(`Current interval: ${formatInterval(state.intervalMs)}`, "info");
-						return;
-					}
-					const intervalMs = parseInterval(arg);
-					if (intervalMs === null) {
-						ctx.ui.notify("Invalid interval. Use format: 30m, 1h, or 0 to disable", "error");
-						return;
-					}
-					if (intervalMs !== 0 && (intervalMs < MIN_INTERVAL_MS || intervalMs > MAX_INTERVAL_MS)) {
-						ctx.ui.notify("Interval must be between 5m and 24h", "error");
-						return;
-					}
-					state.intervalMs = intervalMs;
-					if (intervalMs === 0) state.enabled = false;
-					scheduleNext(ctx);
-					updateStatus(ctx);
-					ctx.ui.notify(
-						intervalMs === 0
-							? "Rho disabled (interval = 0)"
-							: `Rho interval set to ${formatInterval(intervalMs)}`,
-						"success"
-					);
-					break;
-				}
-
-				case "automemory": {
-					const mode = arg.trim().toLowerCase();
-					const current = getAutoMemoryEffective();
-					const cfg = loadConfigFromDisk();
-					const cfgVal = typeof cfg.autoMemory === "boolean" ? cfg.autoMemory : undefined;
-
-					if (!mode || mode === "status") {
-						let text = `Auto-memory: ${current.enabled ? "on" : "off"} (${current.source})`;
-						if (cfgVal !== undefined) text += `, config=${cfgVal ? "on" : "off"}`;
-						const envRaw = (process.env.RHO_AUTO_MEMORY || "").trim();
-						if (envRaw) text += `, env=${envRaw}`;
-						ctx.ui.notify(text, "info");
-						return;
-					}
-
-					let nextConfig: boolean;
-					if (mode === "on") nextConfig = true;
-					else if (mode === "off") nextConfig = false;
-					else if (mode === "toggle") nextConfig = !(typeof cfgVal === "boolean" ? cfgVal : true);
-					else {
-						ctx.ui.notify("Usage: /rho automemory [on|off|toggle|status]", "warning");
-						return;
-					}
-
-					saveConfigToDisk({ autoMemory: nextConfig });
-
-					const after = getAutoMemoryEffective();
-					if (after.source === "env") {
-						ctx.ui.notify("Note: RHO_AUTO_MEMORY env var overrides config", "warning");
-					}
-					ctx.ui.notify(`Auto-memory: ${after.enabled ? "on" : "off"} (${after.source})`, "success");
-					break;
-				}
-
-				case "model": {
-					if (!arg) {
-						let modelDisplay: string;
-						if (state.heartbeatModel) {
-							modelDisplay = `${state.heartbeatModel} (pinned)`;
-						} else if (ctx.model) {
-							modelDisplay = `${ctx.model.provider}/${ctx.model.id} (session)`;
-						} else {
-							modelDisplay = "auto";
-						}
-						ctx.ui.notify(`Heartbeat model: ${modelDisplay}`, "info");
-						return;
-					}
-
-					if (arg === "auto") {
-						state.heartbeatModel = null;
-						cachedModel = null;
-						saveStateToDisk();
-						ctx.ui.notify("Heartbeat model set to auto (uses session model)", "success");
-						return;
-					}
-
-					const parts = arg.split("/");
-					if (parts.length !== 2) {
-						ctx.ui.notify("Usage: /rho model auto  OR  /rho model provider/model-id", "error");
-						return;
-					}
-
-					const model = ctx.modelRegistry.find(parts[0], parts[1]);
-					if (!model) {
-						ctx.ui.notify(`Model '${arg}' not found`, "error");
-						return;
-					}
-
-					state.heartbeatModel = arg;
-					saveStateToDisk();
-					ctx.ui.notify(`Heartbeat model pinned to ${arg} ($${model.cost.output}/M output)`, "success");
-					break;
-				}
-
-				default:
-					ctx.ui.notify("Usage: /rho [status|enable|disable|now|interval|model|automemory]", "warning");
-					ctx.ui.notify("Examples: /rho now, /rho interval 30m, /rho model auto, /rho automemory toggle", "info");
-			}
-		},
-	});
+  const IS_SUBAGENT = process.env.RHO_SUBAGENT === "1";
+
+  // ── Bootstrap ──────────────────────────────────────────────────────────────
+
+  migrateLegacyBrain();
+  bootstrapBrainDefaults(__dirname);
+  ensureVaultDirs();
+  createDefaultFiles();
+
+  // ── Brain state ────────────────────────────────────────────────────────────
+
+  let autoMemoryInFlight = false;
+  let compactMemoryInFlight = false;
+  let cachedBrainPrompt: string | null = null;
+
+  function updateBrainWidget(ctx: {
+    cwd?: string;
+    ui?: { setStatus?: (id: string, text: string | undefined) => void };
+  }) {
+    if (!ctx?.ui?.setStatus) return;
+    const memory = readJsonl<Entry>(MEMORY_FILE);
+    const contexts = readJsonl<ContextEntry>(CONTEXT_FILE);
+    const lCount = memory.filter((e) => e.type === "learning").length;
+    const pCount = memory.filter((e) => e.type === "preference").length;
+    const cwd = ctx.cwd ?? process.cwd();
+    const matched = contexts.find((c) => cwd.startsWith(c.path));
+    let status = `🧠 ${lCount}L ${pCount}P`;
+    if (matched) status += ` · ${matched.project}`;
+    ctx.ui.setStatus("brain", status);
+  }
+
+  // ── Vault state ────────────────────────────────────────────────────────────
+
+  let vaultGraph: VaultGraph = buildGraph();
+
+  function rebuildVaultGraph(): void {
+    vaultGraph = buildGraph();
+  }
+
+  function updateVaultWidget(ctx: {
+    ui?: { setStatus?: (id: string, text: string | undefined) => void };
+  }) {
+    if (!ctx?.ui?.setStatus) return;
+    let noteCount = 0;
+    let orphanCount = 0;
+    for (const note of vaultGraph.values()) {
+      noteCount++;
+      if (note.backlinks.size === 0 && !note.slug.startsWith("_")) orphanCount++;
+    }
+    const status = `📓 ${noteCount} notes${orphanCount > 0 ? ` (${orphanCount} orphans)` : ""}`;
+    ctx.ui.setStatus("vault", status);
+  }
+
+  // ── Heartbeat state ────────────────────────────────────────────────────────
+
+  let hbState: RhoState = {
+    enabled: true,
+    intervalMs: DEFAULT_INTERVAL_MS,
+    lastCheckAt: null,
+    nextCheckAt: null,
+    checkCount: 0,
+    heartbeatModel: null,
+  };
+
+  let hbTimer: NodeJS.Timeout | null = null;
+  let hbCachedModel: ResolvedModel | null = null;
+
+  const loadHbState = () => {
+    // Migrate legacy state
+    try {
+      if (!fs.existsSync(STATE_PATH) && fs.existsSync(LEGACY_STATE_PATH)) {
+        fs.mkdirSync(RHO_DIR, { recursive: true });
+        fs.writeFileSync(STATE_PATH, fs.readFileSync(LEGACY_STATE_PATH, "utf-8"));
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const raw = fs.readFileSync(STATE_PATH, "utf-8");
+      const parsed = JSON.parse(raw) as Partial<RhoState>;
+      if (typeof parsed.enabled === "boolean") hbState.enabled = parsed.enabled;
+      if (parsed.intervalMs !== undefined) hbState.intervalMs = normalizeInterval(parsed.intervalMs);
+      if (typeof parsed.lastCheckAt === "number") hbState.lastCheckAt = parsed.lastCheckAt;
+      if (typeof parsed.nextCheckAt === "number") hbState.nextCheckAt = parsed.nextCheckAt;
+      if (typeof parsed.checkCount === "number" && parsed.checkCount >= 0) hbState.checkCount = parsed.checkCount;
+      if (parsed.heartbeatModel === null || typeof parsed.heartbeatModel === "string") {
+        hbState.heartbeatModel = parsed.heartbeatModel;
+      }
+    } catch {
+      // ignore
+    }
+    if (hbState.intervalMs === 0) hbState.enabled = false;
+  };
+
+  const saveHbState = () => {
+    try {
+      fs.mkdirSync(RHO_DIR, { recursive: true });
+      fs.writeFileSync(STATE_PATH, JSON.stringify({
+        enabled: hbState.enabled,
+        intervalMs: hbState.intervalMs,
+        lastCheckAt: hbState.lastCheckAt,
+        nextCheckAt: hbState.nextCheckAt,
+        checkCount: hbState.checkCount,
+        heartbeatModel: hbState.heartbeatModel,
+      }, null, 2));
+    } catch { /* ignore */ }
+  };
+
+  const reconstructHbState = (ctx: ExtensionContext) => {
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type !== "message") continue;
+      const msg = entry.message;
+      if (msg.role !== "toolResult" || msg.toolName !== "rho_control") continue;
+      const details = msg.details as RhoDetails | undefined;
+      if (details) {
+        if (details.enabled !== undefined) hbState.enabled = details.enabled;
+        if (details.intervalMs !== undefined) hbState.intervalMs = details.intervalMs;
+        if (details.lastCheckAt !== undefined) hbState.lastCheckAt = details.lastCheckAt;
+        if (details.nextCheckAt !== undefined) hbState.nextCheckAt = details.nextCheckAt;
+        if (details.checkCount !== undefined) hbState.checkCount = details.checkCount;
+        if (details.heartbeatModel !== undefined) hbState.heartbeatModel = details.heartbeatModel;
+      }
+    }
+  };
+
+  const resolveHeartbeatModel = async (ctx: ExtensionContext): Promise<ResolvedModel | null> => {
+    if (hbState.heartbeatModel) {
+      const parts = hbState.heartbeatModel.split("/");
+      if (parts.length === 2) {
+        const model = ctx.modelRegistry.find(parts[0], parts[1]);
+        if (model) {
+          const apiKey = await ctx.modelRegistry.getApiKey(model);
+          if (apiKey) {
+            return { provider: parts[0], model: parts[1], cost: model.cost.output, resolvedAt: Date.now() };
+          }
+        }
+      }
+    }
+
+    if (hbCachedModel && (Date.now() - hbCachedModel.resolvedAt) < MODEL_CACHE_TTL_MS) {
+      return hbCachedModel;
+    }
+
+    try {
+      const available = ctx.modelRegistry.getAvailable();
+      if (!available.length) return null;
+      const sorted = [...available].sort((a, b) => a.cost.output - b.cost.output);
+      for (const candidate of sorted) {
+        const apiKey = await ctx.modelRegistry.getApiKey(candidate);
+        if (apiKey) {
+          hbCachedModel = { provider: candidate.provider, model: candidate.id, cost: candidate.cost.output, resolvedAt: Date.now() };
+          return hbCachedModel;
+        }
+      }
+    } catch { /* ignore */ }
+
+    return null;
+  };
+
+  const buildModelFlags = async (ctx: ExtensionContext): Promise<string> => {
+    if (hbState.heartbeatModel) {
+      const parts = hbState.heartbeatModel.split("/");
+      if (parts.length === 2) {
+        const model = ctx.modelRegistry.find(parts[0], parts[1]);
+        if (model) {
+          const apiKey = await ctx.modelRegistry.getApiKey(model);
+          if (apiKey) return `--provider ${shellEscape(parts[0])} --model ${shellEscape(parts[1])} --thinking off`;
+        }
+      }
+    }
+
+    if (ctx.model) {
+      const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
+      if (apiKey) return `--provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)} --thinking off`;
+    }
+
+    try {
+      const resolved = await resolveHeartbeatModel(ctx);
+      if (resolved) return `--provider ${shellEscape(resolved.provider)} --model ${shellEscape(resolved.model)} --thinking off`;
+    } catch { /* ignore */ }
+
+    return "";
+  };
+
+  const scheduleNext = (ctx: ExtensionContext) => {
+    if (hbTimer) { clearTimeout(hbTimer); hbTimer = null; }
+    if (!hbState.enabled || hbState.intervalMs === 0) {
+      hbState.nextCheckAt = null;
+      saveHbState();
+      return;
+    }
+
+    const now = Date.now();
+    const base = hbState.lastCheckAt && hbState.lastCheckAt <= now ? hbState.lastCheckAt : now;
+    let nextAt = base + hbState.intervalMs;
+    if (nextAt <= now) nextAt = now + 1000;
+    hbState.nextCheckAt = nextAt;
+
+    hbTimer = setTimeout(() => { triggerCheck(ctx); }, Math.max(0, nextAt - now));
+    saveHbState();
+  };
+
+  const triggerCheck = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI) return;
+
+    hbState.lastCheckAt = Date.now();
+    hbState.checkCount++;
+
+    let fullPrompt = RHO_PROMPT;
+    const rhoMd = readMarkdownFile([
+      path.join(ctx.cwd, "RHO.md"),
+      path.join(ctx.cwd, ".pi", "RHO.md"),
+      path.join(ctx.cwd, ".rho.md"),
+    ]);
+    const heartbeatMd = readMarkdownFile([
+      path.join(ctx.cwd, "HEARTBEAT.md"),
+      path.join(ctx.cwd, ".pi", "HEARTBEAT.md"),
+      path.join(ctx.cwd, ".heartbeat.md"),
+      path.join(ctx.cwd, ".rho-heartbeat.md"),
+    ]);
+
+    let tasksSection: string | null = null;
+    try { tasksSection = buildHeartbeatSection(); } catch { /* ignore */ }
+
+    if (!rhoMd && !heartbeatMd && !tasksSection) {
+      scheduleNext(ctx);
+      return;
+    }
+    if (rhoMd) fullPrompt += `\n\n---\n\nRHO.md content:\n${rhoMd}`;
+    if (heartbeatMd) fullPrompt += `\n\n---\n\nHEARTBEAT.md content:\n${heartbeatMd}`;
+    if (tasksSection) fullPrompt += `\n\n---\n\n${tasksSection}`;
+
+    buildModelFlags(ctx).then((modelFlags) => {
+      const sentToTmux = runHeartbeatInTmux(fullPrompt, modelFlags || undefined);
+      if (!sentToTmux) pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
+    }).catch(() => {
+      const sentToTmux = runHeartbeatInTmux(fullPrompt);
+      if (!sentToTmux) pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
+    });
+
+    scheduleNext(ctx);
+  };
+
+  const updateHbStatus = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI) return;
+    const theme = ctx.ui.theme;
+    if (!hbState.enabled || hbState.intervalMs === 0) {
+      ctx.ui.setStatus("rho", theme.fg("dim", "ρ off"));
+      return;
+    }
+    const interval = formatInterval(hbState.intervalMs);
+    if (hbState.nextCheckAt) {
+      const mins = Math.ceil((hbState.nextCheckAt - Date.now()) / (60 * 1000));
+      ctx.ui.setStatus("rho", theme.fg("dim", `ρ ${interval} (${mins}m)`));
+    } else {
+      ctx.ui.setStatus("rho", theme.fg("dim", `ρ ${interval}`));
+    }
+  };
+
+  // ── Event Handlers ─────────────────────────────────────────────────────────
+
+  pi.on("session_start", async (_event, ctx) => {
+    // Brain: cache context for system prompt
+    const brainContext = buildBrainContext(ctx.cwd);
+    cachedBrainPrompt = brainContext.trim()
+      ? "\n\n# Memory\n\n" + MEMORY_INSTRUCTIONS + "\n\n" + brainContext
+      : null;
+    updateBrainWidget(ctx);
+
+    // Vault: rebuild graph
+    rebuildVaultGraph();
+    updateVaultWidget(ctx);
+
+    // Heartbeat: restore state and schedule
+    if (!IS_SUBAGENT) {
+      loadHbState();
+      reconstructHbState(ctx);
+      scheduleNext(ctx);
+      updateHbStatus(ctx);
+    }
+  });
+
+  pi.on("before_agent_start", async (event, _ctx) => {
+    if (cachedBrainPrompt) {
+      return { systemPrompt: event.systemPrompt + cachedBrainPrompt };
+    }
+  });
+
+  pi.on("agent_end", async (event, ctx) => {
+    // Auto-memory extraction
+    if (!IS_SUBAGENT && !autoMemoryInFlight && getAutoMemoryEffective().enabled) {
+      autoMemoryInFlight = true;
+      try {
+        const result = await runAutoMemoryExtraction(event.messages, ctx, { source: "auto" });
+        if (result && (result.storedLearnings > 0 || result.storedPrefs > 0)) {
+          updateBrainWidget(ctx);
+        }
+      } catch (error) {
+        if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
+          ctx.ui.notify(`Auto-memory error: ${error instanceof Error ? error.message : String(error)}`, "error");
+        }
+      } finally {
+        autoMemoryInFlight = false;
+      }
+    }
+
+    // Heartbeat: detect RHO_OK
+    if (!IS_SUBAGENT) {
+      const lastMessage = event.messages[event.messages.length - 1];
+      if (lastMessage?.role === "assistant" && lastMessage.content) {
+        const text = lastMessage.content
+          .filter((c) => c.type === "text")
+          .map((c) => c.text)
+          .join("");
+        const trimmed = text.trim();
+        const isRhoOk = trimmed === "RHO_OK" || trimmed.startsWith("RHO_OK\n") || trimmed.endsWith("\nRHO_OK");
+        if (isRhoOk && trimmed.length <= 300) {
+          ctx.ui.notify("ρ: OK (no alerts)", "info");
+        }
+      }
+      updateHbStatus(ctx);
+    }
+  });
+
+  pi.on("session_before_compact", async (event, ctx) => {
+    if (!getAutoMemoryEffective().enabled || !COMPACT_MEMORY_FLUSH_ENABLED || compactMemoryInFlight) return;
+    if (event.signal.aborted) return;
+
+    const messages = Array.from(
+      new Set([...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages])
+    );
+    if (messages.length === 0) return;
+
+    compactMemoryInFlight = true;
+    try {
+      const result = await runAutoMemoryExtraction(messages, ctx, { source: "compaction", signal: event.signal });
+      if (result && (result.storedLearnings > 0 || result.storedPrefs > 0)) updateBrainWidget(ctx);
+    } catch (error) {
+      if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
+        ctx.ui.notify(`Auto-memory error: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    } finally {
+      compactMemoryInFlight = false;
+    }
+  });
+
+  if (!IS_SUBAGENT) {
+    pi.on("session_switch", async (_event, ctx) => {
+      loadHbState();
+      reconstructHbState(ctx);
+      scheduleNext(ctx);
+      updateHbStatus(ctx);
+    });
+
+    pi.on("session_fork", async (_event, ctx) => {
+      loadHbState();
+      reconstructHbState(ctx);
+      scheduleNext(ctx);
+      updateHbStatus(ctx);
+    });
+
+    pi.on("session_shutdown", async () => {
+      if (hbTimer) { clearTimeout(hbTimer); hbTimer = null; }
+    });
+  }
+
+  // ── Tool: memory ───────────────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "memory",
+    label: "Memory",
+    description:
+      "Store learnings (corrections, patterns, conventions) or preferences (user likes/dislikes with category). Use after user corrections or when discovering something future sessions need. Actions: add_learning, add_preference, reinforce, search, list, consolidate.",
+    parameters: Type.Object({
+      action: StringEnum(["add_learning", "add_preference", "reinforce", "search", "list", "consolidate"] as const),
+      content: Type.Optional(Type.String({ description: "Concise, actionable text" })),
+      category: Type.Optional(Type.String({ description: "Category: Communication, Code, Tools, Workflow, General" })),
+      query: Type.Optional(Type.String({ description: "Search query" })),
+      id: Type.Optional(Type.String({ description: "Entry ID for reinforce" })),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      switch (params.action) {
+        case "add_learning": {
+          if (!params.content) return { content: [{ type: "text", text: "Error: content required" }], details: { error: true } };
+          const result = storeLearningEntry(params.content);
+          if (!result.stored) {
+            return { content: [{ type: "text", text: result.reason === "duplicate" ? "Already stored" : "Not stored" }], details: { duplicate: result.reason === "duplicate" } };
+          }
+          updateBrainWidget(ctx);
+          return { content: [{ type: "text", text: `Stored: ${params.content}` }], details: { id: result.id } };
+        }
+
+        case "add_preference": {
+          if (!params.content) return { content: [{ type: "text", text: "Error: content required" }], details: { error: true } };
+          const category = sanitizeCategory(params.category);
+          const result = storePreferenceEntry(params.content, category);
+          if (!result.stored) {
+            return { content: [{ type: "text", text: result.reason === "duplicate" ? "Already stored" : "Not stored" }], details: { duplicate: result.reason === "duplicate" } };
+          }
+          updateBrainWidget(ctx);
+          return { content: [{ type: "text", text: `Stored [${category}]: ${params.content}` }], details: { id: result.id } };
+        }
+
+        case "reinforce": {
+          if (!params.id) return { content: [{ type: "text", text: "Error: id required" }], details: { error: true } };
+          const entries = readJsonl<Entry>(MEMORY_FILE);
+          const idx = entries.findIndex((e) => e.id === params.id);
+          if (idx === -1) return { content: [{ type: "text", text: "Entry not found" }], details: { error: true } };
+          const entry = entries[idx];
+          if (entry.type === "learning") {
+            (entry as LearningEntry).used++;
+            (entry as LearningEntry).last_used = today();
+          }
+          writeJsonl(MEMORY_FILE, entries);
+          return { content: [{ type: "text", text: `Reinforced: ${(entry as LearningEntry).text}` }], details: { id: entry.id, used: (entry as LearningEntry).used } };
+        }
+
+        case "search": {
+          const query = (params.query || "").toLowerCase();
+          const memory = readJsonl<Entry>(MEMORY_FILE);
+          const matches = memory.filter((e) => {
+            if (e.type === "learning") return (e as LearningEntry).text.toLowerCase().includes(query);
+            if (e.type === "preference") return (e as PreferenceEntry).text.toLowerCase().includes(query);
+            return false;
+          });
+          return {
+            content: [{ type: "text", text: matches.length ? matches.map((m) => `[${m.id}] ${(m as LearningEntry | PreferenceEntry).text}`).join("\n") : "No matches" }],
+            details: { count: matches.length },
+          };
+        }
+
+        case "list": {
+          const memory = readJsonl<Entry>(MEMORY_FILE);
+          const ls = memory.filter((e) => e.type === "learning") as LearningEntry[];
+          const ps = memory.filter((e) => e.type === "preference") as PreferenceEntry[];
+          let text = `**Learnings (${ls.length}):**\n`;
+          text += ls.map((l) => `- ${l.text}`).join("\n") || "(none)";
+          text += `\n\n**Preferences (${ps.length}):**\n`;
+          text += ps.map((p) => `- [${p.category}] ${p.text}`).join("\n") || "(none)";
+          return { content: [{ type: "text", text }], details: { learnings: ls.length, preferences: ps.length } };
+        }
+
+        case "consolidate": {
+          try {
+            const result = await runConsolidation(ctx);
+            if (!result) return { content: [{ type: "text", text: "Consolidation returned null (unexpected)." }], details: { error: true } };
+            if (result.removed === 0 && result.error) return { content: [{ type: "text", text: `Consolidation failed: ${result.error}` }], details: result };
+            updateBrainWidget(ctx);
+            const msg = `Consolidated: ${result.before} → ${result.after} entries (removed ${result.removed}).`;
+            const warning = result.error ? ` Note: ${result.error}` : "";
+            return { content: [{ type: "text", text: msg + warning }], details: result };
+          } catch (error) {
+            return { content: [{ type: "text", text: `Consolidation error: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true } };
+          }
+        }
+
+        default:
+          return { content: [{ type: "text", text: "Unknown action" }], details: { error: true } };
+      }
+    },
+  });
+
+  // ── Tool: tasks ────────────────────────────────────────────────────────────
+
+  if (!IS_SUBAGENT) {
+    pi.registerTool({
+      name: "tasks",
+      label: "Tasks",
+      description:
+        "Lightweight task queue. Actions: add (create task), list (show tasks), done (complete task), remove (delete task), clear (remove all done tasks). " +
+        "Tasks persist across sessions and are surfaced during heartbeat check-ins.",
+      parameters: Type.Object({
+        action: StringEnum(["add", "list", "done", "remove", "clear"] as const),
+        description: Type.Optional(Type.String({ description: "Task description (for add action)" })),
+        id: Type.Optional(Type.String({ description: "Task ID or prefix (for done/remove actions)" })),
+        priority: Type.Optional(Type.String({ description: "Priority: urgent, high, normal, low (default: normal)" })),
+        due: Type.Optional(Type.String({ description: "Due date in YYYY-MM-DD format" })),
+        tags: Type.Optional(Type.String({ description: "Comma-separated tags (e.g. 'code,rho')" })),
+        filter: Type.Optional(Type.String({ description: "Filter for list: 'pending' (default), 'all', 'done', or a tag name" })),
+      }),
+
+      async execute(_toolCallId, params) {
+        switch (params.action) {
+          case "add": {
+            const result = addTask({ description: params.description || "", priority: params.priority as TaskPriority | undefined, due: params.due, tags: params.tags });
+            return { content: [{ type: "text", text: result.message }], details: { action: "add", ok: result.ok, task: result.task } };
+          }
+          case "list": {
+            const result = listTasks(params.filter);
+            return { content: [{ type: "text", text: result.message }], details: { action: "list", ok: result.ok, count: result.count } };
+          }
+          case "done": {
+            const result = completeTask(params.id || "");
+            return { content: [{ type: "text", text: result.message }], details: { action: "done", ok: result.ok, task: result.task } };
+          }
+          case "remove": {
+            const result = removeTask(params.id || "");
+            return { content: [{ type: "text", text: result.message }], details: { action: "remove", ok: result.ok, task: result.task } };
+          }
+          case "clear": {
+            const result = clearDone();
+            return { content: [{ type: "text", text: result.message }], details: { action: "clear", ok: result.ok, count: result.count } };
+          }
+          default:
+            return { content: [{ type: "text", text: "Error: Unknown action. Use: add, list, done, remove, clear" }], details: { error: true } };
+        }
+      },
+
+      renderCall(args, theme) {
+        let text = theme.fg("toolTitle", theme.bold("tasks ")) + theme.fg("muted", args.action);
+        if (args.description) {
+          const desc = args.description.length > 50 ? args.description.slice(0, 47) + "..." : args.description;
+          text += " " + theme.fg("accent", desc);
+        }
+        if (args.id) text += " " + theme.fg("accent", args.id);
+        return new Text(text, 0, 0);
+      },
+
+      renderResult(result, _options, theme) {
+        const details = result.details as { action: string; ok: boolean; count?: number } | undefined;
+        if (!details) {
+          const text = result.content[0];
+          return new Text(text?.type === "text" ? text.text : "", 0, 0);
+        }
+        if (!details.ok) {
+          const text = result.content[0];
+          return new Text(theme.fg("error", text?.type === "text" ? text.text : "Error"), 0, 0);
+        }
+        if (details.action === "list") {
+          if (details.count === 0) return new Text(theme.fg("dim", "No pending tasks."), 0, 0);
+          const text = result.content[0];
+          return new Text(text?.type === "text" ? text.text : "", 0, 0);
+        }
+        const text = result.content[0];
+        return new Text(theme.fg("success", ">> ") + (text?.type === "text" ? text.text : ""), 0, 0);
+      },
+    });
+  }
+
+  // ── Tool: vault ────────────────────────────────────────────────────────────
+
+  pi.registerTool({
+    name: "vault",
+    label: "Vault",
+    description:
+      "Knowledge graph for persistent notes with wikilinks. " +
+      "Actions: capture (quick inbox entry), read (note + backlinks), write (create/update with quality gate), " +
+      "status (vault stats), list (filter by type/query). " +
+      "Notes require frontmatter, a ## Connections section with [[wikilinks]], except log type.",
+    parameters: Type.Object({
+      action: StringEnum(["capture", "read", "write", "status", "list"] as const),
+      slug: Type.Optional(Type.String({ description: "Note slug (kebab-case filename without .md)" })),
+      content: Type.Optional(Type.String({ description: "Note content (full markdown for write, text for capture)" })),
+      type: Type.Optional(Type.String({ description: "Note type: concept, project, pattern, reference, log, moc" })),
+      source: Type.Optional(Type.String({ description: "Source of the note (conversation, url, etc)" })),
+      context: Type.Optional(Type.String({ description: "Additional context for capture entries" })),
+      query: Type.Optional(Type.String({ description: "Search/filter query for list action" })),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      switch (params.action) {
+        case "capture": {
+          if (!params.content) return { content: [{ type: "text", text: "Error: content required for capture" }], details: { error: true } };
+          const entry = captureToInbox(VAULT_DIR, params.content, params.source, params.context);
+          return { content: [{ type: "text", text: `Captured to inbox:\n${entry}` }], details: { action: "capture" } };
+        }
+
+        case "read": {
+          if (!params.slug) return { content: [{ type: "text", text: "Error: slug required for read" }], details: { error: true } };
+          const result = readNote(VAULT_DIR, params.slug, vaultGraph);
+          if (!result) return { content: [{ type: "text", text: `Note not found: ${params.slug}` }], details: { error: true, slug: params.slug } };
+          let text = result.content;
+          if (result.backlinks.length > 0) {
+            text += "\n\n---\n**Backlinks:** " + result.backlinks.map((b) => `[[${b}]]`).join(", ");
+          }
+          return { content: [{ type: "text", text }], details: { action: "read", slug: params.slug, backlinks: result.backlinks } };
+        }
+
+        case "write": {
+          if (!params.slug) return { content: [{ type: "text", text: "Error: slug required for write" }], details: { error: true } };
+          if (!params.content) return { content: [{ type: "text", text: "Error: content required for write" }], details: { error: true } };
+          const noteType = params.type || "concept";
+          const result = writeNote(VAULT_DIR, params.slug, params.content, noteType);
+          if (!result.valid) return { content: [{ type: "text", text: `Rejected: ${result.reason}` }], details: { error: true, reason: result.reason } };
+          rebuildVaultGraph();
+          updateVaultWidget(ctx);
+          return { content: [{ type: "text", text: `Written: ${params.slug} -> ${result.path}` }], details: { action: "write", slug: params.slug, path: result.path, type: noteType } };
+        }
+
+        case "status": {
+          const status = getVaultStatus(VAULT_DIR, vaultGraph);
+          const typeCounts = Object.entries(status.byType).map(([t, n]) => `${t}: ${n}`).join(", ");
+          const text = [
+            `Vault Status`,
+            `  Total notes: ${status.totalNotes}`,
+            `  By type: ${typeCounts || "none"}`,
+            `  Orphans: ${status.orphanCount}`,
+            `  Inbox items: ${status.inboxItems}`,
+            `  Avg links/note: ${status.avgLinksPerNote.toFixed(1)}`,
+          ].join("\n");
+          return { content: [{ type: "text", text }], details: { action: "status", ...status } };
+        }
+
+        case "list": {
+          const notes = listNotes(vaultGraph, params.type, params.query);
+          if (notes.length === 0) {
+            const filters = [params.type ? `type=${params.type}` : "", params.query ? `query="${params.query}"` : ""].filter(Boolean).join(", ");
+            return { content: [{ type: "text", text: filters ? `No notes found matching: ${filters}` : "Vault is empty." }], details: { action: "list", count: 0 } };
+          }
+          const lines = notes.map((n) => `- **${n.title}** (${n.slug}) [${n.type}] ${n.linkCount}L/${n.backlinkCount}BL${n.updated ? ` updated:${n.updated}` : ""}`);
+          const header = params.type ? `${notes.length} ${params.type} note(s)` : `${notes.length} note(s)`;
+          return { content: [{ type: "text", text: `${header}${params.query ? ` matching "${params.query}"` : ""}:\n${lines.join("\n")}` }], details: { action: "list", count: notes.length } };
+        }
+
+        default:
+          return { content: [{ type: "text", text: "Unknown action" }], details: { error: true } };
+      }
+    },
+  });
+
+  // ── Tool: rho_control ──────────────────────────────────────────────────────
+
+  if (!IS_SUBAGENT) {
+    pi.registerTool({
+      name: "rho_control",
+      label: "Rho",
+      description: "Control the rho check-in system. Actions: enable, disable, trigger (immediate), status (get info), interval (set with interval string like '30m' or '1h'), model (set heartbeat model: 'auto' or 'provider/model-id')",
+      parameters: Type.Object({
+        action: StringEnum(["enable", "disable", "trigger", "status", "interval", "model"] as const),
+        interval: Type.Optional(Type.String({ description: "Interval string for 'interval' action (e.g., '30m', '1h', '15min'). Use '0' to disable." })),
+        model: Type.Optional(Type.String({ description: "Model for 'model' action. 'auto' to use session model, or 'provider/model-id' to pin." })),
+      }),
+
+      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+        switch (params.action) {
+          case "enable":
+            hbState.enabled = true;
+            scheduleNext(ctx);
+            updateHbStatus(ctx);
+            return { content: [{ type: "text", text: "Rho enabled" }], details: { action: "enable", enabled: hbState.enabled } as RhoDetails };
+
+          case "disable":
+            hbState.enabled = false;
+            scheduleNext(ctx);
+            updateHbStatus(ctx);
+            return { content: [{ type: "text", text: "Rho disabled" }], details: { action: "disable", enabled: hbState.enabled } as RhoDetails };
+
+          case "trigger":
+            if (!ctx.hasUI) {
+              return { content: [{ type: "text", text: "Error: Cannot trigger rho in non-interactive mode" }], details: { action: "trigger", wasTriggered: false } as RhoDetails };
+            }
+            triggerCheck(ctx);
+            return { content: [{ type: "text", text: "Rho check-in triggered" }], details: { action: "trigger", wasTriggered: true, lastCheckAt: hbState.lastCheckAt, checkCount: hbState.checkCount } as RhoDetails };
+
+          case "interval": {
+            if (!params.interval) {
+              return { content: [{ type: "text", text: `Current interval: ${formatInterval(hbState.intervalMs)}` }], details: { action: "interval", intervalMs: hbState.intervalMs } as RhoDetails };
+            }
+            const intervalMs = parseInterval(params.interval);
+            if (intervalMs === null) {
+              return { content: [{ type: "text", text: `Error: Invalid interval '${params.interval}'. Use format like '30m', '1h', or '0' to disable.` }], details: { action: "interval", intervalMs: hbState.intervalMs } as RhoDetails };
+            }
+            if (intervalMs !== 0 && (intervalMs < MIN_INTERVAL_MS || intervalMs > MAX_INTERVAL_MS)) {
+              return { content: [{ type: "text", text: "Error: Interval must be between 5m and 24h (or 0 to disable)" }], details: { action: "interval", intervalMs: hbState.intervalMs } as RhoDetails };
+            }
+            hbState.intervalMs = intervalMs;
+            if (intervalMs === 0) hbState.enabled = false;
+            scheduleNext(ctx);
+            updateHbStatus(ctx);
+            const status = intervalMs === 0 ? "disabled" : `set to ${formatInterval(intervalMs)}`;
+            return { content: [{ type: "text", text: `Rho interval ${status}` }], details: { action: "interval", intervalMs: hbState.intervalMs, enabled: hbState.enabled } as RhoDetails };
+          }
+
+          case "status": {
+            const rhoMd = readMarkdownFile([path.join(ctx.cwd, "RHO.md"), path.join(ctx.cwd, ".pi", "RHO.md"), path.join(ctx.cwd, ".rho.md")]);
+            let hbModelText: string;
+            let hbModelSource: "auto" | "pinned" = "auto";
+            let hbModelCost: number | undefined;
+            if (hbState.heartbeatModel) {
+              hbModelSource = "pinned";
+              hbModelText = `${hbState.heartbeatModel} (pinned)`;
+              const parts = hbState.heartbeatModel.split("/");
+              if (parts.length === 2) { const m = ctx.modelRegistry.find(parts[0], parts[1]); if (m) hbModelCost = m.cost.output; }
+            } else if (ctx.model) {
+              hbModelText = `${ctx.model.provider}/${ctx.model.id} (session)`;
+              hbModelCost = ctx.model.cost.output;
+            } else {
+              hbModelText = "auto";
+            }
+
+            let text = `Rho status:\n`;
+            text += `- Enabled: ${hbState.enabled}\n`;
+            text += `- Interval: ${formatInterval(hbState.intervalMs)}\n`;
+            text += `- Heartbeat model: ${hbModelText}\n`;
+            text += `- Total check-ins this session: ${hbState.checkCount}\n`;
+            if (hbState.lastCheckAt) {
+              text += `- Last check-in: ${Math.floor((Date.now() - hbState.lastCheckAt) / (60 * 1000))}m ago\n`;
+            } else {
+              text += `- Last check-in: never\n`;
+            }
+            if (hbState.nextCheckAt && hbState.enabled && hbState.intervalMs > 0) {
+              text += `- Next check-in: in ${Math.ceil((hbState.nextCheckAt - Date.now()) / (60 * 1000))}m\n`;
+            }
+            text += `- RHO.md: ${rhoMd ? "found" : "not found"}`;
+
+            return { content: [{ type: "text", text }], details: { action: "status", enabled: hbState.enabled, intervalMs: hbState.intervalMs, lastCheckAt: hbState.lastCheckAt, nextCheckAt: hbState.nextCheckAt, checkCount: hbState.checkCount, heartbeatModel: hbState.heartbeatModel, heartbeatModelSource: hbModelSource, heartbeatModelCost: hbModelCost } as RhoDetails };
+          }
+
+          case "model": {
+            const modelArg = params.model?.trim();
+            if (!modelArg) {
+              const source = hbState.heartbeatModel ? "pinned" : "auto";
+              return { content: [{ type: "text", text: `Heartbeat model: ${hbState.heartbeatModel || "auto"} (${source})` }], details: { action: "model", heartbeatModel: hbState.heartbeatModel, heartbeatModelSource: source } as RhoDetails };
+            }
+            if (modelArg === "auto") {
+              hbState.heartbeatModel = null;
+              hbCachedModel = null;
+              saveHbState();
+              return { content: [{ type: "text", text: "Heartbeat model set to auto (uses session model)" }], details: { action: "model", heartbeatModel: null, heartbeatModelSource: "auto" } as RhoDetails };
+            }
+            const parts = modelArg.split("/");
+            if (parts.length !== 2) {
+              return { content: [{ type: "text", text: `Error: Model must be 'provider/model-id' or 'auto'. Got: '${modelArg}'` }], details: { action: "model" } as RhoDetails };
+            }
+            const model = ctx.modelRegistry.find(parts[0], parts[1]);
+            if (!model) {
+              return { content: [{ type: "text", text: `Error: Model '${modelArg}' not found. Use --list-models to see available models.` }], details: { action: "model" } as RhoDetails };
+            }
+            hbState.heartbeatModel = modelArg;
+            saveHbState();
+            return { content: [{ type: "text", text: `Heartbeat model pinned to ${modelArg} ($${model.cost.output}/M output)` }], details: { action: "model", heartbeatModel: modelArg, heartbeatModelSource: "pinned", heartbeatModelCost: model.cost.output } as RhoDetails };
+          }
+        }
+      },
+
+      renderCall(args, theme) {
+        let text = theme.fg("toolTitle", theme.bold("rho ")) + theme.fg("muted", args.action);
+        if (args.interval) text += ` ${theme.fg("accent", args.interval)}`;
+        if (args.model) text += ` ${theme.fg("accent", args.model)}`;
+        return new Text(text, 0, 0);
+      },
+
+      renderResult(result, _options, theme) {
+        const details = result.details as RhoDetails | undefined;
+        if (!details) {
+          const text = result.content[0];
+          return new Text(text?.type === "text" ? text.text : "", 0, 0);
+        }
+        if (details.action === "status") return new Text(theme.fg("dim", `ρ ${formatInterval(details.intervalMs || DEFAULT_INTERVAL_MS)}`), 0, 0);
+        if (details.action === "trigger") return new Text(theme.fg("success", "✓ Triggered"), 0, 0);
+        const st = details.enabled ? theme.fg("success", "on") : theme.fg("dim", "off");
+        return new Text(theme.fg("success", "✓ ") + theme.fg("muted", `${details.action} `) + st, 0, 0);
+      },
+    });
+
+    // ── Tool: rho_subagent ─────────────────────────────────────────────────────
+
+    pi.registerTool({
+      name: "rho_subagent",
+      label: "Subagent",
+      description: "Run a pi subagent in a new tmux window (session 'rho' by default). Default mode is interactive; print mode writes results to ~/.rho/results.",
+      parameters: Type.Object({
+        prompt: Type.String({ description: "Prompt to run in the subagent" }),
+        session: Type.Optional(Type.String({ description: "tmux session name (default: rho)" })),
+        window: Type.Optional(Type.String({ description: "tmux window name (auto-generated if omitted)" })),
+        mode: Type.Optional(StringEnum(["interactive", "print"] as const)),
+        outputFile: Type.Optional(Type.String({ description: "Output file path (print mode only; default: ~/.rho/results/<timestamp>.json)" })),
+      }),
+
+      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+        const prompt = params.prompt?.trim();
+        if (!prompt) return { content: [{ type: "text", text: "Error: prompt required" }], details: { error: true } };
+
+        try { execSync("command -v tmux", { stdio: "ignore" }); } catch {
+          return { content: [{ type: "text", text: "Error: tmux not installed" }], details: { error: true } };
+        }
+
+        const sessionName = (params.session || DEFAULT_SESSION_NAME).trim() || DEFAULT_SESSION_NAME;
+        const mode = (params.mode || "interactive").trim().toLowerCase();
+        if (mode !== "interactive" && mode !== "print") {
+          return { content: [{ type: "text", text: "Error: mode must be 'interactive' or 'print'" }], details: { error: true } };
+        }
+
+        try { execSync(`tmux has-session -t ${shellEscape(sessionName)}`, { stdio: "ignore" }); } catch {
+          return { content: [{ type: "text", text: `Error: tmux session '${sessionName}' not found` }], details: { error: true } };
+        }
+
+        fs.mkdirSync(RESULTS_DIR, { recursive: true });
+
+        const windowSeed = new Date().toISOString().slice(11, 16).replace(":", "");
+        const windowName = sanitizeWindowName(params.window?.trim() || `subagent-${windowSeed}`);
+
+        const outputFileRaw = params.outputFile?.trim();
+        const outputFile = outputFileRaw
+          ? outputFileRaw.startsWith("/") ? outputFileRaw : path.join(ctx.cwd, outputFileRaw)
+          : path.join(RESULTS_DIR, `${Date.now()}.json`);
+
+        let modelFlags = "";
+        if (ctx.model) modelFlags = ` --provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)}`;
+
+        const shellPath = process.env.SHELL || "bash";
+        const script =
+          mode === "print"
+            ? `RHO_SUBAGENT=1 pi -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
+            : `RHO_SUBAGENT=1 pi --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
+        const innerCommand = `bash -lc ${shellEscape(script)}`;
+        const tmuxCommand = `tmux new-window -d -P -F "#{session_name}:#{window_index}" -t ${shellEscape(sessionName)} -n ${shellEscape(windowName)} ${shellEscape(innerCommand)}`;
+
+        let windowId = "";
+        try {
+          windowId = execSync(tmuxCommand, { encoding: "utf-8" }).trim();
+          if (windowId) execSync(`tmux set-option -t ${shellEscape(windowId)} remain-on-exit on`, { stdio: "ignore" });
+        } catch {
+          return { content: [{ type: "text", text: "Error: failed to create tmux window" }], details: { error: true } };
+        }
+
+        const message = mode === "print"
+          ? `Started subagent in ${windowId} (output: ${outputFile})`
+          : `Started subagent in ${windowId} (interactive mode)`;
+        return { content: [{ type: "text", text: message }], details: { session: sessionName, window: windowId, outputFile: mode === "print" ? outputFile : undefined, mode } };
+      },
+    });
+  }
+
+  // ── Command: /brain ────────────────────────────────────────────────────────
+
+  pi.registerCommand("brain", {
+    description: "View brain stats or search (usage: /brain [stats|search <query>|consolidate])",
+    handler: async (args, ctx) => {
+      const parts = args?.trim().split(/\s+/) || [];
+      const subcmd = parts[0] || "stats";
+
+      if (subcmd === "stats" || !subcmd) {
+        const core = readJsonl<Entry>(CORE_FILE);
+        const memory = readJsonl<Entry>(MEMORY_FILE);
+        const lCount = memory.filter((e) => e.type === "learning").length;
+        const pCount = memory.filter((e) => e.type === "preference").length;
+        const identity = core.filter((e) => e.type === "identity").length;
+        const behaviors = core.filter((e) => e.type === "behavior").length;
+        ctx.ui.notify(`🧠 ${lCount}L ${pCount}P | core: ${identity}id ${behaviors}beh`, "info");
+      } else if (subcmd === "search") {
+        const query = parts.slice(1).join(" ").toLowerCase();
+        if (!query) { ctx.ui.notify("Usage: /brain search <query>", "error"); return; }
+        const memory = readJsonl<Entry>(MEMORY_FILE);
+        const matches = memory.filter((e) => {
+          if (e.type === "learning") return (e as LearningEntry).text.toLowerCase().includes(query);
+          if (e.type === "preference") return (e as PreferenceEntry).text.toLowerCase().includes(query);
+          return false;
+        });
+        ctx.ui.notify(matches.length ? `Found ${matches.length} matches` : "No matches", "info");
+      } else if (subcmd === "consolidate") {
+        ctx.ui.notify("🧠 Consolidating memories...", "info");
+        try {
+          const result = await runConsolidation(ctx);
+          if (!result) { ctx.ui.notify("🧠 Consolidation returned null", "warning"); }
+          else if (result.removed === 0 && result.error) { ctx.ui.notify(`🧠 Failed: ${result.error}`, "warning"); }
+          else { ctx.ui.notify(`🧠 ${result.before} → ${result.after} (removed ${result.removed})`, "info"); updateBrainWidget(ctx); }
+        } catch (error) {
+          ctx.ui.notify(`🧠 Error: ${error instanceof Error ? error.message : String(error)}`, "error");
+        }
+      } else {
+        ctx.ui.notify("Usage: /brain [stats|search <query>|consolidate]", "error");
+      }
+    },
+  });
+
+  // ── Command: /tasks ────────────────────────────────────────────────────────
+
+  if (!IS_SUBAGENT) {
+    pi.registerCommand("tasks", {
+      description: "Task queue: /tasks (list), /tasks add <desc>, /tasks done <id>, /tasks clear, /tasks all",
+      handler: async (args, ctx) => {
+        const parts = args.trim().split(/\s+/);
+        const subcmd = parts[0] || "";
+        const rest = parts.slice(1).join(" ");
+
+        switch (subcmd) {
+          case "":
+          case "list": {
+            const result = listTasks("pending");
+            ctx.ui.notify(result.count === 0 ? "No pending tasks." : result.message, "info");
+            break;
+          }
+          case "all": {
+            const result = listTasks("all");
+            ctx.ui.notify(result.count === 0 ? "No tasks." : result.message, "info");
+            break;
+          }
+          case "add": {
+            if (!rest.trim()) { ctx.ui.notify("Usage: /tasks add <description>", "warning"); return; }
+            const result = addTask({ description: rest });
+            ctx.ui.notify(result.message, result.ok ? "success" : "error");
+            break;
+          }
+          case "done": {
+            if (!rest.trim()) { ctx.ui.notify("Usage: /tasks done <id>", "warning"); return; }
+            const result = completeTask(rest.trim());
+            ctx.ui.notify(result.message, result.ok ? "success" : "error");
+            break;
+          }
+          case "remove":
+          case "rm": {
+            if (!rest.trim()) { ctx.ui.notify("Usage: /tasks remove <id>", "warning"); return; }
+            const result = removeTask(rest.trim());
+            ctx.ui.notify(result.message, result.ok ? "success" : "error");
+            break;
+          }
+          case "clear": {
+            const result = clearDone();
+            ctx.ui.notify(result.message, result.ok ? "success" : "error");
+            break;
+          }
+          default:
+            ctx.ui.notify("Usage: /tasks [add <desc> | done <id> | remove <id> | clear | all]", "warning");
+        }
+      },
+    });
+  }
+
+  // ── Command: /vault ────────────────────────────────────────────────────────
+
+  pi.registerCommand("vault", {
+    description: "Vault status dashboard (usage: /vault)",
+    handler: async (_args, ctx) => {
+      rebuildVaultGraph();
+      const status = getVaultStatus(VAULT_DIR, vaultGraph);
+      const typeCounts = Object.entries(status.byType).map(([t, n]) => `${n} ${t}`).join(", ");
+      const parts = [
+        `${status.totalNotes} notes`,
+        typeCounts ? `(${typeCounts})` : "",
+        `${status.orphanCount} orphans`,
+        `${status.inboxItems} inbox`,
+        `avg ${status.avgLinksPerNote.toFixed(1)} links/note`,
+      ].filter(Boolean);
+      ctx.ui.notify(`Vault: ${parts.join(" | ")}`, "info");
+      updateVaultWidget(ctx);
+    },
+  });
+
+  // ── Command: /rho ──────────────────────────────────────────────────────────
+
+  if (!IS_SUBAGENT) {
+    pi.registerCommand("rho", {
+      description: "Control rho check-in system: status, enable, disable, now, interval <time>, model <auto|provider/model>, automemory <on|off|toggle>",
+      handler: async (args, ctx) => {
+        const [subcmd, ...rest] = args.trim().split(/\s+/);
+        const arg = rest.join(" ");
+
+        switch (subcmd) {
+          case "status":
+          case "": {
+            let modelInfo: string;
+            if (hbState.heartbeatModel) modelInfo = `${hbState.heartbeatModel} (pinned)`;
+            else if (ctx.model) modelInfo = `${ctx.model.provider}/${ctx.model.id} (session)`;
+            else modelInfo = "auto";
+            const am = getAutoMemoryEffective();
+            ctx.ui.notify(
+              `Rho: ${hbState.enabled ? "enabled" : "disabled"}, ` +
+              `interval: ${formatInterval(hbState.intervalMs)}, ` +
+              `model: ${modelInfo}, ` +
+              `auto-memory: ${am.enabled ? "on" : "off"} (${am.source}), ` +
+              `count: ${hbState.checkCount}`,
+              "info"
+            );
+            break;
+          }
+          case "enable":
+            hbState.enabled = true;
+            scheduleNext(ctx);
+            updateHbStatus(ctx);
+            ctx.ui.notify("Rho enabled", "success");
+            break;
+          case "disable":
+            hbState.enabled = false;
+            scheduleNext(ctx);
+            updateHbStatus(ctx);
+            ctx.ui.notify("Rho disabled", "info");
+            break;
+          case "now":
+            if (!ctx.hasUI) { ctx.ui.notify("Rho requires interactive mode", "error"); return; }
+            triggerCheck(ctx);
+            ctx.ui.notify("Rho check-in triggered", "success");
+            break;
+          case "interval": {
+            if (!arg) { ctx.ui.notify(`Current interval: ${formatInterval(hbState.intervalMs)}`, "info"); return; }
+            const intervalMs = parseInterval(arg);
+            if (intervalMs === null) { ctx.ui.notify("Invalid interval. Use format: 30m, 1h, or 0 to disable", "error"); return; }
+            if (intervalMs !== 0 && (intervalMs < MIN_INTERVAL_MS || intervalMs > MAX_INTERVAL_MS)) { ctx.ui.notify("Interval must be between 5m and 24h", "error"); return; }
+            hbState.intervalMs = intervalMs;
+            if (intervalMs === 0) hbState.enabled = false;
+            scheduleNext(ctx);
+            updateHbStatus(ctx);
+            ctx.ui.notify(intervalMs === 0 ? "Rho disabled (interval = 0)" : `Rho interval set to ${formatInterval(intervalMs)}`, "success");
+            break;
+          }
+          case "automemory": {
+            const mode = arg.trim().toLowerCase();
+            const current = getAutoMemoryEffective();
+            const cfg = readConfig();
+            const cfgVal = typeof cfg.autoMemory === "boolean" ? cfg.autoMemory : undefined;
+
+            if (!mode || mode === "status") {
+              let text = `Auto-memory: ${current.enabled ? "on" : "off"} (${current.source})`;
+              if (cfgVal !== undefined) text += `, config=${cfgVal ? "on" : "off"}`;
+              const envRaw = (process.env.RHO_AUTO_MEMORY || "").trim();
+              if (envRaw) text += `, env=${envRaw}`;
+              ctx.ui.notify(text, "info");
+              return;
+            }
+
+            let nextConfig: boolean;
+            if (mode === "on") nextConfig = true;
+            else if (mode === "off") nextConfig = false;
+            else if (mode === "toggle") nextConfig = !(typeof cfgVal === "boolean" ? cfgVal : true);
+            else { ctx.ui.notify("Usage: /rho automemory [on|off|toggle|status]", "warning"); return; }
+
+            writeConfig({ autoMemory: nextConfig });
+            const after = getAutoMemoryEffective();
+            if (after.source === "env") ctx.ui.notify("Note: RHO_AUTO_MEMORY env var overrides config", "warning");
+            ctx.ui.notify(`Auto-memory: ${after.enabled ? "on" : "off"} (${after.source})`, "success");
+            break;
+          }
+          case "model": {
+            if (!arg) {
+              let modelDisplay: string;
+              if (hbState.heartbeatModel) modelDisplay = `${hbState.heartbeatModel} (pinned)`;
+              else if (ctx.model) modelDisplay = `${ctx.model.provider}/${ctx.model.id} (session)`;
+              else modelDisplay = "auto";
+              ctx.ui.notify(`Heartbeat model: ${modelDisplay}`, "info");
+              return;
+            }
+            if (arg === "auto") {
+              hbState.heartbeatModel = null;
+              hbCachedModel = null;
+              saveHbState();
+              ctx.ui.notify("Heartbeat model set to auto (uses session model)", "success");
+              return;
+            }
+            const parts = arg.split("/");
+            if (parts.length !== 2) { ctx.ui.notify("Usage: /rho model auto  OR  /rho model provider/model-id", "error"); return; }
+            const model = ctx.modelRegistry.find(parts[0], parts[1]);
+            if (!model) { ctx.ui.notify(`Model '${arg}' not found`, "error"); return; }
+            hbState.heartbeatModel = arg;
+            saveHbState();
+            ctx.ui.notify(`Heartbeat model pinned to ${arg} ($${model.cost.output}/M output)`, "success");
+            break;
+          }
+          default:
+            ctx.ui.notify("Usage: /rho [status|enable|disable|now|interval|model|automemory]", "warning");
+            ctx.ui.notify("Examples: /rho now, /rho interval 30m, /rho model auto, /rho automemory toggle", "info");
+        }
+      },
+    });
+  }
 }

@@ -1,3 +1,6 @@
+# Dev dependencies (symlinks to pi runtime for tests)
+node_modules/
+
 # Site build artifacts
 site/.wrangler/
 site/node_modules/

@@ -1,5 +1,5 @@
 ---
-name: rhobot-mail
+name: rho-cloud-email
 description: Manage agent email at name@rhobot.dev via the Rhobot Mail API. Use when checking inbox, reading messages, sending email, or managing allowed senders. Requires credentials from rho-cloud-onboard.
 ---
 
