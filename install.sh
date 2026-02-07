@@ -135,18 +135,45 @@ install_extensions() {
   mkdir -p "$PI_DIR/extensions"
 
   # Core extensions
+  # pi discovery supports:
+  # - extensions/*.ts (single-file extensions)
+  # - extensions/*/index.ts (directory extensions)
+  # This repo uses directory extensions, plus a shared lib/ folder.
+
+  # Link shared library directory (must exist for relative imports like ../lib/mod.ts)
+  if [ -d "$REPO_DIR/extensions/lib" ]; then
+    ln -sf "$REPO_DIR/extensions/lib" "$PI_DIR/extensions/lib"
+  fi
+
+  # Link directory-style extensions (extensions/<name>/index.ts)
+  for d in "$REPO_DIR/extensions"/*/; do
+    [ -d "$d" ] || continue
+    local name
+    name="$(basename "$d")"
+    [ "$name" = "lib" ] && continue
+    if [ -f "${d}index.ts" ] || [ -f "${d}index.js" ]; then
+      ln -sf "$d" "$PI_DIR/extensions/$name"
+    fi
+  done
+
+  # Back-compat: link any single-file extensions sitting at extensions/*.ts
   for f in "$REPO_DIR/extensions"/*.ts; do
     [ -f "$f" ] || continue
     ln -sf "$f" "$PI_DIR/extensions/$(basename "$f")"
   done
+
   echo "✓ Symlinked core extensions"
 
   # Platform extensions
   local plat_ext="$REPO_DIR/platforms/$PLATFORM/extensions"
   if [ -d "$plat_ext" ]; then
-    for f in "$plat_ext"/*.ts; do
-      [ -f "$f" ] || continue
-      ln -sf "$f" "$PI_DIR/extensions/$(basename "$f")"
+    for entry in "$plat_ext"/*; do
+      [ -e "$entry" ] || continue
+      if [ -f "$entry" ] && [[ "$entry" == *.ts ]]; then
+        ln -sf "$entry" "$PI_DIR/extensions/$(basename "$entry")"
+      elif [ -d "$entry" ] && { [ -f "$entry/index.ts" ] || [ -f "$entry/index.js" ]; }; then
+        ln -sf "$entry" "$PI_DIR/extensions/$(basename "$entry")"
+      fi
     done
     echo "✓ Symlinked $PLATFORM extensions"
   fi

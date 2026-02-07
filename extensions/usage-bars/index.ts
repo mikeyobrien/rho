@@ -1,24 +1,23 @@
 /**
- * Usage Bars Extension - CodexBar-style usage widget for pi
+ * Usage Extension - Minimal API usage indicator for pi
  *
- * Shows Codex (OpenAI) and Anthropic (Claude) API usage bars
- * as a persistent widget above the editor. Polls OAuth APIs
- * using tokens from ~/.pi/agent/auth.json.
+ * Shows Codex (OpenAI) and Anthropic (Claude) API usage as
+ * color-coded percentages in the footer status bar. Polls OAuth
+ * APIs using tokens from ~/.pi/agent/auth.json.
  *
- * Only shows the bar for the currently active provider.
+ * Only shows usage for the currently active provider.
  *
  * Inspired by steipete/CodexBar.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
 const AUTH_FILE = path.join(os.homedir(), ".pi", "agent", "auth.json");
 const POLL_INTERVAL_MS = 2 * 60 * 1000;
-const BAR_WIDTH = 20;
+
 
 interface AuthData {
   "openai-codex"?: { access?: string; refresh?: string };
@@ -94,18 +93,6 @@ async function fetchClaudeUsage(token: string): Promise<UsageState["claude"]> {
   }
 }
 
-function renderBar(pct: number, width: number, fillFn: (s: string) => string, emptyFn: (s: string) => string): string {
-  const filled = Math.round((pct / 100) * width);
-  const empty = width - filled;
-  return fillFn("█".repeat(filled)) + emptyFn("░".repeat(empty));
-}
-
-function barColor(pct: number, theme: any): (s: string) => string {
-  if (pct >= 80) return (s: string) => theme.fg("error", s);
-  if (pct >= 50) return (s: string) => theme.fg("warning", s);
-  return (s: string) => theme.fg("success", s);
-}
-
 function detectProvider(model: { provider?: string; id?: string; name?: string; api?: string } | string | undefined | null): "codex" | "claude" | null {
   if (!model) return null;
   if (typeof model === "string") {
@@ -154,69 +141,29 @@ export default function (pi: ExtensionAPI) {
     const auth = readAuth();
     if (!auth) return;
     const active = state.activeProvider;
-    // Only fetch usage for the active provider
     if (active === "codex" && auth["openai-codex"]?.access) {
       state.codex = await fetchCodexUsage(auth["openai-codex"].access);
     } else if (active === "claude" && auth.anthropic?.access) {
       state.claude = await fetchClaudeUsage(auth.anthropic.access);
     }
     state.lastPoll = Date.now();
-    updateWidget();
+    updateStatus();
   }
 
-  function updateWidget() {
-    if (ctx) {
-      ctx.ui.setWidget("usage-bars", (_tui: any, theme: any) => ({
-        render: (width: number) => renderWidget(theme, width),
-        invalidate: () => {},
-      }));
-    }
-  }
-
-  function renderProviderLine(
-    label: string,
-    data: { session: number; weekly: number; error?: string; extraSpend?: number; extraLimit?: number },
-    theme: any,
-    width?: number,
-  ): string {
-    const dimFn = (s: string) => theme.fg("dim", s);
-    const emptyFn = (s: string) => theme.fg("dim", s);
-    if (data.error) return ` ${theme.fg("muted", label)} ${theme.fg("error", data.error)}`;
-
-    const sPct = String(data.session).padStart(3) + "%";
-    const wPct = String(data.weekly).padStart(3) + "%";
-
-    const sFill = barColor(data.session, theme);
-    const wFill = barColor(data.weekly, theme);
-    const sBar = renderBar(data.session, BAR_WIDTH, sFill, emptyFn);
-    const wBar = renderBar(data.weekly, BAR_WIDTH, wFill, emptyFn);
-    let line = ` ${theme.fg("muted", label)} 5h ${sBar} ${dimFn(sPct)}  7d ${wBar} ${dimFn(wPct)}`;
-    if (data.extraSpend !== undefined && data.extraLimit !== undefined) {
-      line += `  ${dimFn("$" + data.extraSpend.toFixed(0) + "/" + data.extraLimit)}`;
-    }
-
-    if (width !== undefined && visibleWidth(line) > width) {
-      const compactWithLabel = ` ${theme.fg("muted", label)} 5h ${dimFn(sPct)} 7d ${dimFn(wPct)}`;
-      if (visibleWidth(compactWithLabel) <= width) return compactWithLabel;
-      return ` 5h ${dimFn(sPct)} 7d ${dimFn(wPct)}`;
-    }
-
-    return line;
-  }
-
-  function renderWidget(theme: any, width: number): string[] {
+  function updateStatus() {
     const active = state.activeProvider;
-    let lines: string[] = [];
-    if (active === "codex" && state.codex) lines = [renderProviderLine("Codex ", state.codex, theme, width)];
-    else if (active === "claude" && state.claude) lines = [renderProviderLine("Claude", state.claude, theme, width)];
-    return lines.map((line) => truncateToWidth(line, width, "", true));
+    const data = active === "codex" ? state.codex : active === "claude" ? state.claude : null;
+    // Emit for custom footer consumption
+    if (data && !data.error) {
+      pi.events.emit("usage:update", { session: data.session, weekly: data.weekly });
+    }
   }
 
   function updateProviderFrom(modelLike: any): boolean {
     const prev = state.activeProvider;
     state.activeProvider = detectProvider(modelLike);
     if (prev !== state.activeProvider) {
-      updateWidget();
+      updateStatus();
       return true;
     }
     return false;

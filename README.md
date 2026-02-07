@@ -117,13 +117,13 @@ Or use the `/email` command once registered:
 
 | Extension | Platforms | Description |
 |-----------|-----------|-------------|
-| `rho.ts` | All | Heartbeat and check-in loop |
-| `brain.ts` | All | Persistent memory across sessions |
-| `brave-search.ts` | All | Web search via Brave API |
-| `memory-viewer.ts` | All | Browse and search memories |
-| `usage-bars.ts` | All | Token/cost usage display |
-| `moltbook-viewer.ts` | All | Moltbook post viewer |
-| `email.ts` | All | Agent inbox at name@rhobot.dev |
+| `rho/` | All | Heartbeat, memory, tasks, and vault tooling |
+| `brave-search/` | All | Web search via Brave API |
+| `memory-viewer/` | All | Browse and search memories |
+| `usage-bars/` | All | Token/cost usage display |
+| `moltbook-viewer/` | All | Moltbook post viewer |
+| `email/` | All | Agent inbox at name@rhobot.dev |
+| `vault-search/` | All | Full-text search over the vault (FTS + ripgrep fallback) |
 | `tasker.ts` | Android | UI automation via Tasker |
 
 ### Skills vs extensions
@@ -205,13 +205,18 @@ adb shell appops set net.dinglisch.android.taskerm PROJECT_MEDIA allow
 
 ```
 rho/
-├── extensions/              # Core extensions (all platforms)
-│   ├── brain.ts
-│   ├── brave-search.ts
-│   ├── memory-viewer.ts
-│   ├── moltbook-viewer.ts
-│   ├── rho.ts
-│   └── usage-bars.ts
+├── extensions/              # Core pi extensions
+│   ├── brave-search/         # index.ts
+│   ├── email/                # index.ts
+│   ├── memory-viewer/        # index.ts
+│   ├── moltbook-viewer/      # index.ts
+│   ├── rho/                  # index.ts
+│   ├── usage-bars/           # index.ts
+│   ├── vault-search/         # index.ts
+│   └── lib/                  # shared modules (NOT an extension)
+│       ├── mod.ts            # barrel exports (do not name this index.ts)
+│       ├── vault-lib.ts
+│       └── vault-search-lib.ts
 ├── skills/                  # Core skills (all platforms)
 │   └── update-pi/
 ├── platforms/

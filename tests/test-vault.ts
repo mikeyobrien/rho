@@ -29,7 +29,7 @@ import {
   VAULT_SUBDIRS,
   type VaultNote,
   type VaultGraph,
-} from "../extensions/rho.ts";
+} from "../extensions/rho/index.ts";
 
 // ---- Test harness ----
 let PASS = 0;

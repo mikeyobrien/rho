@@ -362,10 +362,10 @@ export default function (pi: ExtensionAPI) {
     if (!ctx.hasUI) return;
     const theme = ctx.ui.theme;
     const heldSuffix = currentHeld > 0 ? theme.fg("dim", ` +${currentHeld} held`) : "";
-    if (currentUnread > 0) {
+    if (currentUnread > 0 || currentHeld > 0) {
       ctx.ui.setStatus("email", theme.fg("warning", `✉ ${currentUnread}`) + heldSuffix);
     } else {
-      ctx.ui.setStatus("email", theme.fg("dim", "✉ 0") + heldSuffix);
+      ctx.ui.setStatus("email", undefined);
     }
   };
 

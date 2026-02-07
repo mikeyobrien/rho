@@ -24,6 +24,9 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { execSync } from "node:child_process";
+import { VaultSearch, parseFrontmatter, extractWikilinks, extractTitle } from "../lib/mod.ts";
+
+export { parseFrontmatter, extractWikilinks };
 
 // ─── Path Constants ───────────────────────────────────────────────────────────
 
@@ -918,14 +921,7 @@ export interface VaultNote {
 
 export type VaultGraph = Map<string, VaultNote>;
 
-export interface Frontmatter {
-  type?: string;
-  created?: string;
-  updated?: string;
-  tags?: string[];
-  source?: string;
-  [key: string]: unknown;
-}
+export type { Frontmatter } from "../lib/mod.ts";
 
 interface ValidationResult {
   valid: boolean;
@@ -950,64 +946,8 @@ interface NoteListEntry {
   tags: string[];
 }
 
-// ─── Vault: Frontmatter Parser ────────────────────────────────────────────────
-
-export function parseFrontmatter(content: string): Frontmatter {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return {};
-
-  const yaml = match[1];
-  const result: Frontmatter = {};
-
-  for (const line of yaml.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    const colonIdx = trimmed.indexOf(":");
-    if (colonIdx === -1) continue;
-
-    const key = trimmed.slice(0, colonIdx).trim();
-    let value = trimmed.slice(colonIdx + 1).trim();
-
-    if (value.startsWith("[") && value.endsWith("]")) {
-      const inner = value.slice(1, -1).trim();
-      if (inner === "") {
-        result[key] = [];
-      } else {
-        result[key] = inner.split(",").map((s) => s.trim());
-      }
-    } else {
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-      result[key] = value;
-    }
-  }
-
-  return result;
-}
-
-// ─── Vault: Wikilink Extractor ────────────────────────────────────────────────
-
-const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-
-export function extractWikilinks(content: string): string[] {
-  const slugs = new Set<string>();
-  let m: RegExpExecArray | null;
-  WIKILINK_RE.lastIndex = 0;
-  while ((m = WIKILINK_RE.exec(content)) !== null) {
-    slugs.add(m[1].trim());
-  }
-  return Array.from(slugs);
-}
-
-// ─── Vault: Helpers ───────────────────────────────────────────────────────────
-
-function extractTitle(content: string, fallback: string): string {
-  const match = content.match(/^#\s+(.+)$/m);
-  return match ? match[1].trim() : fallback;
-}
+// ─── Vault: Frontmatter / Wikilinks / Title helpers ──────────────────────────
+// Implemented in vault-lib.ts (shared with vault-search-lib.ts)
 
 function slugFromPath(filePath: string): string {
   return path.basename(filePath, ".md");
@@ -1437,42 +1377,13 @@ export default function (pi: ExtensionAPI) {
   let compactMemoryInFlight = false;
   let cachedBrainPrompt: string | null = null;
 
-  function updateBrainWidget(ctx: {
-    cwd?: string;
-    ui?: { setStatus?: (id: string, text: string | undefined) => void };
-  }) {
-    if (!ctx?.ui?.setStatus) return;
-    const memory = readJsonl<Entry>(MEMORY_FILE);
-    const contexts = readJsonl<ContextEntry>(CONTEXT_FILE);
-    const lCount = memory.filter((e) => e.type === "learning").length;
-    const pCount = memory.filter((e) => e.type === "preference").length;
-    const cwd = ctx.cwd ?? process.cwd();
-    const matched = contexts.find((c) => cwd.startsWith(c.path));
-    let status = `🧠 ${lCount}L ${pCount}P`;
-    if (matched) status += ` · ${matched.project}`;
-    ctx.ui.setStatus("brain", status);
-  }
-
   // ── Vault state ────────────────────────────────────────────────────────────
 
   let vaultGraph: VaultGraph = buildGraph();
+  const vaultSearcher = new VaultSearch(VAULT_DIR);
 
   function rebuildVaultGraph(): void {
     vaultGraph = buildGraph();
-  }
-
-  function updateVaultWidget(ctx: {
-    ui?: { setStatus?: (id: string, text: string | undefined) => void };
-  }) {
-    if (!ctx?.ui?.setStatus) return;
-    let noteCount = 0;
-    let orphanCount = 0;
-    for (const note of vaultGraph.values()) {
-      noteCount++;
-      if (note.backlinks.size === 0 && !note.slug.startsWith("_")) orphanCount++;
-    }
-    const status = `📓 ${noteCount} notes${orphanCount > 0 ? ` (${orphanCount} orphans)` : ""}`;
-    ctx.ui.setStatus("vault", status);
   }
 
   // ── Heartbeat state ────────────────────────────────────────────────────────
@@ -1487,7 +1398,35 @@ export default function (pi: ExtensionAPI) {
   };
 
   let hbTimer: NodeJS.Timeout | null = null;
+  let hbStatusTimer: NodeJS.Timeout | null = null;
   let hbCachedModel: ResolvedModel | null = null;
+
+  const updateStatusLine = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI) return;
+    const theme = ctx.ui.theme;
+
+    if (!hbState.enabled || hbState.intervalMs === 0) {
+      ctx.ui.setStatus("rho-heartbeat", theme.fg("dim", "ρ off"));
+      return;
+    }
+
+    if (!hbState.nextCheckAt) {
+      ctx.ui.setStatus("rho-heartbeat", theme.fg("dim", "ρ --m"));
+      return;
+    }
+
+    const remaining = Math.max(0, hbState.nextCheckAt - Date.now());
+    const mins = Math.ceil(remaining / 60000);
+    ctx.ui.setStatus("rho-heartbeat", theme.fg("dim", `ρ ${mins}m`));
+  };
+
+  const startStatusUpdates = (ctx: ExtensionContext) => {
+    if (hbStatusTimer) clearInterval(hbStatusTimer);
+    if (!IS_SUBAGENT && ctx.hasUI) {
+      updateStatusLine(ctx);
+      hbStatusTimer = setInterval(() => updateStatusLine(ctx), 60000);
+    }
+  };
 
   const loadHbState = () => {
     // Migrate legacy state
@@ -1610,6 +1549,7 @@ export default function (pi: ExtensionAPI) {
     if (!hbState.enabled || hbState.intervalMs === 0) {
       hbState.nextCheckAt = null;
       saveHbState();
+      updateStatusLine(ctx);
       return;
     }
 
@@ -1621,6 +1561,7 @@ export default function (pi: ExtensionAPI) {
 
     hbTimer = setTimeout(() => { triggerCheck(ctx); }, Math.max(0, nextAt - now));
     saveHbState();
+    updateStatusLine(ctx);
   };
 
   const triggerCheck = (ctx: ExtensionContext) => {
@@ -1664,21 +1605,7 @@ export default function (pi: ExtensionAPI) {
     scheduleNext(ctx);
   };
 
-  const updateHbStatus = (ctx: ExtensionContext) => {
-    if (!ctx.hasUI) return;
-    const theme = ctx.ui.theme;
-    if (!hbState.enabled || hbState.intervalMs === 0) {
-      ctx.ui.setStatus("rho", theme.fg("dim", "ρ off"));
-      return;
-    }
-    const interval = formatInterval(hbState.intervalMs);
-    if (hbState.nextCheckAt) {
-      const mins = Math.ceil((hbState.nextCheckAt - Date.now()) / (60 * 1000));
-      ctx.ui.setStatus("rho", theme.fg("dim", `ρ ${interval} (${mins}m)`));
-    } else {
-      ctx.ui.setStatus("rho", theme.fg("dim", `ρ ${interval}`));
-    }
-  };
+
 
   // ── Event Handlers ─────────────────────────────────────────────────────────
 
@@ -1688,18 +1615,16 @@ export default function (pi: ExtensionAPI) {
     cachedBrainPrompt = brainContext.trim()
       ? "\n\n# Memory\n\n" + MEMORY_INSTRUCTIONS + "\n\n" + brainContext
       : null;
-    updateBrainWidget(ctx);
 
     // Vault: rebuild graph
     rebuildVaultGraph();
-    updateVaultWidget(ctx);
 
     // Heartbeat: restore state and schedule
     if (!IS_SUBAGENT) {
       loadHbState();
       reconstructHbState(ctx);
       scheduleNext(ctx);
-      updateHbStatus(ctx);
+      startStatusUpdates(ctx);
     }
   });
 
@@ -1716,7 +1641,6 @@ export default function (pi: ExtensionAPI) {
       try {
         const result = await runAutoMemoryExtraction(event.messages, ctx, { source: "auto" });
         if (result && (result.storedLearnings > 0 || result.storedPrefs > 0)) {
-          updateBrainWidget(ctx);
         }
       } catch (error) {
         if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
@@ -1741,7 +1665,6 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("ρ: OK (no alerts)", "info");
         }
       }
-      updateHbStatus(ctx);
     }
   });
 
@@ -1757,7 +1680,6 @@ export default function (pi: ExtensionAPI) {
     compactMemoryInFlight = true;
     try {
       const result = await runAutoMemoryExtraction(messages, ctx, { source: "compaction", signal: event.signal });
-      if (result && (result.storedLearnings > 0 || result.storedPrefs > 0)) updateBrainWidget(ctx);
     } catch (error) {
       if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
         ctx.ui.notify(`Auto-memory error: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -1772,18 +1694,19 @@ export default function (pi: ExtensionAPI) {
       loadHbState();
       reconstructHbState(ctx);
       scheduleNext(ctx);
-      updateHbStatus(ctx);
+      startStatusUpdates(ctx);
     });
 
     pi.on("session_fork", async (_event, ctx) => {
       loadHbState();
       reconstructHbState(ctx);
       scheduleNext(ctx);
-      updateHbStatus(ctx);
+      startStatusUpdates(ctx);
     });
 
     pi.on("session_shutdown", async () => {
       if (hbTimer) { clearTimeout(hbTimer); hbTimer = null; }
+      if (hbStatusTimer) { clearInterval(hbStatusTimer); hbStatusTimer = null; }
     });
   }
 
@@ -1812,7 +1735,6 @@ export default function (pi: ExtensionAPI) {
           if (!result.stored) {
             return { content: [{ type: "text", text: result.reason === "duplicate" ? "Already stored" : "Not stored" }], details: { duplicate: result.reason === "duplicate" } };
           }
-          updateBrainWidget(ctx);
           return { content: [{ type: "text", text: `Stored: ${params.content}` }], details: { id: result.id } };
         }
 
@@ -1823,7 +1745,6 @@ export default function (pi: ExtensionAPI) {
           if (!result.stored) {
             return { content: [{ type: "text", text: result.reason === "duplicate" ? "Already stored" : "Not stored" }], details: { duplicate: result.reason === "duplicate" } };
           }
-          updateBrainWidget(ctx);
           return { content: [{ type: "text", text: `Stored [${category}]: ${params.content}` }], details: { id: result.id } };
         }
 
@@ -1869,7 +1790,6 @@ export default function (pi: ExtensionAPI) {
         case "remove": {
           if (!params.id) return { content: [{ type: "text", text: "Error: id required" }], details: { error: true } };
           const result = removeMemoryEntry(params.id);
-          if (result.ok) updateBrainWidget(ctx);
           return { content: [{ type: "text", text: result.message }], details: { ok: result.ok } };
         }
 
@@ -1964,16 +1884,20 @@ export default function (pi: ExtensionAPI) {
     description:
       "Knowledge graph for persistent notes with wikilinks. " +
       "Actions: capture (quick inbox entry), read (note + backlinks), write (create/update with quality gate), " +
-      "status (vault stats), list (filter by type/query). " +
+      "status (vault stats), list (filter by type/query), search (FTS5 with ripgrep fallback). " +
       "Notes require frontmatter, a ## Connections section with [[wikilinks]], except log type.",
     parameters: Type.Object({
-      action: StringEnum(["capture", "read", "write", "status", "list"] as const),
+      action: StringEnum(["capture", "read", "write", "status", "list", "search"] as const),
       slug: Type.Optional(Type.String({ description: "Note slug (kebab-case filename without .md)" })),
       content: Type.Optional(Type.String({ description: "Note content (full markdown for write, text for capture)" })),
       type: Type.Optional(Type.String({ description: "Note type: concept, project, pattern, reference, log, moc" })),
       source: Type.Optional(Type.String({ description: "Source of the note (conversation, url, etc)" })),
       context: Type.Optional(Type.String({ description: "Additional context for capture entries" })),
-      query: Type.Optional(Type.String({ description: "Search/filter query for list action" })),
+      query: Type.Optional(Type.String({ description: "Query for list/search actions" })),
+      tags: Type.Optional(Type.Array(Type.String(), { description: "(search) Filter to notes containing ALL of these tags." })),
+      limit: Type.Optional(Type.Number({ description: "(search) Max results (default 10, max 30)." })),
+      mode: Type.Optional(StringEnum(["fts", "grep"] as const, { description: "(search) Force search mode." })),
+      include_content: Type.Optional(Type.Boolean({ description: "(search) Include full note content (truncated). Default false." })),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -2002,7 +1926,6 @@ export default function (pi: ExtensionAPI) {
           const result = writeNote(VAULT_DIR, params.slug, params.content, noteType);
           if (!result.valid) return { content: [{ type: "text", text: `Rejected: ${result.reason}` }], details: { error: true, reason: result.reason } };
           rebuildVaultGraph();
-          updateVaultWidget(ctx);
           return { content: [{ type: "text", text: `Written: ${params.slug} -> ${result.path}` }], details: { action: "write", slug: params.slug, path: result.path, type: noteType } };
         }
 
@@ -2031,6 +1954,44 @@ export default function (pi: ExtensionAPI) {
           return { content: [{ type: "text", text: `${header}${params.query ? ` matching "${params.query}"` : ""}:\n${lines.join("\n")}` }], details: { action: "list", count: notes.length } };
         }
 
+        case "search": {
+          if (!params.query) {
+            return { content: [{ type: "text", text: "Error: query required for search" }], details: { error: true } };
+          }
+
+          const res = await vaultSearcher.search({
+            query: params.query,
+            type: params.type,
+            tags: params.tags,
+            limit: params.limit,
+            mode: params.mode,
+            include_content: params.include_content,
+          } as any);
+
+          if (res.results.length === 0) {
+            return {
+              content: [{ type: "text", text: `No results for "${params.query}" (searched ${res.indexed} notes).` }],
+              details: { action: "search", query: params.query, mode: res.mode, total: 0, indexed: res.indexed },
+            };
+          }
+
+          const lines = res.results.map((r, i) => {
+            let line = `${i + 1}. **${r.title}** (${r.path}) [${r.type}]`;
+            if (r.tags?.length > 0) line += ` {${r.tags.join(", ")}}`;
+            if (r.score) line += ` score:${Number(r.score).toFixed(3)}`;
+            if (r.snippet) line += `\n   ${r.snippet}`;
+            if (r.wikilinks?.length > 0) line += `\n   links: ${r.wikilinks.map((l) => `[[${l}]]`).join(", ")}`;
+            if (r.content) line += `\n---\n${r.content}\n---`;
+            return line;
+          });
+
+          const header = `${res.results.length} result(s) for "${params.query}" (${res.mode}, ${res.indexed} notes)`;
+          return {
+            content: [{ type: "text", text: `${header}\n\n${lines.join("\n\n")}` }],
+            details: { action: "search", query: params.query, mode: res.mode, total: res.results.length, indexed: res.indexed },
+          };
+        }
+
         default:
           return { content: [{ type: "text", text: "Unknown action" }], details: { error: true } };
       }
@@ -2055,13 +2016,11 @@ export default function (pi: ExtensionAPI) {
           case "enable":
             hbState.enabled = true;
             scheduleNext(ctx);
-            updateHbStatus(ctx);
             return { content: [{ type: "text", text: "Rho enabled" }], details: { action: "enable", enabled: hbState.enabled } as RhoDetails };
 
           case "disable":
             hbState.enabled = false;
             scheduleNext(ctx);
-            updateHbStatus(ctx);
             return { content: [{ type: "text", text: "Rho disabled" }], details: { action: "disable", enabled: hbState.enabled } as RhoDetails };
 
           case "trigger":
@@ -2085,7 +2044,6 @@ export default function (pi: ExtensionAPI) {
             hbState.intervalMs = intervalMs;
             if (intervalMs === 0) hbState.enabled = false;
             scheduleNext(ctx);
-            updateHbStatus(ctx);
             const status = intervalMs === 0 ? "disabled" : `set to ${formatInterval(intervalMs)}`;
             return { content: [{ type: "text", text: `Rho interval ${status}` }], details: { action: "interval", intervalMs: hbState.intervalMs, enabled: hbState.enabled } as RhoDetails };
           }
@@ -2342,7 +2300,6 @@ export default function (pi: ExtensionAPI) {
         `avg ${status.avgLinksPerNote.toFixed(1)} links/note`,
       ].filter(Boolean);
       ctx.ui.notify(`Vault: ${parts.join(" | ")}`, "info");
-      updateVaultWidget(ctx);
     },
   });
 
@@ -2376,13 +2333,11 @@ export default function (pi: ExtensionAPI) {
           case "enable":
             hbState.enabled = true;
             scheduleNext(ctx);
-            updateHbStatus(ctx);
             ctx.ui.notify("Rho enabled", "success");
             break;
           case "disable":
             hbState.enabled = false;
             scheduleNext(ctx);
-            updateHbStatus(ctx);
             ctx.ui.notify("Rho disabled", "info");
             break;
           case "now":
@@ -2398,7 +2353,6 @@ export default function (pi: ExtensionAPI) {
             hbState.intervalMs = intervalMs;
             if (intervalMs === 0) hbState.enabled = false;
             scheduleNext(ctx);
-            updateHbStatus(ctx);
             ctx.ui.notify(intervalMs === 0 ? "Rho disabled (interval = 0)" : `Rho interval set to ${formatInterval(intervalMs)}`, "success");
             break;
           }

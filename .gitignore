@@ -26,3 +26,4 @@ skills/*/
 !skills/update-pi/
 !skills/rho-cloud-onboard/
 !skills/rho-cloud-email/
+.worktrees/
