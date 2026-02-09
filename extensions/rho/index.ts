@@ -2170,9 +2170,10 @@ export default function (pi: ExtensionAPI) {
           .filter((c) => c.type === "text")
           .map((c) => c.text)
           .join("");
-        const trimmed = text.trim();
-        const isRhoOk = trimmed === "RHO_OK" || trimmed.startsWith("RHO_OK\n") || trimmed.endsWith("\nRHO_OK");
-        if (isRhoOk && trimmed.length <= 300) {
+        const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+        const lastLine = lines[lines.length - 1] ?? "";
+        const isRhoOk = /\bRHO_OK\b/.test(lastLine);
+        if (isRhoOk) {
           ctx.ui.notify("ρ: OK (no alerts)", "info");
         }
       }
