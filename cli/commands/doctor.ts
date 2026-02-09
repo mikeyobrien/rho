@@ -54,10 +54,11 @@ Options:
   console.log(formatResults(results));
   console.log("");
 
+  const RESET = "\x1b[0m";
   const parts: string[] = [];
-  if (counts.ok > 0) parts.push(`${counts.ok} ok`);
-  if (counts.warn > 0) parts.push(`${counts.warn} warning${counts.warn > 1 ? "s" : ""}`);
-  if (counts.fail > 0) parts.push(`${counts.fail} error${counts.fail > 1 ? "s" : ""}`);
+  if (counts.ok > 0) parts.push(`\x1b[32m${counts.ok} ok${RESET}`);
+  if (counts.warn > 0) parts.push(`\x1b[33m${counts.warn} warning${counts.warn > 1 ? "s" : ""}${RESET}`);
+  if (counts.fail > 0) parts.push(`\x1b[31m${counts.fail} error${counts.fail > 1 ? "s" : ""}${RESET}`);
   console.log(parts.join(", "));
 
   if (counts.fail > 0) process.exit(1);

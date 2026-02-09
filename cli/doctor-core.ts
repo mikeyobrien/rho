@@ -320,6 +320,13 @@ const STATUS_ICONS: Record<string, string> = {
   fail: "✗",
 };
 
+const STATUS_COLORS: Record<string, string> = {
+  ok: "\x1b[32m",    // green
+  warn: "\x1b[33m",  // yellow
+  fail: "\x1b[31m",  // red
+};
+const RESET = "\x1b[0m";
+
 /**
  * Format check results for terminal display.
  */
@@ -330,12 +337,13 @@ export function formatResults(checks: CategorizedCheck[]): string {
   for (const check of checks) {
     if (check.category !== currentCategory) {
       if (currentCategory !== "") lines.push("");
-      lines.push(check.category);
+      lines.push(`\x1b[1m${check.category}${RESET}`);
       currentCategory = check.category;
     }
 
     const icon = STATUS_ICONS[check.result.status] ?? "?";
-    lines.push(`  ${icon} ${check.result.message}`);
+    const color = STATUS_COLORS[check.result.status] ?? "";
+    lines.push(`  ${color}${icon}${RESET} ${check.result.message}`);
 
     if (check.result.fix && check.result.status !== "ok") {
       lines.push(`    ${check.result.fix}`);
