@@ -1802,11 +1802,13 @@ export default function (pi: ExtensionAPI) {
           const pct = cu ? Math.round(cu.percent) : null;
           const pctPlain = pct === null ? "--%" : `${pct}%`;
 
+          const modelId = ctx.model?.id ?? "";
           let left = pctPlain;
           if (pct !== null) {
             if (pct > 90) left = theme.fg("error", pctPlain);
             else if (pct > 70) left = theme.fg("warning", pctPlain);
           }
+          if (modelId) left = theme.fg("dim", modelId) + "  " + left;
 
           const usage = formatUsageBars();
           const mem = formatMemoryCount();
