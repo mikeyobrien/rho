@@ -10,6 +10,11 @@ import { REGISTRY } from "./registry.ts";
 
 // ---- Types ----
 
+export interface WebConfig {
+  enabled: boolean;
+  port: number;
+}
+
 export interface RhoConfig {
   agent: {
     name: string;
@@ -22,6 +27,7 @@ export interface RhoConfig {
     skills: Record<string, boolean>;
   };
   settings: Record<string, Record<string, unknown>>;
+  web: WebConfig;
 }
 
 export interface PackageEntry {
@@ -99,7 +105,14 @@ export function parseInitToml(content: string): RhoConfig {
     }
   }
 
-  return { agent: { name: agent.name }, modules, settings };
+  // Parse [settings.web] section for web config
+  const rawWebSettings = rawSettings.web as Record<string, unknown> | undefined;
+  const web: WebConfig = {
+    enabled: typeof rawWebSettings?.enabled === "boolean" ? rawWebSettings.enabled : false,
+    port: typeof rawWebSettings?.port === "number" ? rawWebSettings.port : 3141,
+  };
+
+  return { agent: { name: agent.name }, modules, settings, web };
 }
 
 /**

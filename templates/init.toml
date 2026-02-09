@@ -53,3 +53,11 @@ interval = "30m"                      # Check-in interval (e.g., "15m", "1h", "2
 
 # [settings.brave-search]
 # api_key_env = "BRAVE_API_KEY"       # Environment variable for API key
+
+# ── Web UI ─────────────────────────────────────────────
+# Browser-based chat interface and state file editor.
+# Launch with: rho web
+
+[settings.web]
+enabled = false                       # Auto-start with `rho start`
+port = 3141                           # Server port (localhost only)

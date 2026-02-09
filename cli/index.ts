@@ -35,6 +35,7 @@ const COMMANDS: Record<string, CommandDef> = {
   config:  { description: "Show current configuration",                 load: () => import("./commands/config.ts") },
   logs:    { description: "Show recent heartbeat output",               load: () => import("./commands/logs.ts") },
   login:   { description: "Authenticate with pi providers",            load: () => import("./commands/login.ts") },
+  web:     { description: "Launch the web UI server",                   load: () => import("./commands/web.ts") },
 };
 
 function printHelp(): void {

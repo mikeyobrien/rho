@@ -514,6 +514,19 @@ function extractToolOutput(result) {
   return safeString(result);
 }
 
+const THINKING_LEVELS = ["none", "low", "medium", "high"];
+
+// Toast notification levels
+const TOAST_LEVELS = {
+  info: { color: "var(--cyan)", icon: "ℹ" },
+  success: { color: "var(--green)", icon: "✓" },
+  warning: { color: "var(--yellow)", icon: "⚠" },
+  error: { color: "var(--red)", icon: "✕" },
+};
+
+// Default toast duration
+const TOAST_DEFAULT_DURATION = 5000;
+
 document.addEventListener("alpine:init", () => {
   Alpine.data("rhoChat", () => ({
     sessions: [],
@@ -535,6 +548,29 @@ document.addEventListener("alpine:init", () => {
     markdownFrame: null,
     toolCallPartById: new Map(),
 
+    // Chat controls state
+    availableModels: [],
+    currentModel: null,
+    currentThinkingLevel: "medium",
+    isStreaming: false,
+    sessionStats: { tokens: 0, cost: 0 },
+    pendingModelChange: null,
+
+    // Extension UI state
+    extensionDialog: null,
+    extensionWidget: null,
+    extensionStatus: "",
+    toasts: [],
+    toastIdCounter: 0,
+
+    // WebSocket reconnection state
+    wsReconnectAttempts: 0,
+    wsReconnectTimer: null,
+    wsMaxReconnectDelay: 30000,
+    wsBaseReconnectDelay: 1000,
+    isWsConnected: false,
+    showReconnectBanner: false,
+
     async init() {
       marked.setOptions({
         gfm: true,
@@ -543,6 +579,28 @@ document.addEventListener("alpine:init", () => {
       this.connectWebSocket();
       await this.loadSessions();
       this.startPolling();
+      this.setupKeyboardShortcuts();
+    },
+
+    setupKeyboardShortcuts() {
+      document.addEventListener("keydown", (e) => {
+        // Escape to close dialogs
+        if (e.key === "Escape") {
+          if (this.extensionDialog) {
+            this.dismissDialog(null);
+            e.preventDefault();
+            return;
+          }
+        }
+      });
+    },
+
+    handleComposerKeydown(e) {
+      // Enter to send (without shift)
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        this.handlePromptSubmit();
+      }
     },
 
     connectWebSocket() {
@@ -550,20 +608,63 @@ document.addEventListener("alpine:init", () => {
         return;
       }
 
+      // Clear any pending reconnect timer
+      if (this.wsReconnectTimer) {
+        clearTimeout(this.wsReconnectTimer);
+        this.wsReconnectTimer = null;
+      }
+
       const ws = new WebSocket(buildWsUrl());
+
+      ws.addEventListener("open", () => {
+        this.isWsConnected = true;
+        this.showReconnectBanner = false;
+        this.wsReconnectAttempts = 0;
+        this.error = "";
+      });
+
       ws.addEventListener("message", (event) => {
         this.handleWsMessage(event);
       });
+
       ws.addEventListener("close", () => {
         if (this.ws === ws) {
           this.ws = null;
-          setTimeout(() => this.connectWebSocket(), 1000);
+          this.isWsConnected = false;
+          this.scheduleReconnect();
         }
       });
+
       ws.addEventListener("error", () => {
-        this.error = "WebSocket connection error";
+        this.isWsConnected = false;
+        // Error handling is done in close event
       });
+
       this.ws = ws;
+    },
+
+    scheduleReconnect() {
+      this.wsReconnectAttempts++;
+      this.showReconnectBanner = true;
+
+      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+      const delay = Math.min(
+        this.wsBaseReconnectDelay * Math.pow(2, this.wsReconnectAttempts - 1),
+        this.wsMaxReconnectDelay
+      );
+
+      this.wsReconnectTimer = setTimeout(() => {
+        this.connectWebSocket();
+      }, delay);
+    },
+
+    manualReconnect() {
+      this.wsReconnectAttempts = 0;
+      if (this.wsReconnectTimer) {
+        clearTimeout(this.wsReconnectTimer);
+        this.wsReconnectTimer = null;
+      }
+      this.connectWebSocket();
     },
 
     sendWs(payload) {
@@ -615,6 +716,10 @@ document.addEventListener("alpine:init", () => {
         this.activeRpcSessionId = payload.sessionId ?? "";
         this.activeRpcSessionFile = payload.sessionFile ?? "";
         this.isForking = false;
+        // Fetch initial state and available models
+        this.requestState();
+        this.requestAvailableModels();
+        this.requestSessionStats();
         return;
       }
 
@@ -640,6 +745,56 @@ document.addEventListener("alpine:init", () => {
           this.error = event.error ?? `RPC command failed: ${event.command ?? "unknown"}`;
           this.isSendingPrompt = false;
         }
+        // Handle get_state response
+        if (event.command === "get_state" && event.success && event.state) {
+          this.handleStateUpdate(event.state);
+        }
+        // Handle get_available_models response
+        if (event.command === "get_available_models" && event.success && event.models) {
+          this.availableModels = event.models;
+        }
+        // Handle get_session_stats response
+        if (event.command === "get_session_stats" && event.success && event.stats) {
+          this.handleSessionStatsUpdate(event.stats);
+        }
+        return;
+      }
+
+      if (event.type === "agent_start") {
+        this.isStreaming = true;
+        this.updateFooter();
+        return;
+      }
+
+      if (event.type === "agent_end") {
+        this.isStreaming = false;
+        this.isSendingPrompt = false;
+        this.updateFooter();
+        // Refresh stats after agent completes
+        this.requestSessionStats();
+        return;
+      }
+
+      if (event.type === "state_changed" || event.type === "state_update") {
+        if (event.state) {
+          this.handleStateUpdate(event.state);
+        }
+        return;
+      }
+
+      if (event.type === "model_changed") {
+        if (event.model) {
+          this.currentModel = event.model;
+        }
+        this.updateFooter();
+        return;
+      }
+
+      if (event.type === "thinking_level_changed") {
+        if (event.thinkingLevel) {
+          this.currentThinkingLevel = event.thinkingLevel;
+        }
+        this.updateFooter();
         return;
       }
 
@@ -707,6 +862,40 @@ document.addEventListener("alpine:init", () => {
       if (event.type === "rpc_error" || event.type === "rpc_process_crashed") {
         this.error = event.message ?? "RPC process error";
         this.isSendingPrompt = false;
+        return;
+      }
+
+      // Extension UI events
+      if (event.type === "extension_ui_request") {
+        this.handleExtensionUIRequest(event);
+        return;
+      }
+
+      // Fire-and-forget extension events
+      if (event.type === "notify" || event.type === "extension_notify") {
+        this.showToast(event.message ?? event.text ?? "", event.level ?? "info", event.duration);
+        return;
+      }
+
+      if (event.type === "setStatus" || event.type === "extension_status") {
+        this.extensionStatus = event.text ?? event.message ?? "";
+        this.updateFooter();
+        return;
+      }
+
+      if (event.type === "setWidget" || event.type === "extension_widget") {
+        this.extensionWidget = event.widget ?? event.content ?? null;
+        return;
+      }
+
+      if (event.type === "setTitle" || event.type === "extension_title") {
+        const title = event.title ?? event.text ?? "";
+        if (title) {
+          document.title = `${title} - Rho Web UI`;
+        } else {
+          document.title = "Rho Web UI";
+        }
+        return;
       }
     },
 
@@ -1290,6 +1479,511 @@ document.addEventListener("alpine:init", () => {
       const firstText = message?.parts?.find((part) => part.type === "text");
       const text = firstText ? extractText(firstText.content ?? "") : "";
       return clampString(text.replace(/\s+/g, " ").trim(), 80) || "Fork from this prompt";
+    },
+
+    // Chat controls methods
+
+    requestState() {
+      if (!this.activeRpcSessionId) {
+        return;
+      }
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: { type: "get_state" },
+      });
+    },
+
+    requestAvailableModels() {
+      if (!this.activeRpcSessionId) {
+        return;
+      }
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: { type: "get_available_models" },
+      });
+    },
+
+    requestSessionStats() {
+      if (!this.activeRpcSessionId) {
+        return;
+      }
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: { type: "get_session_stats" },
+      });
+    },
+
+    handleStateUpdate(state) {
+      if (state.model) {
+        this.currentModel = state.model;
+      }
+      if (state.thinkingLevel) {
+        this.currentThinkingLevel = state.thinkingLevel;
+      }
+      if (typeof state.isStreaming === "boolean") {
+        this.isStreaming = state.isStreaming;
+      }
+      this.updateFooter();
+    },
+
+    handleSessionStatsUpdate(stats) {
+      this.sessionStats = {
+        tokens: stats.totalTokens ?? stats.tokens ?? 0,
+        cost: stats.totalCost ?? stats.cost ?? 0,
+        inputTokens: stats.inputTokens ?? 0,
+        outputTokens: stats.outputTokens ?? 0,
+        cacheRead: stats.cacheRead ?? stats.cacheReadTokens ?? 0,
+        cacheWrite: stats.cacheWrite ?? stats.cacheCreation ?? 0,
+      };
+      this.updateFooter();
+    },
+
+    currentModelLabel() {
+      if (!this.currentModel) {
+        return "--";
+      }
+      if (typeof this.currentModel === "string") {
+        return this.currentModel;
+      }
+      const provider = this.currentModel.provider ?? "";
+      const modelId = this.currentModel.modelId ?? this.currentModel.id ?? "";
+      if (provider && modelId) {
+        // Shorten common provider names
+        const shortProvider = provider.replace("anthropic", "anth").replace("openai", "oai");
+        return `${shortProvider}/${modelId}`;
+      }
+      return modelId || provider || "--";
+    },
+
+    modelDropdownLabel(model) {
+      if (!model) {
+        return "";
+      }
+      const provider = model.provider ?? "";
+      const modelId = model.modelId ?? model.id ?? model.name ?? "";
+      if (provider && modelId) {
+        return `${provider}/${modelId}`;
+      }
+      return modelId || provider || "unknown";
+    },
+
+    isCurrentModel(model) {
+      if (!this.currentModel || !model) {
+        return false;
+      }
+      const currentId = this.currentModel.modelId ?? this.currentModel.id ?? this.currentModel;
+      const checkId = model.modelId ?? model.id ?? model;
+      const currentProvider = this.currentModel.provider ?? "";
+      const checkProvider = model.provider ?? "";
+      return currentId === checkId && currentProvider === checkProvider;
+    },
+
+    setModel(model) {
+      if (!this.activeRpcSessionId || this.isStreaming) {
+        return;
+      }
+      this.pendingModelChange = model;
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: {
+          type: "set_model",
+          provider: model.provider,
+          modelId: model.modelId ?? model.id,
+        },
+      });
+      // Optimistically update
+      this.currentModel = model;
+      this.updateFooter();
+    },
+
+    cycleThinkingLevel() {
+      if (!this.activeRpcSessionId || this.isStreaming) {
+        return;
+      }
+      const currentIndex = THINKING_LEVELS.indexOf(this.currentThinkingLevel);
+      const nextIndex = (currentIndex + 1) % THINKING_LEVELS.length;
+      const nextLevel = THINKING_LEVELS[nextIndex];
+
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: {
+          type: "set_thinking_level",
+          level: nextLevel,
+        },
+      });
+      // Optimistically update
+      this.currentThinkingLevel = nextLevel;
+      this.updateFooter();
+    },
+
+    abort() {
+      if (!this.activeRpcSessionId || !this.isStreaming) {
+        return;
+      }
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: { type: "abort" },
+      });
+    },
+
+    sendSteer() {
+      const message = this.promptText.trim();
+      if (!message || !this.activeRpcSessionId || !this.isStreaming) {
+        return;
+      }
+
+      this.error = "";
+      this.promptText = "";
+
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: {
+          type: "steer",
+          message,
+        },
+      });
+    },
+
+    sendFollowUp() {
+      const message = this.promptText.trim();
+      if (!message || !this.activeRpcSessionId || !this.isStreaming) {
+        return;
+      }
+
+      this.error = "";
+      this.promptText = "";
+
+      this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: {
+          type: "follow_up",
+          message,
+        },
+      });
+    },
+
+    handlePromptSubmit() {
+      if (this.isStreaming) {
+        // During streaming, submit as steer
+        this.sendSteer();
+      } else {
+        // Normal prompt submission
+        this.sendPrompt();
+      }
+    },
+
+    updateFooter() {
+      const modelEl = document.querySelector(".footer .footer-model");
+      const tokensEl = document.querySelector(".footer .footer-tokens");
+      const costEl = document.querySelector(".footer .footer-cost");
+      const statusEl = document.querySelector(".footer .footer-status");
+      const extStatusEl = document.querySelector(".footer .footer-ext-status");
+
+      if (modelEl) {
+        modelEl.textContent = `model: ${this.currentModelLabel()}`;
+      }
+      if (tokensEl) {
+        const tokens = this.sessionStats.tokens || 0;
+        tokensEl.textContent = `tokens: ${tokens.toLocaleString()}`;
+      }
+      if (costEl) {
+        const cost = this.sessionStats.cost || 0;
+        costEl.textContent = `cost: $${cost.toFixed(4)}`;
+      }
+      if (statusEl) {
+        statusEl.textContent = `status: ${this.isStreaming ? "streaming" : "idle"}`;
+        statusEl.classList.toggle("streaming", this.isStreaming);
+      }
+      if (extStatusEl) {
+        extStatusEl.textContent = this.extensionStatus || "";
+        extStatusEl.style.display = this.extensionStatus ? "inline" : "none";
+      }
+    },
+
+    // Helper getters for template
+    canSwitchModel() {
+      return this.isForkActive() && !this.isStreaming;
+    },
+
+    canChangeThinking() {
+      return this.isForkActive() && !this.isStreaming;
+    },
+
+    canAbort() {
+      return this.isForkActive() && this.isStreaming;
+    },
+
+    thinkingLevelLabel() {
+      return this.currentThinkingLevel || "medium";
+    },
+
+    inputPlaceholder() {
+      if (!this.isForkActive()) {
+        return "Fork a session to start chatting...";
+      }
+      if (this.isStreaming) {
+        return "Type to steer the response...";
+      }
+      return "Type a prompt...";
+    },
+
+    submitButtonLabel() {
+      if (this.isStreaming) {
+        return "Steer";
+      }
+      return "Send";
+    },
+
+    // Extension UI methods
+
+    handleExtensionUIRequest(event) {
+      const request = event.request ?? event;
+      const method = request.method ?? request.type ?? "";
+      const id = request.id ?? `ext-${Date.now()}`;
+      const timeout = request.timeout ?? request.timeoutMs ?? 0;
+
+      if (method === "select") {
+        this.showSelectDialog(id, request, timeout);
+        return;
+      }
+
+      if (method === "confirm") {
+        this.showConfirmDialog(id, request, timeout);
+        return;
+      }
+
+      if (method === "input") {
+        this.showInputDialog(id, request, timeout);
+        return;
+      }
+
+      if (method === "editor") {
+        this.showEditorDialog(id, request, timeout);
+        return;
+      }
+    },
+
+    showSelectDialog(id, request, timeout) {
+      const options = request.options ?? request.choices ?? [];
+      const title = request.title ?? request.message ?? "Select an option";
+      const description = request.description ?? "";
+
+      this.extensionDialog = {
+        id,
+        type: "select",
+        title,
+        description,
+        options: options.map((opt, idx) => ({
+          value: typeof opt === "string" ? opt : opt.value ?? opt.label ?? String(idx),
+          label: typeof opt === "string" ? opt : opt.label ?? opt.value ?? String(idx),
+          description: typeof opt === "object" ? opt.description ?? "" : "",
+        })),
+        selectedValue: null,
+        timeoutId: null,
+      };
+
+      if (timeout > 0) {
+        this.extensionDialog.timeoutId = setTimeout(() => {
+          this.dismissDialog(null);
+        }, timeout);
+      }
+    },
+
+    showConfirmDialog(id, request, timeout) {
+      const title = request.title ?? request.message ?? "Confirm";
+      const description = request.description ?? request.text ?? "";
+      const confirmLabel = request.confirmLabel ?? request.yesLabel ?? "Yes";
+      const cancelLabel = request.cancelLabel ?? request.noLabel ?? "No";
+
+      this.extensionDialog = {
+        id,
+        type: "confirm",
+        title,
+        description,
+        confirmLabel,
+        cancelLabel,
+        timeoutId: null,
+      };
+
+      if (timeout > 0) {
+        this.extensionDialog.timeoutId = setTimeout(() => {
+          this.dismissDialog(false);
+        }, timeout);
+      }
+    },
+
+    showInputDialog(id, request, timeout) {
+      const title = request.title ?? request.message ?? "Input";
+      const description = request.description ?? "";
+      const placeholder = request.placeholder ?? "";
+      const defaultValue = request.defaultValue ?? request.value ?? "";
+
+      this.extensionDialog = {
+        id,
+        type: "input",
+        title,
+        description,
+        placeholder,
+        inputValue: defaultValue,
+        timeoutId: null,
+      };
+
+      if (timeout > 0) {
+        this.extensionDialog.timeoutId = setTimeout(() => {
+          this.dismissDialog(null);
+        }, timeout);
+      }
+    },
+
+    showEditorDialog(id, request, timeout) {
+      const title = request.title ?? request.message ?? "Edit";
+      const description = request.description ?? "";
+      const content = request.content ?? request.value ?? request.text ?? "";
+      const language = request.language ?? "";
+
+      this.extensionDialog = {
+        id,
+        type: "editor",
+        title,
+        description,
+        language,
+        editorContent: content,
+        timeoutId: null,
+      };
+
+      if (timeout > 0) {
+        this.extensionDialog.timeoutId = setTimeout(() => {
+          this.dismissDialog(null);
+        }, timeout);
+      }
+    },
+
+    selectDialogOption(option) {
+      if (!this.extensionDialog || this.extensionDialog.type !== "select") {
+        return;
+      }
+      this.sendExtensionUIResponse(this.extensionDialog.id, option.value);
+      this.closeDialog();
+    },
+
+    confirmDialogYes() {
+      if (!this.extensionDialog || this.extensionDialog.type !== "confirm") {
+        return;
+      }
+      this.sendExtensionUIResponse(this.extensionDialog.id, true);
+      this.closeDialog();
+    },
+
+    confirmDialogNo() {
+      if (!this.extensionDialog || this.extensionDialog.type !== "confirm") {
+        return;
+      }
+      this.sendExtensionUIResponse(this.extensionDialog.id, false);
+      this.closeDialog();
+    },
+
+    submitInputDialog() {
+      if (!this.extensionDialog || this.extensionDialog.type !== "input") {
+        return;
+      }
+      this.sendExtensionUIResponse(this.extensionDialog.id, this.extensionDialog.inputValue);
+      this.closeDialog();
+    },
+
+    submitEditorDialog() {
+      if (!this.extensionDialog || this.extensionDialog.type !== "editor") {
+        return;
+      }
+      this.sendExtensionUIResponse(this.extensionDialog.id, this.extensionDialog.editorContent);
+      this.closeDialog();
+    },
+
+    dismissDialog(value = null) {
+      if (!this.extensionDialog) {
+        return;
+      }
+      this.sendExtensionUIResponse(this.extensionDialog.id, value);
+      this.closeDialog();
+    },
+
+    closeDialog() {
+      if (this.extensionDialog?.timeoutId) {
+        clearTimeout(this.extensionDialog.timeoutId);
+      }
+      this.extensionDialog = null;
+    },
+
+    sendExtensionUIResponse(id, value) {
+      if (!this.activeRpcSessionId) {
+        return;
+      }
+      this.sendWs({
+        type: "extension_ui_response",
+        sessionId: this.activeRpcSessionId,
+        id,
+        value,
+      });
+    },
+
+    // Toast notifications
+
+    showToast(message, level = "info", duration) {
+      const id = ++this.toastIdCounter;
+      const toast = {
+        id,
+        message,
+        level,
+        style: TOAST_LEVELS[level] ?? TOAST_LEVELS.info,
+      };
+
+      this.toasts.push(toast);
+
+      const displayDuration = duration ?? TOAST_DEFAULT_DURATION;
+      if (displayDuration > 0) {
+        setTimeout(() => {
+          this.removeToast(id);
+        }, displayDuration);
+      }
+    },
+
+    removeToast(id) {
+      const idx = this.toasts.findIndex((t) => t.id === id);
+      if (idx >= 0) {
+        this.toasts.splice(idx, 1);
+      }
+    },
+
+    // Widget display
+    hasWidget() {
+      return this.extensionWidget != null;
+    },
+
+    widgetContent() {
+      if (!this.extensionWidget) {
+        return "";
+      }
+      if (typeof this.extensionWidget === "string") {
+        return this.extensionWidget;
+      }
+      return this.extensionWidget.text ?? this.extensionWidget.content ?? safeString(this.extensionWidget);
+    },
+
+    // Focus management
+    focusComposer() {
+      this.$nextTick(() => {
+        const input = this.$refs.composerInput;
+        if (input && !input.disabled) {
+          input.focus();
+        }
+      });
     },
   }));
 });

@@ -73,7 +73,10 @@
             <div class="chat-layout">
               <aside class="chat-sessions">
                 <div class="chat-section-title">Sessions</div>
-                <div class="chat-section-meta" x-show="isLoadingSessions">Loading sessions...</div>
+                <div class="chat-section-meta chat-loading-inline" x-show="isLoadingSessions">
+                  <span class="loading-spinner-sm"></span>
+                  <span>Loading...</span>
+                </div>
                 <div class="chat-section-meta chat-error" x-show="error" x-text="error"></div>
                 <div class="chat-list">
                   <template x-for="session in sessions" :key="session.id">
@@ -96,8 +99,10 @@
                       </div>
                     </button>
                   </template>
-                  <div class="chat-empty" x-show="!isLoadingSessions && sessions.length === 0">
-                    No sessions found.
+                  <div class="chat-empty-state" x-show="!isLoadingSessions && sessions.length === 0">
+                    <span class="empty-icon">&#x1F4C1;</span>
+                    <span>No sessions yet</span>
+                    <span class="empty-hint">Sessions appear here when you start using Rho CLI</span>
                   </div>
                 </div>
               </aside>
@@ -120,11 +125,27 @@
                   </div>
                 </div>
 
+                <!-- Reconnection Banner -->
+                <div class="reconnect-banner" x-show="showReconnectBanner" x-cloak>
+                  <span class="reconnect-icon">&#x26A0;</span>
+                  <span>Connection lost. Reconnecting...</span>
+                  <button class="btn btn-ghost btn-sm" type="button" @click="manualReconnect()">
+                    Retry now
+                  </button>
+                </div>
+
                 <div class="chat-thread-body" x-ref="thread">
-                  <div class="chat-empty" x-show="isLoadingSession">Loading session...</div>
-                  <div class="chat-empty" x-show="!isLoadingSession && activeSession && !hasMessages()">No messages yet.</div>
+                  <div class="chat-loading" x-show="isLoadingSession">
+                    <span class="loading-spinner"></span>
+                    <span>Loading session...</span>
+                  </div>
+                  <div class="chat-empty" x-show="!isLoadingSession && activeSession && !hasMessages()">
+                    <span class="empty-icon">&#x1F4AC;</span>
+                    <span>No messages yet. Start a conversation by forking this session.</span>
+                  </div>
                   <div class="chat-empty" x-show="!activeSession && !isLoadingSession">
-                    Select a session to view messages.
+                    <span class="empty-icon">&#x1F4C2;</span>
+                    <span>Select a session from the sidebar to view messages.</span>
                   </div>
 
                   <template x-for="message in renderedMessages" :key="message.id">
@@ -220,18 +241,174 @@
                   </template>
                 </div>
 
-                <form class="chat-composer" @submit.prevent="sendPrompt()" x-show="isForkActive()">
+                <div class="chat-controls" x-show="isForkActive()">
+                  <div class="chat-controls-left">
+                    <div class="chat-control-group">
+                      <label class="chat-control-label">Model</label>
+                      <select
+                        class="chat-control-select"
+                        @change="setModel(availableModels.find(m => modelDropdownLabel(m) === $event.target.value))"
+                        :disabled="!canSwitchModel()"
+                      >
+                        <template x-for="model in availableModels" :key="modelDropdownLabel(model)">
+                          <option
+                            :value="modelDropdownLabel(model)"
+                            :selected="isCurrentModel(model)"
+                            x-text="modelDropdownLabel(model)"
+                          ></option>
+                        </template>
+                      </select>
+                    </div>
+                    <button
+                      class="btn btn-ghost chat-control-btn"
+                      type="button"
+                      @click="cycleThinkingLevel()"
+                      :disabled="!canChangeThinking()"
+                      :title="`Thinking level: ${thinkingLevelLabel()}`"
+                    >
+                      Thinking: <span x-text="thinkingLevelLabel()"></span>
+                    </button>
+                  </div>
+                  <div class="chat-controls-right">
+                    <button
+                      class="btn btn-danger chat-control-btn"
+                      type="button"
+                      @click="abort()"
+                      :disabled="!canAbort()"
+                      x-show="isStreaming"
+                    >
+                      Abort
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Extension widget (above input) -->
+                <div class="chat-widget" x-show="hasWidget()" x-cloak>
+                  <div class="chat-widget-content" x-html="widgetContent()"></div>
+                  <button class="chat-widget-close" type="button" @click="extensionWidget = null">&times;</button>
+                </div>
+
+                <form class="chat-composer" @submit.prevent="handlePromptSubmit()" x-show="isForkActive()">
                   <textarea
                     class="chat-composer-input"
+                    x-ref="composerInput"
                     x-model="promptText"
-                    placeholder="Type a prompt for this forked session..."
+                    :placeholder="inputPlaceholder()"
                     rows="2"
                     :disabled="isSendingPrompt || isForking"
+                    @keydown="handleComposerKeydown($event)"
                   ></textarea>
-                  <button class="btn" type="submit" :disabled="!promptText.trim() || isSendingPrompt || isForking">
-                    Send
-                  </button>
+                  <div class="chat-composer-actions">
+                    <button
+                      class="btn btn-ghost"
+                      type="button"
+                      @click="sendFollowUp()"
+                      :disabled="!promptText.trim() || !isStreaming"
+                      x-show="isStreaming"
+                      title="Queue as follow-up (sent after current response)"
+                    >
+                      Follow-up
+                    </button>
+                    <button class="btn" type="submit" :disabled="!promptText.trim() || isSendingPrompt || isForking">
+                      <span x-text="submitButtonLabel()"></span>
+                    </button>
+                  </div>
                 </form>
+
+                <!-- Extension UI Dialog Overlay -->
+                <div class="ext-dialog-overlay" x-show="extensionDialog" x-cloak @click.self="dismissDialog(null)">
+                  <!-- Select Dialog -->
+                  <template x-if="extensionDialog?.type === 'select'">
+                    <div class="ext-dialog">
+                      <div class="ext-dialog-header">
+                        <div class="ext-dialog-title" x-text="extensionDialog.title"></div>
+                        <button class="ext-dialog-close" type="button" @click="dismissDialog(null)">&times;</button>
+                      </div>
+                      <div class="ext-dialog-description" x-show="extensionDialog.description" x-text="extensionDialog.description"></div>
+                      <div class="ext-dialog-options">
+                        <template x-for="option in extensionDialog.options" :key="option.value">
+                          <button class="ext-dialog-option" type="button" @click="selectDialogOption(option)">
+                            <span class="ext-dialog-option-label" x-text="option.label"></span>
+                            <span class="ext-dialog-option-desc" x-show="option.description" x-text="option.description"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Confirm Dialog -->
+                  <template x-if="extensionDialog?.type === 'confirm'">
+                    <div class="ext-dialog">
+                      <div class="ext-dialog-header">
+                        <div class="ext-dialog-title" x-text="extensionDialog.title"></div>
+                        <button class="ext-dialog-close" type="button" @click="dismissDialog(false)">&times;</button>
+                      </div>
+                      <div class="ext-dialog-description" x-show="extensionDialog.description" x-text="extensionDialog.description"></div>
+                      <div class="ext-dialog-actions">
+                        <button class="btn btn-ghost" type="button" @click="confirmDialogNo()" x-text="extensionDialog.cancelLabel"></button>
+                        <button class="btn" type="button" @click="confirmDialogYes()" x-text="extensionDialog.confirmLabel"></button>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Input Dialog -->
+                  <template x-if="extensionDialog?.type === 'input'">
+                    <div class="ext-dialog">
+                      <div class="ext-dialog-header">
+                        <div class="ext-dialog-title" x-text="extensionDialog.title"></div>
+                        <button class="ext-dialog-close" type="button" @click="dismissDialog(null)">&times;</button>
+                      </div>
+                      <div class="ext-dialog-description" x-show="extensionDialog.description" x-text="extensionDialog.description"></div>
+                      <form class="ext-dialog-form" @submit.prevent="submitInputDialog()">
+                        <input
+                          class="ext-dialog-input"
+                          type="text"
+                          x-model="extensionDialog.inputValue"
+                          :placeholder="extensionDialog.placeholder"
+                          autofocus
+                        />
+                        <div class="ext-dialog-actions">
+                          <button class="btn btn-ghost" type="button" @click="dismissDialog(null)">Cancel</button>
+                          <button class="btn" type="submit">Submit</button>
+                        </div>
+                      </form>
+                    </div>
+                  </template>
+
+                  <!-- Editor Dialog -->
+                  <template x-if="extensionDialog?.type === 'editor'">
+                    <div class="ext-dialog ext-dialog-wide">
+                      <div class="ext-dialog-header">
+                        <div class="ext-dialog-title" x-text="extensionDialog.title"></div>
+                        <button class="ext-dialog-close" type="button" @click="dismissDialog(null)">&times;</button>
+                      </div>
+                      <div class="ext-dialog-description" x-show="extensionDialog.description" x-text="extensionDialog.description"></div>
+                      <form class="ext-dialog-form" @submit.prevent="submitEditorDialog()">
+                        <textarea
+                          class="ext-dialog-editor"
+                          x-model="extensionDialog.editorContent"
+                          rows="12"
+                          autofocus
+                        ></textarea>
+                        <div class="ext-dialog-actions">
+                          <button class="btn btn-ghost" type="button" @click="dismissDialog(null)">Cancel</button>
+                          <button class="btn" type="submit">Save</button>
+                        </div>
+                      </form>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Toast Notifications -->
+                <div class="toast-container" x-show="toasts.length > 0" x-cloak>
+                  <template x-for="toast in toasts" :key="toast.id">
+                    <div class="toast" :class="`toast-${toast.level}`">
+                      <span class="toast-icon" x-text="toast.style.icon"></span>
+                      <span class="toast-message" x-text="toast.message"></span>
+                      <button class="toast-close" type="button" @click="removeToast(toast.id)">&times;</button>
+                    </div>
+                  </template>
+                </div>
               </section>
             </div>
           </div>
@@ -326,7 +503,12 @@
                   <button class="btn btn-ghost" type="button" @click="loadTasks()">Refresh</button>
                 </div>
 
-                <div class="tasks-tabs" role="tablist" aria-label="Task filters">
+                <div class="tasks-loading" x-show="isLoading">
+                  <span class="loading-spinner"></span>
+                  <span>Loading tasks...</span>
+                </div>
+
+                <div class="tasks-tabs" role="tablist" aria-label="Task filters" x-show="!isLoading">
                   <button
                     class="tasks-tab"
                     :class="{ active: filter === 'all' }"
@@ -353,7 +535,7 @@
                   </button>
                 </div>
 
-                <div class="tasks-list">
+                <div class="tasks-list" x-show="!isLoading">
                   <template x-for="task in filteredTasks()" :key="task.id">
                     <div class="task-item" :class="{ done: task.status === 'done' }">
                       <label class="task-check">
@@ -383,7 +565,12 @@
                       <button class="task-delete" type="button" @click="removeTask(task)">Delete</button>
                     </div>
                   </template>
-                  <div class="tasks-empty" x-show="!isLoading && filteredTasks().length === 0">
+                  <div class="tasks-empty-state" x-show="tasks.length === 0 && !isLoading">
+                    <span class="empty-icon">&#x2705;</span>
+                    <span>No tasks</span>
+                    <span class="empty-hint">Add a task using the form or the CLI</span>
+                  </div>
+                  <div class="tasks-empty" x-show="tasks.length > 0 && filteredTasks().length === 0 && !isLoading">
                     No tasks match this filter.
                   </div>
                 </div>
@@ -418,10 +605,11 @@
 
       <footer class="footer">
         <div class="footer-inner">
-          <span>model: --</span>
-          <span>tokens: --</span>
-          <span>cost: --</span>
-          <span class="status">status: idle</span>
+          <span class="footer-model">model: --</span>
+          <span class="footer-tokens">tokens: --</span>
+          <span class="footer-cost">cost: --</span>
+          <span class="footer-status">status: idle</span>
+          <span class="footer-ext-status"></span>
         </div>
       </footer>
     </div>

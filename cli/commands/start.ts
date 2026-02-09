@@ -192,8 +192,16 @@ function ensureTmuxSession(): void {
   }
 }
 
+function getWebConfig(): { enabled: boolean; port: number } {
+  const cfg = readInitConfig();
+  if (!cfg) return { enabled: false, port: 3141 };
+  return cfg.web;
+}
+
 async function monitorLoop(): Promise<void> {
   const platform = detectPlatform();
+  const webConfig = getWebConfig();
+  let webServer: { url: string; stop: () => void } | null = null;
 
   writeFileSync(PID_PATH, String(process.pid));
 
@@ -202,8 +210,23 @@ async function monitorLoop(): Promise<void> {
     showNotification(getInterval());
   }
 
+  // Start web server if enabled
+  if (webConfig.enabled) {
+    try {
+      const { startWebServer } = await import("./web.ts");
+      webServer = startWebServer(webConfig.port);
+      console.log(`Rho web running at ${webServer.url}`);
+    } catch (err) {
+      console.error(`Failed to start web server: ${(err as Error).message}`);
+      // Non-fatal - continue without web server
+    }
+  }
+
   const cleanup = () => {
     try { unlinkSync(PID_PATH); } catch {}
+    if (webServer) {
+      webServer.stop();
+    }
     if (platform === "android") {
       removeNotification();
       releaseWakeLock();
@@ -248,6 +271,8 @@ Launch the Rho heartbeat daemon in a tmux session.
 
 Starts a background monitor process that keeps the tmux session alive.
 On Android, it also holds a wake lock and shows a persistent notification.
+
+If [settings.web].enabled = true in init.toml, the web server also starts.
 
 Options:
   --foreground   Attach to the session after starting

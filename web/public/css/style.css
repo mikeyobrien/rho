@@ -758,6 +758,80 @@ button { font: inherit; }
   color: var(--text-muted);
 }
 
+/* Chat controls */
+.chat-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.chat-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.chat-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chat-control-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chat-control-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.chat-control-select {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  min-width: 140px;
+  max-width: 200px;
+}
+
+.chat-control-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-control-select:focus {
+  outline: none;
+  border-color: var(--green-dim);
+}
+
+.chat-control-btn {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.65rem;
+}
+
+.btn-danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: var(--red);
+  color: var(--red);
+}
+
 .chat-composer {
   margin-top: 0.25rem;
   border-top: 1px solid var(--border);
@@ -766,6 +840,12 @@ button { font: inherit; }
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem;
   align-items: end;
+}
+
+.chat-composer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .chat-composer-input {
@@ -803,8 +883,12 @@ button { font: inherit; }
   flex-wrap: wrap;
 }
 
-.footer-inner .status {
+.footer-status {
   color: var(--green);
+}
+
+.footer-status.streaming {
+  color: var(--yellow);
 }
 
 .tasks-view .view-body {
@@ -1099,5 +1183,626 @@ button { font: inherit; }
   .nav-tab::after,
   .nav-seg::after {
     display: none;
+  }
+}
+
+/* Extension UI - Dialog Overlay */
+.ext-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.ext-dialog {
+  background: var(--bg-alt);
+  border: 1px solid var(--border-bright);
+  width: 100%;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.ext-dialog-wide {
+  max-width: 600px;
+}
+
+.ext-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  gap: 0.75rem;
+}
+
+.ext-dialog-title {
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.ext-dialog-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.ext-dialog-close:hover {
+  color: var(--text);
+}
+
+.ext-dialog-description {
+  padding: 0.75rem 1rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.ext-dialog-options {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem;
+  gap: 0.35rem;
+}
+
+.ext-dialog-option {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  transition: border-color 0.2s ease;
+}
+
+.ext-dialog-option:hover {
+  border-color: var(--green-dim);
+}
+
+.ext-dialog-option-label {
+  font-size: 0.85rem;
+}
+
+.ext-dialog-option-desc {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.ext-dialog-form {
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ext-dialog-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.55rem 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.ext-dialog-input:focus {
+  outline: none;
+  border-color: var(--green-dim);
+}
+
+.ext-dialog-editor {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.55rem 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.ext-dialog-editor:focus {
+  outline: none;
+  border-color: var(--green-dim);
+}
+
+.ext-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+/* Extension UI - Toast Notifications */
+.toast-container {
+  position: fixed;
+  bottom: calc(var(--footer-height) + 1rem);
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 900;
+  max-width: 360px;
+}
+
+.toast {
+  background: var(--bg-alt);
+  border: 1px solid var(--border-bright);
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text);
+  animation: toast-in 0.25s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.toast-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.toast-message {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toast-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.toast-close:hover {
+  color: var(--text);
+}
+
+.toast-info {
+  border-left: 3px solid var(--cyan);
+}
+
+.toast-info .toast-icon {
+  color: var(--cyan);
+}
+
+.toast-success {
+  border-left: 3px solid var(--green);
+}
+
+.toast-success .toast-icon {
+  color: var(--green);
+}
+
+.toast-warning {
+  border-left: 3px solid var(--yellow);
+}
+
+.toast-warning .toast-icon {
+  color: var(--yellow);
+}
+
+.toast-error {
+  border-left: 3px solid var(--red);
+}
+
+.toast-error .toast-icon {
+  color: var(--red);
+}
+
+/* Extension UI - Widget (above input) */
+.chat-widget {
+  border: 1px solid var(--cyan);
+  background: rgba(94, 234, 212, 0.05);
+  padding: 0.6rem 0.85rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.chat-widget-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-widget-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.chat-widget-close:hover {
+  color: var(--text);
+}
+
+/* Footer extension status */
+.footer-ext-status {
+  color: var(--cyan);
+}
+
+/* Loading spinners */
+.loading-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--border-bright);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-spinner-sm {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1.5px solid var(--border-bright);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.chat-loading,
+.tasks-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 2rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.chat-loading-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Empty states */
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 1.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.chat-empty-state,
+.tasks-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 1.5rem;
+  opacity: 0.6;
+  margin-bottom: 0.25rem;
+}
+
+.empty-hint {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  max-width: 200px;
+}
+
+/* Reconnection banner */
+.reconnect-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid var(--yellow);
+  color: var(--yellow);
+  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.reconnect-icon {
+  font-size: 0.9rem;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.65rem;
+}
+
+/* Responsive: 360px mobile width (Termux) */
+@media (max-width: 400px) {
+  html {
+    font-size: 13px;
+  }
+
+  :root {
+    --page-pad: 0.5rem;
+  }
+
+  .nav-inner {
+    padding: 0 0.5rem 0.4rem;
+  }
+
+  .nav-seg {
+    padding: 0 0.6rem;
+    font-size: 0.7rem;
+  }
+
+  .nav-tab {
+    padding: 0 0.5rem;
+    font-size: 0.65rem;
+  }
+
+  .main {
+    padding: 0.75rem 0.5rem 1rem;
+    gap: 1rem;
+  }
+
+  .view {
+    padding: 0.75rem;
+    min-height: 30vh;
+  }
+
+  .view-header {
+    font-size: 0.65rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .view-title {
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+
+  /* Chat layout single column */
+  .chat-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .chat-sessions {
+    min-height: auto;
+    max-height: 30vh;
+    padding: 0.75rem;
+  }
+
+  .chat-list {
+    max-height: 20vh;
+  }
+
+  .chat-thread {
+    min-height: auto;
+    padding: 0.75rem;
+  }
+
+  .chat-thread-body {
+    max-height: 45vh;
+    padding-right: 0.25rem;
+  }
+
+  .chat-thread-header {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-bottom: 0.4rem;
+  }
+
+  .chat-thread-actions {
+    justify-content: flex-start;
+  }
+
+  .chat-message {
+    padding: 0.5rem 0.6rem;
+  }
+
+  .chat-message-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    font-size: 0.6rem;
+  }
+
+  .chat-text {
+    font-size: 0.8rem;
+  }
+
+  /* Chat controls responsive */
+  .chat-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .chat-controls-left,
+  .chat-controls-right {
+    justify-content: space-between;
+  }
+
+  .chat-control-select {
+    min-width: 100px;
+    max-width: none;
+    flex: 1;
+  }
+
+  /* Composer responsive */
+  .chat-composer {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .chat-composer-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+
+  .chat-composer-input {
+    min-height: 2.5rem;
+    font-size: 0.75rem;
+    padding: 0.4rem 0.5rem;
+  }
+
+  /* Files layout responsive */
+  .files-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .files-panel {
+    min-height: auto;
+    max-height: 35vh;
+    padding: 0.75rem;
+  }
+
+  .files-list {
+    max-height: 20vh;
+  }
+
+  .files-editor {
+    min-height: 40vh;
+    padding: 0.75rem;
+  }
+
+  .files-textarea {
+    min-height: 35vh;
+    font-size: 0.7rem;
+    padding: 0.5rem;
+  }
+
+  .files-editor-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .files-alert {
+    font-size: 0.7rem;
+    padding: 0.4rem 0.5rem;
+  }
+
+  /* Tasks layout responsive */
+  .tasks-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .tasks-panel {
+    min-height: auto;
+    padding: 0.75rem;
+  }
+
+  .tasks-form {
+    padding: 0.75rem;
+  }
+
+  .task-item {
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  .task-title {
+    font-size: 0.8rem;
+  }
+
+  .task-meta {
+    font-size: 0.6rem;
+    gap: 0.35rem;
+  }
+
+  /* Dialog responsive */
+  .ext-dialog {
+    max-width: calc(100vw - 2rem);
+    max-height: 85vh;
+  }
+
+  .ext-dialog-header {
+    padding: 0.6rem 0.75rem;
+  }
+
+  .ext-dialog-title {
+    font-size: 0.85rem;
+  }
+
+  .ext-dialog-form {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .ext-dialog-editor {
+    min-height: 150px;
+    font-size: 0.75rem;
+  }
+
+  /* Toast responsive */
+  .toast-container {
+    right: 0.5rem;
+    left: 0.5rem;
+    max-width: none;
+  }
+
+  .toast {
+    font-size: 0.75rem;
+    padding: 0.5rem 0.6rem;
+  }
+
+  /* Footer responsive */
+  .footer {
+    padding: 0 0.5rem;
+    font-size: 0.6rem;
+  }
+
+  .footer-inner {
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 }
