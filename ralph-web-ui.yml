@@ -1,0 +1,138 @@
+# Rho Web UI Implementation (Tasks 8-14)
+# Custom ralph config: Builder → Validator → Committer
+# Uses codex backend, implements from existing PDD specs
+#
+# Fixed: removed self-loop (task.complete no longer triggers builder)
+# Builder runs once per build.start, implements ALL remaining tasks, then hands to validator.
+
+event_loop:
+  completion_promise: "LOOP_COMPLETE"
+  starting_event: "build.start"
+  max_iterations: 30
+  max_runtime_seconds: 14400       # 4 hours max
+  checkpoint_interval: 3
+
+cli:
+  backend: "codex"
+  prompt_mode: "arg"
+
+core:
+  specs_dir: ".ralph/specs/"
+  guardrails:
+    - "Fresh context each iteration — re-read task files and design docs"
+    - "Verification is mandatory — tests must pass before publishing"
+    - "YAGNI ruthlessly — implement only what the task specifies"
+    - "KISS always — simplest solution that works"
+    - "Follow existing Rho project patterns (TypeScript, ESM, pi peer dep)"
+    - "All frontend assets are CDN-loaded or hand-written — NO build step"
+
+hats:
+  builder:
+    name: "⚙️ Builder"
+    description: "Implements the NEXT SINGLE pending code task. Publishes implementation.ready when ALL done."
+    triggers: ["build.start", "validation.failed"]
+    publishes: ["implementation.ready"]
+    default_publishes: "implementation.ready"
+    instructions: |
+      ## BUILDER MODE — Implement Next Pending Task
+
+      You implement code tasks from `.ralph/specs/rho-web-ui/tasks/`.
+
+      ### CRITICAL RULES
+      1. Find the FIRST task file with `status: pending` in frontmatter
+      2. If NO pending tasks remain, publish `implementation.ready` immediately
+      3. Implement ONLY that one task
+      4. Update its frontmatter to `status: completed`
+      5. Publish `implementation.ready`
+
+      Do NOT re-implement completed tasks. Do NOT loop. Do NOT emit task.complete.
+      Your ONLY allowed publish event is `implementation.ready`.
+
+      ### Context (READ THESE for each task)
+      - Design: .ralph/specs/rho-web-ui/design.md
+      - Plan: .ralph/specs/rho-web-ui/plan.md
+      - Requirements: .ralph/specs/rho-web-ui/requirements.md
+      - Research files: .ralph/specs/rho-web-ui/research/
+
+      ### Process
+      1. `ls .ralph/specs/rho-web-ui/tasks/` and `grep -l "status: pending"` to find next task
+      2. Read the task file completely
+      3. Read referenced design doc sections
+      4. Explore existing code in `web/` directory (tasks 1-7 are already done)
+      5. Implement following acceptance criteria
+      6. Run tests if applicable
+      7. Update task frontmatter: `status: completed`, `completed: 2026-02-09`
+      8. Publish `implementation.ready`
+
+      ### If triggered by validation.failed
+      Read the Validator's feedback from the scratchpad. Fix the specific issues.
+      Then publish `implementation.ready`.
+
+      ### Key Project Conventions
+      - TypeScript with ESM imports
+      - Rho project root is the current directory
+      - pi is a peer dependency — import from @anthropic-ai/pi or check node_modules
+      - Frontend: HTMX + Alpine.js + marked.js (CDN-loaded, no build step)
+      - Server: Hono on Node.js
+      - Existing web code: web/server.ts, web/session-reader.ts, web/file-watcher.ts, etc.
+
+  validator:
+    name: "✅ Validator"
+    description: "Checks whether the latest task was implemented correctly."
+    triggers: ["implementation.ready"]
+    publishes: ["validation.passed", "validation.failed"]
+    default_publishes: "validation.passed"
+    instructions: |
+      ## VALIDATOR MODE — Quality Gate
+
+      Check if there are still pending tasks or if all 14 are done.
+
+      ### Step 1: Check task status
+      ```bash
+      grep -l "status: pending" .ralph/specs/rho-web-ui/tasks/*.code-task.md
+      ```
+
+      If pending tasks remain:
+      - Quickly verify the LAST completed task works (check files exist, no syntax errors)
+      - If OK, publish `validation.failed` with message "More tasks pending, continue building"
+        (This sends builder back to pick up next task)
+      - If broken, publish `validation.failed` with specific fix instructions
+
+      If ALL tasks are completed:
+      - Run full verification:
+        1. TypeScript compiles: `npx tsc --noEmit`
+        2. Server starts: start dev server, curl /api/health
+        3. API endpoints respond: /api/sessions, /api/files, /api/tasks
+        4. No obvious errors in web/ TypeScript files
+      - If all pass → `validation.passed`
+      - If any fail → `validation.failed` with details
+
+  committer:
+    name: "📦 Committer"
+    description: "Creates conventional commits after all tasks pass validation."
+    triggers: ["validation.passed"]
+    publishes: ["LOOP_COMPLETE"]
+    default_publishes: "LOOP_COMPLETE"
+    instructions: |
+      ## COMMITTER MODE
+
+      Create a git commit for the web UI implementation.
+
+      ```bash
+      cd ~/projects/rho
+      git add web/ .ralph/specs/rho-web-ui/tasks/
+      git status
+      ```
+
+      Commit message:
+      ```
+      feat(web): add lightweight web UI for Rho
+
+      Browser-based frontend with chat, file editor, and tasks.
+      Hono + HTMX + Alpine.js, no build step.
+      Fork-based sessions via pi RPC.
+
+      Spec: .ralph/specs/rho-web-ui/design.md
+      ```
+
+      Then publish LOOP_COMPLETE.

@@ -36,6 +36,9 @@
     "@sinclair/typebox": "*"
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.1",
+    "@hono/node-ws": "^1.0.7",
+    "hono": "^4.6.16",
     "smol-toml": "^1.6.0"
   }
 }

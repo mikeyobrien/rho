@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rho Web UI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+    <script src="/js/app.js" defer></script>
+    <script src="/js/chat.js" defer></script>
+    <script src="/js/files.js" defer></script>
+    <script src="/js/tasks.js" defer></script>
+  </head>
+  <body>
+    <div class="app" x-data="rhoApp()">
+      <nav class="nav">
+        <div class="nav-inner">
+          <div class="nav-seg nav-logo">rho</div>
+          <div class="nav-seg nav-title">web ui</div>
+          <div class="nav-tabs" role="tablist" aria-label="Rho views">
+            <button
+              class="nav-tab"
+              :class="{ active: view === 'chat' }"
+              @click="setView('chat')"
+              type="button"
+              role="tab"
+              :aria-selected="view === 'chat'"
+            >
+              Chat
+            </button>
+            <button
+              class="nav-tab"
+              :class="{ active: view === 'files' }"
+              @click="setView('files')"
+              type="button"
+              role="tab"
+              :aria-selected="view === 'files'"
+            >
+              Files
+            </button>
+            <button
+              class="nav-tab"
+              :class="{ active: view === 'tasks' }"
+              @click="setView('tasks')"
+              type="button"
+              role="tab"
+              :aria-selected="view === 'tasks'"
+            >
+              Tasks
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <main class="main">
+        <section class="view chat-view" x-show="view === 'chat'" x-cloak role="tabpanel">
+          <div class="view-header">// chat</div>
+          <div class="view-title">Session viewer</div>
+          <div class="view-body" x-data="rhoChat()" x-init="init()">
+            <div class="chat-layout">
+              <aside class="chat-sessions">
+                <div class="chat-section-title">Sessions</div>
+                <div class="chat-section-meta" x-show="isLoadingSessions">Loading sessions...</div>
+                <div class="chat-section-meta chat-error" x-show="error" x-text="error"></div>
+                <div class="chat-list">
+                  <template x-for="session in sessions" :key="session.id">
+                    <button
+                      class="chat-session"
+                      :class="{ active: session.id === activeSessionId }"
+                      type="button"
+                      @click="selectSession(session.id)"
+                    >
+                      <div class="chat-session-title" x-text="session.name || session.id"></div>
+                      <div class="chat-session-meta">
+                        <span x-text="formatTimestamp(session.timestamp)"></span>
+                        <span x-text="messageCountLabel(session)"></span>
+                        <span
+                          class="chat-session-badge fork"
+                          x-show="sessionForkBadge(session)"
+                          x-text="sessionForkBadge(session)"
+                          :title="sessionForkTitle(session)"
+                        ></span>
+                      </div>
+                    </button>
+                  </template>
+                  <div class="chat-empty" x-show="!isLoadingSessions && sessions.length === 0">
+                    No sessions found.
+                  </div>
+                </div>
+              </aside>
+
+              <section class="chat-thread">
+                <div class="chat-thread-header">
+                  <div>
+                    <div class="chat-thread-title" x-text="activeSession ? sessionLabel(activeSession) : 'Select a session'"></div>
+                    <div class="chat-thread-meta" x-show="activeSession" x-text="messageCountLabel(activeSession)"></div>
+                  </div>
+                  <div class="chat-thread-actions">
+                    <button
+                      class="btn btn-ghost"
+                      type="button"
+                      @click="forkFromLatest()"
+                      :disabled="!activeSession || !hasForkPoints() || isForking"
+                    >
+                      Fork from latest
+                    </button>
+                  </div>
+                </div>
+
+                <div class="chat-thread-body" x-ref="thread">
+                  <div class="chat-empty" x-show="isLoadingSession">Loading session...</div>
+                  <div class="chat-empty" x-show="!isLoadingSession && activeSession && !hasMessages()">No messages yet.</div>
+                  <div class="chat-empty" x-show="!activeSession && !isLoadingSession">
+                    Select a session to view messages.
+                  </div>
+
+                  <template x-for="message in renderedMessages" :key="message.id">
+                    <article class="chat-message" :class="message.role">
+                      <div class="chat-message-meta">
+                        <span class="chat-message-role" x-text="message.roleLabel"></span>
+                        <div class="chat-message-meta-right">
+                          <button
+                            class="chat-fork-button"
+                            type="button"
+                            x-show="canForkMessage(message)"
+                            @click="forkFromEntry(message.id)"
+                            :title="messageForkPreview(message)"
+                          >
+                            Fork from here
+                          </button>
+                          <span class="chat-message-time" x-text="message.timestamp"></span>
+                        </div>
+                      </div>
+                      <div class="chat-message-body">
+                        <template x-for="part in message.parts" :key="part.key">
+                          <div>
+                            <template x-if="part.type === 'text' && part.render === 'html'">
+                              <div class="chat-text" x-html="part.content"></div>
+                            </template>
+                            <template x-if="part.type === 'text' && part.render === 'text'">
+                              <div class="chat-text" x-text="part.content"></div>
+                            </template>
+                            <template x-if="part.type === 'thinking'">
+                              <div class="chat-block thinking" x-data="{ open: false }">
+                                <button class="chat-block-toggle" type="button" @click="open = !open">
+                                  Thinking
+                                  <span class="chat-block-hint" x-text="open ? 'hide' : 'show'"></span>
+                                </button>
+                                <div class="chat-block-body" x-show="open" x-html="part.content"></div>
+                              </div>
+                            </template>
+                            <template x-if="part.type === 'tool_call'">
+                              <div class="chat-block tool" x-data="{ open: false }">
+                                <button class="chat-block-toggle" type="button" @click="open = !open">
+                                  Tool · <span x-text="part.name"></span>
+                                  <span class="chat-block-hint" :class="part.status" x-text="part.status === 'running' ? 'running' : part.status === 'error' ? 'error' : part.argsSummary"></span>
+                                </button>
+                                <div class="chat-block-body" x-show="open">
+                                  <div class="chat-block-label">args</div>
+                                  <pre><code x-text="part.args"></code></pre>
+                                  <div class="chat-block-label" x-show="part.output">output</div>
+                                  <pre x-show="part.output"><code x-text="part.output"></code></pre>
+                                </div>
+                              </div>
+                            </template>
+                            <template x-if="part.type === 'tool_result'">
+                              <div class="chat-block tool-result" x-data="{ open: false }">
+                                <button class="chat-block-toggle" type="button" @click="open = !open">
+                                  Tool result · <span x-text="part.name"></span>
+                                  <span class="chat-block-hint" x-text="open ? 'hide' : 'show'"></span>
+                                </button>
+                                <div class="chat-block-body" x-show="open">
+                                  <pre><code x-text="part.output"></code></pre>
+                                </div>
+                              </div>
+                            </template>
+                            <template x-if="part.type === 'bash'">
+                              <div class="chat-block bash">
+                                <div class="chat-block-label">bash</div>
+                                <pre class="bash-command"><code x-text="part.command"></code></pre>
+                                <pre class="bash-output" x-show="part.output"><code x-text="part.output"></code></pre>
+                              </div>
+                            </template>
+                            <template x-if="part.type === 'compaction'">
+                              <div class="chat-banner compaction">
+                                Context compacted · <span x-text="part.summary"></span>
+                              </div>
+                            </template>
+                            <template x-if="part.type === 'summary'">
+                              <div class="chat-banner summary">
+                                Summary · <span x-text="part.summary"></span>
+                              </div>
+                            </template>
+                            <template x-if="part.type === 'retry'">
+                              <div class="chat-banner retry">
+                                Retry · <span x-text="part.summary"></span>
+                              </div>
+                            </template>
+                            <template x-if="part.type === 'error'">
+                              <div class="chat-banner error" x-text="part.text"></div>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                      <div class="chat-usage" x-show="message.usageLine" x-text="message.usageLine"></div>
+                    </article>
+                  </template>
+                </div>
+
+                <form class="chat-composer" @submit.prevent="sendPrompt()" x-show="isForkActive()">
+                  <textarea
+                    class="chat-composer-input"
+                    x-model="promptText"
+                    placeholder="Type a prompt for this forked session..."
+                    rows="2"
+                    :disabled="isSendingPrompt || isForking"
+                  ></textarea>
+                  <button class="btn" type="submit" :disabled="!promptText.trim() || isSendingPrompt || isForking">
+                    Send
+                  </button>
+                </form>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view files-view" x-show="view === 'files'" x-cloak role="tabpanel">
+          <div class="view-header">// files</div>
+          <div class="view-title">State files</div>
+          <div class="view-body" x-data="rhoFiles()" x-init="init()">
+            <div class="files-layout">
+              <aside class="files-panel">
+                <div class="files-panel-header">
+                  <div class="files-section-title">Files</div>
+                  <button class="btn btn-ghost" type="button" @click="loadFiles()">Refresh</button>
+                </div>
+                <div class="files-section-meta" x-show="isLoadingFiles">Loading files...</div>
+                <div class="files-section-meta files-error" x-show="error" x-text="error"></div>
+                <div class="files-list">
+                  <template x-for="file in files" :key="file.path">
+                    <button
+                      class="file-item"
+                      :class="{ active: file.path === activeFilePath, disabled: file.isDirectory }"
+                      type="button"
+                      @click="selectFile(file)"
+                      :disabled="file.isDirectory"
+                    >
+                      <div class="file-item-main">
+                        <div class="file-name" x-text="file.name"></div>
+                        <div class="file-meta">
+                          <span class="file-badge" :class="`cat-${file.category}`" x-text="file.category"></span>
+                          <span class="file-kind" x-show="file.isDirectory">dir</span>
+                        </div>
+                      </div>
+                      <div class="file-time" x-text="formatTimestamp(file.lastModified)"></div>
+                    </button>
+                  </template>
+                  <div class="files-empty" x-show="!isLoadingFiles && files.length === 0">
+                    No files found.
+                  </div>
+                </div>
+              </aside>
+
+              <section class="files-editor">
+                <div class="files-editor-header">
+                  <div>
+                    <div class="files-editor-title" x-text="activeFile ? activeFile.name : 'Select a file'"></div>
+                    <div class="files-editor-path" x-show="activeFile" x-text="activeFile?.path"></div>
+                  </div>
+                  <div class="files-editor-actions">
+                    <div class="files-editor-status" :class="{ saved: saveStatus === 'saved', error: saveStatus === 'error', warn: conflict }" x-text="statusMessage()"></div>
+                    <button
+                      class="btn"
+                      type="button"
+                      @click="saveFile()"
+                      :disabled="!activeFile || activeFile.isDirectory || !dirty || isSaving"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+
+                <div class="files-alert" x-show="conflict">
+                  External update detected. Reload to see the latest changes.
+                  <button class="btn btn-ghost" type="button" @click="applyExternalUpdate()">Reload</button>
+                  <button class="btn btn-ghost" type="button" @click="dismissConflict()">Dismiss</button>
+                </div>
+
+                <textarea
+                  class="files-textarea"
+                  x-model="content"
+                  @input="handleInput"
+                  :readonly="!activeFile || activeFile.isDirectory"
+                  placeholder="Select a file to view its contents."
+                ></textarea>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view tasks-view" x-show="view === 'tasks'" x-cloak role="tabpanel">
+          <div class="view-header">// tasks</div>
+          <div class="view-title">Checklist</div>
+          <div class="view-body" x-data="rhoTasks()" x-init="init()">
+            <div class="tasks-layout">
+              <section class="tasks-panel">
+                <div class="tasks-panel-header">
+                  <div>
+                    <div class="tasks-section-title">Tasks</div>
+                    <div class="tasks-section-meta" x-show="isLoading">Loading tasks...</div>
+                    <div class="tasks-section-meta tasks-error" x-show="error" x-text="error"></div>
+                  </div>
+                  <button class="btn btn-ghost" type="button" @click="loadTasks()">Refresh</button>
+                </div>
+
+                <div class="tasks-tabs" role="tablist" aria-label="Task filters">
+                  <button
+                    class="tasks-tab"
+                    :class="{ active: filter === 'all' }"
+                    type="button"
+                    @click="setFilter('all')"
+                  >
+                    All <span class="tasks-count" x-text="tasks.length"></span>
+                  </button>
+                  <button
+                    class="tasks-tab"
+                    :class="{ active: filter === 'pending' }"
+                    type="button"
+                    @click="setFilter('pending')"
+                  >
+                    Pending <span class="tasks-count" x-text="pendingCount()"></span>
+                  </button>
+                  <button
+                    class="tasks-tab"
+                    :class="{ active: filter === 'done' }"
+                    type="button"
+                    @click="setFilter('done')"
+                  >
+                    Done <span class="tasks-count" x-text="doneCount()"></span>
+                  </button>
+                </div>
+
+                <div class="tasks-list">
+                  <template x-for="task in filteredTasks()" :key="task.id">
+                    <div class="task-item" :class="{ done: task.status === 'done' }">
+                      <label class="task-check">
+                        <input
+                          type="checkbox"
+                          :checked="task.status === 'done'"
+                          @change="toggleTask(task)"
+                        />
+                      </label>
+                      <div class="task-body">
+                        <div class="task-title" x-text="task.description"></div>
+                        <div class="task-meta">
+                          <span class="task-priority" :class="`priority-${task.priority}`" x-text="task.priority"></span>
+                          <span class="task-date" x-show="task.due">
+                            due <span x-text="task.due"></span>
+                          </span>
+                          <span class="task-date">
+                            created <span x-text="formatDate(task.created)"></span>
+                          </span>
+                        </div>
+                        <div class="task-tags" x-show="task.tags && task.tags.length">
+                          <template x-for="tag in task.tags" :key="tag">
+                            <span class="task-tag" x-text="`#${tag}`"></span>
+                          </template>
+                        </div>
+                      </div>
+                      <button class="task-delete" type="button" @click="removeTask(task)">Delete</button>
+                    </div>
+                  </template>
+                  <div class="tasks-empty" x-show="!isLoading && filteredTasks().length === 0">
+                    No tasks match this filter.
+                  </div>
+                </div>
+              </section>
+
+              <form class="tasks-form" @submit.prevent="addTask()">
+                <div class="tasks-form-title">Add task</div>
+                <label class="tasks-field">
+                  <span>Description</span>
+                  <input type="text" x-model="newDescription" placeholder="Describe the task" />
+                </label>
+                <label class="tasks-field">
+                  <span>Priority</span>
+                  <select x-model="newPriority">
+                    <option value="urgent">Urgent</option>
+                    <option value="high">High</option>
+                    <option value="normal">Normal</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
+                <button class="btn" type="submit" :disabled="isSubmitting || !newDescription.trim()">
+                  Add task
+                </button>
+                <div class="tasks-form-hint">
+                  Tasks are shared with the `tasks` CLI tool.
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="footer-inner">
+          <span>model: --</span>
+          <span>tokens: --</span>
+          <span>cost: --</span>
+          <span class="status">status: idle</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

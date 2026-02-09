@@ -20,7 +20,7 @@ import {
   findTaskById,
   formatTask,
   type Task,
-} from "../extensions/rho/index.ts";
+} from "../extensions/rho/tasks-core.ts";
 
 // ---- Test harness ----
 let PASS = 0;

@@ -1,0 +1,1295 @@
+const CHAT_REFRESH_INTERVAL = 15000;
+
+function safeString(value) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function clampString(value, max) {
+  if (!value) {
+    return "";
+  }
+  if (value.length <= max) {
+    return value;
+  }
+  return `${value.slice(0, max)}...`;
+}
+
+function extractText(content) {
+  if (content == null) {
+    return "";
+  }
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (item && typeof item === "object" && "text" in item) {
+          return String(item.text ?? "");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+  if (typeof content === "object" && "text" in content) {
+    return String(content.text ?? "");
+  }
+  return safeString(content);
+}
+
+function normalizeToolCall(item) {
+  const name =
+    item.name ??
+    item.tool_name ??
+    item.toolName ??
+    item.function?.name ??
+    item.functionName ??
+    "tool";
+  const args =
+    item.arguments ??
+    item.args ??
+    item.input ??
+    item.function?.arguments ??
+    item.parameters ??
+    "";
+  const output =
+    item.output ??
+    item.result ??
+    item.response ??
+    item.tool_output ??
+    item.toolResult ??
+    "";
+
+  const argsText = typeof args === "string" ? args : safeString(args);
+  const outputText = typeof output === "string" ? output : safeString(output);
+
+  return {
+    type: "tool_call",
+    name,
+    args: argsText,
+    argsSummary: clampString(argsText.replace(/\s+/g, " ").trim(), 120),
+    output: outputText,
+    status: item.isError ? "error" : item.status ?? "done",
+  };
+}
+
+function normalizeContentItem(item) {
+  if (item == null) {
+    return [];
+  }
+  if (typeof item === "string") {
+    return [{ type: "text", text: item }];
+  }
+  if (typeof item !== "object") {
+    return [{ type: "text", text: String(item) }];
+  }
+
+  const itemType = item.type;
+
+  if (itemType === "thinking" || itemType === "reasoning" || itemType === "analysis") {
+    return [{ type: "thinking", text: item.text ?? item.content ?? item.thought ?? "" }];
+  }
+
+  if (itemType === "toolCall") {
+    return [
+      {
+        type: "tool_call",
+        name: item.name ?? "tool",
+        args: safeString(item.arguments ?? {}),
+        argsSummary: clampString(safeString(item.arguments ?? {}).replace(/\s+/g, " ").trim(), 120),
+        output: "",
+        toolCallId: item.id ?? "",
+        status: "running",
+      },
+    ];
+  }
+
+  if (itemType === "tool_call" || itemType === "tool_use" || itemType === "tool") {
+    return [normalizeToolCall(item)];
+  }
+
+  if (itemType === "tool_result" || itemType === "tool_output" || itemType === "tool_response") {
+    return [
+      {
+        type: "tool_result",
+        name: item.name ?? item.tool_name ?? "tool",
+        output: typeof item.output === "string" ? item.output : safeString(item.output ?? item.result ?? item),
+      },
+    ];
+  }
+
+  if (itemType === "bash" || itemType === "shell" || itemType === "command") {
+    return [
+      {
+        type: "bash",
+        command: item.command ?? item.cmd ?? item.text ?? "",
+        output: item.output ?? item.result ?? "",
+      },
+    ];
+  }
+
+  if (itemType === "error") {
+    return [{ type: "error", text: item.message ?? item.error ?? safeString(item) }];
+  }
+
+  if (itemType === "text" || itemType === "input_text" || itemType === "output_text" || itemType === "markdown") {
+    return [{ type: "text", text: item.text ?? item.content ?? "" }];
+  }
+
+  if ("tool_calls" in item && Array.isArray(item.tool_calls)) {
+    return item.tool_calls.map(normalizeToolCall);
+  }
+
+  if ("tool" in item || "toolName" in item || "function" in item) {
+    return [normalizeToolCall(item)];
+  }
+
+  if ("thinking" in item) {
+    return [{ type: "thinking", text: item.thinking }];
+  }
+
+  if ("command" in item || "cmd" in item) {
+    return [
+      {
+        type: "bash",
+        command: item.command ?? item.cmd ?? "",
+        output: item.output ?? item.result ?? "",
+      },
+    ];
+  }
+
+  if ("error" in item) {
+    return [{ type: "error", text: item.error ?? safeString(item) }];
+  }
+
+  if ("text" in item) {
+    return [{ type: "text", text: item.text ?? "" }];
+  }
+
+  return [{ type: "text", text: safeString(item) }];
+}
+
+function normalizeParts(content) {
+  if (content == null) {
+    return [];
+  }
+  if (typeof content === "string") {
+    return [{ type: "text", text: content }];
+  }
+  if (Array.isArray(content)) {
+    return content.flatMap((item) => normalizeContentItem(item));
+  }
+
+  if (typeof content === "object") {
+    const contentType = content.type;
+    if (contentType === "compaction") {
+      return [
+        {
+          type: "compaction",
+          summary: content.summary ?? "Context compacted",
+        },
+      ];
+    }
+
+    if (contentType === "branch_summary") {
+      return [
+        {
+          type: "summary",
+          summary: content.summary ?? "Branch summary",
+        },
+      ];
+    }
+
+    if (contentType === "tool_call" || contentType === "tool_use" || contentType === "tool") {
+      return [normalizeToolCall(content)];
+    }
+
+    if (contentType === "tool_result" || contentType === "tool_output") {
+      return [
+        {
+          type: "tool_result",
+          name: content.name ?? content.tool_name ?? "tool",
+          output: typeof content.output === "string" ? content.output : safeString(content.output ?? content.result ?? content),
+        },
+      ];
+    }
+
+    if (contentType === "bash" || contentType === "shell" || contentType === "command") {
+      return [
+        {
+          type: "bash",
+          command: content.command ?? content.cmd ?? "",
+          output: content.output ?? content.result ?? "",
+        },
+      ];
+    }
+
+    if (contentType === "error") {
+      return [{ type: "error", text: content.message ?? content.error ?? safeString(content) }];
+    }
+
+    if ("tool_calls" in content && Array.isArray(content.tool_calls)) {
+      return content.tool_calls.map(normalizeToolCall);
+    }
+
+    if ("text" in content) {
+      return [{ type: "text", text: content.text ?? "" }];
+    }
+
+    if ("thinking" in content) {
+      return [{ type: "thinking", text: content.thinking ?? "" }];
+    }
+
+    return [{ type: "text", text: safeString(content) }];
+  }
+
+  return [{ type: "text", text: safeString(content) }];
+}
+
+function formatModel(model) {
+  if (!model) {
+    return "";
+  }
+  if (typeof model === "string") {
+    return model;
+  }
+  const provider = model.provider ?? model.vendor ?? "";
+  const modelId = model.modelId ?? model.id ?? model.name ?? "";
+  if (provider && modelId) {
+    return `${provider}/${modelId}`;
+  }
+  return modelId || provider || safeString(model);
+}
+
+function formatUsage(usage, model) {
+  if (!usage && !model) {
+    return "";
+  }
+
+  const usageObj = usage ?? {};
+  const input = Number(usageObj.input ?? usageObj.promptTokens ?? usageObj.inputTokens ?? 0);
+  const output = Number(usageObj.output ?? usageObj.completionTokens ?? usageObj.outputTokens ?? 0);
+  const totalTokens = Number(
+    usageObj.totalTokens ??
+      usageObj.total ??
+      usageObj.total_tokens ??
+      usageObj.tokens ??
+      (input || output ? input + output : 0)
+  );
+  const cacheRead = Number(usageObj.cacheRead ?? usageObj.cache_read ?? usageObj.cacheReadTokens ?? 0);
+  const cacheWrite = Number(usageObj.cacheWrite ?? usageObj.cache_write ?? usageObj.cacheCreation ?? 0);
+  const cost =
+    usageObj.cost?.total ??
+    usageObj.costTotal ??
+    usageObj.totalCost ??
+    usageObj.usd ??
+    usageObj.cost ??
+    null;
+
+  const parts = [];
+  if (model) {
+    parts.push(`model: ${model}`);
+  }
+  if (totalTokens) {
+    parts.push(`tokens: ${totalTokens}`);
+  } else if (input || output) {
+    parts.push(`tokens: ${input}/${output}`);
+  }
+  if (cacheRead || cacheWrite) {
+    parts.push(`cache: ${cacheRead}/${cacheWrite}`);
+  }
+  if (cost != null && cost !== "" && Number.isFinite(Number(cost))) {
+    parts.push(`cost: $${Number(cost).toFixed(4)}`);
+  }
+  return parts.join(" · ");
+}
+
+function formatTimestamp(value) {
+  if (!value) {
+    return "";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+  return parsed.toLocaleString();
+}
+
+function renderMarkdown(text) {
+  if (!text) {
+    return "";
+  }
+  try {
+    return marked.parse(text);
+  } catch {
+    return text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  }
+}
+
+function highlightCodeBlocks(root) {
+  if (!root || typeof hljs === "undefined") {
+    return;
+  }
+  root.querySelectorAll("pre code").forEach((block) => {
+    hljs.highlightElement(block);
+  });
+}
+
+function normalizeMessage(message) {
+  const role = message.role ?? "assistant";
+  const parts = normalizeParts(message.content ?? message);
+
+  const normalizedParts = parts.map((part, index) => {
+    if (part.type === "text") {
+      const text = String(part.text ?? "");
+      return {
+        ...part,
+        key: `${message.id}-text-${index}`,
+        render: role === "assistant" ? "html" : "text",
+        content: role === "assistant" ? renderMarkdown(text) : text,
+      };
+    }
+    if (part.type === "thinking") {
+      return {
+        ...part,
+        key: `${message.id}-thinking-${index}`,
+        content: renderMarkdown(String(part.text ?? "")),
+      };
+    }
+    if (part.type === "tool_call") {
+      const args = typeof part.args === "string" ? part.args : safeString(part.args ?? "");
+      return {
+        ...part,
+        key: `${message.id}-tool-${index}`,
+        args,
+        argsSummary: part.argsSummary ?? clampString(args, 120),
+        output: typeof part.output === "string" ? part.output : safeString(part.output ?? ""),
+        status: part.status ?? "done",
+      };
+    }
+    if (part.type === "tool_result") {
+      return {
+        ...part,
+        key: `${message.id}-tool-result-${index}`,
+        output: part.output ?? "",
+      };
+    }
+    if (part.type === "bash") {
+      return {
+        ...part,
+        key: `${message.id}-bash-${index}`,
+        command: part.command ?? "",
+        output: part.output ?? "",
+      };
+    }
+    if (part.type === "compaction" || part.type === "summary" || part.type === "retry") {
+      return {
+        ...part,
+        key: `${message.id}-summary-${index}`,
+      };
+    }
+    if (part.type === "error") {
+      return {
+        ...part,
+        key: `${message.id}-error-${index}`,
+      };
+    }
+    return {
+      ...part,
+      key: `${message.id}-part-${index}`,
+    };
+  });
+
+  return {
+    id: message.id,
+    role,
+    roleLabel: role === "assistant" ? "assistant" : role,
+    timestamp: formatTimestamp(message.timestamp ?? ""),
+    parts: normalizedParts,
+    usageLine: role === "assistant" ? formatUsage(message.usage, formatModel(message.model)) : "",
+    canFork: role === "user",
+  };
+}
+
+function buildWsUrl() {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws`;
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error ?? `Request failed (${response.status})`);
+  }
+  return response.json();
+}
+
+async function postJson(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload ?? {}),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error ?? `Request failed (${response.status})`);
+  }
+  return data;
+}
+
+function toIsoTimestamp(value) {
+  if (typeof value === "number") {
+    return new Date(value).toISOString();
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
+function findToolCallInMessage(message, contentIndex) {
+  const content = message?.content;
+  if (!Array.isArray(content)) {
+    return null;
+  }
+  const block = content[Number(contentIndex)];
+  if (block && typeof block === "object" && block.type === "toolCall") {
+    return block;
+  }
+  return null;
+}
+
+function extractToolOutput(result) {
+  if (!result) {
+    return "";
+  }
+  if (typeof result === "string") {
+    return result;
+  }
+
+  const textFromContent = Array.isArray(result.content)
+    ? result.content
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return "";
+          }
+          if (item.type === "text") {
+            return String(item.text ?? "");
+          }
+          return safeString(item);
+        })
+        .filter(Boolean)
+        .join("\n")
+    : "";
+
+  if (textFromContent) {
+    return textFromContent;
+  }
+
+  if (result.details != null) {
+    return safeString(result.details);
+  }
+
+  return safeString(result);
+}
+
+document.addEventListener("alpine:init", () => {
+  Alpine.data("rhoChat", () => ({
+    sessions: [],
+    activeSessionId: "",
+    activeSession: null,
+    renderedMessages: [],
+    isLoadingSessions: false,
+    isLoadingSession: false,
+    isForking: false,
+    isSendingPrompt: false,
+    error: "",
+    poller: null,
+    ws: null,
+    activeRpcSessionId: "",
+    activeRpcSessionFile: "",
+    promptText: "",
+    streamMessageId: "",
+    markdownRenderQueue: new Map(),
+    markdownFrame: null,
+    toolCallPartById: new Map(),
+
+    async init() {
+      marked.setOptions({
+        gfm: true,
+        breaks: true,
+      });
+      this.connectWebSocket();
+      await this.loadSessions();
+      this.startPolling();
+    },
+
+    connectWebSocket() {
+      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      const ws = new WebSocket(buildWsUrl());
+      ws.addEventListener("message", (event) => {
+        this.handleWsMessage(event);
+      });
+      ws.addEventListener("close", () => {
+        if (this.ws === ws) {
+          this.ws = null;
+          setTimeout(() => this.connectWebSocket(), 1000);
+        }
+      });
+      ws.addEventListener("error", () => {
+        this.error = "WebSocket connection error";
+      });
+      this.ws = ws;
+    },
+
+    sendWs(payload) {
+      if (!this.ws) {
+        this.error = "WebSocket not connected";
+        return false;
+      }
+
+      if (this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.addEventListener(
+          "open",
+          () => {
+            this.ws?.send(JSON.stringify(payload));
+          },
+          { once: true }
+        );
+        return true;
+      }
+
+      if (this.ws.readyState !== WebSocket.OPEN) {
+        this.error = "WebSocket not connected";
+        return false;
+      }
+
+      this.ws.send(JSON.stringify(payload));
+      return true;
+    },
+
+    handleWsMessage(event) {
+      let payload = null;
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      if (payload.type === "error") {
+        this.error = payload.message ?? "WebSocket error";
+        this.isForking = false;
+        this.isSendingPrompt = false;
+        return;
+      }
+
+      if (payload.type === "session_started") {
+        this.activeRpcSessionId = payload.sessionId ?? "";
+        this.activeRpcSessionFile = payload.sessionFile ?? "";
+        this.isForking = false;
+        return;
+      }
+
+      if (payload.type !== "rpc_event") {
+        return;
+      }
+
+      if (!payload.sessionId || payload.sessionId !== this.activeRpcSessionId) {
+        return;
+      }
+
+      const rpcEvent = payload.event;
+      if (!rpcEvent || typeof rpcEvent !== "object") {
+        return;
+      }
+
+      this.handleRpcEvent(rpcEvent);
+    },
+
+    handleRpcEvent(event) {
+      if (event.type === "response") {
+        if (!event.success) {
+          this.error = event.error ?? `RPC command failed: ${event.command ?? "unknown"}`;
+          this.isSendingPrompt = false;
+        }
+        return;
+      }
+
+      if (event.type === "message_start") {
+        this.upsertMessage(event.message);
+        return;
+      }
+
+      if (event.type === "message_update") {
+        this.handleAssistantDelta(event);
+        return;
+      }
+
+      if (event.type === "tool_execution_start") {
+        this.handleToolExecutionStart(event);
+        return;
+      }
+
+      if (event.type === "tool_execution_update") {
+        this.handleToolExecutionUpdate(event);
+        return;
+      }
+
+      if (event.type === "tool_execution_end") {
+        this.handleToolExecutionEnd(event);
+        return;
+      }
+
+      if (event.type === "message_end") {
+        this.handleMessageEnd(event);
+        return;
+      }
+
+      if (event.type === "auto_compaction_start") {
+        this.appendBanner("compaction", `Compaction started (${event.reason ?? "threshold"})`);
+        return;
+      }
+
+      if (event.type === "auto_compaction_end") {
+        const summary = event.result?.summary ?? event.errorMessage ?? (event.aborted ? "Compaction aborted" : "Compaction complete");
+        this.appendBanner("compaction", summary);
+        return;
+      }
+
+      if (event.type === "auto_retry_start") {
+        const attempt = Number(event.attempt ?? 0);
+        const maxAttempts = Number(event.maxAttempts ?? 0);
+        const line = `Retry ${attempt}/${maxAttempts} in ${Math.round(Number(event.delayMs ?? 0) / 1000)}s`;
+        this.appendBanner("retry", line);
+        return;
+      }
+
+      if (event.type === "auto_retry_end") {
+        const status = event.success ? "Retry succeeded" : `Retry failed: ${event.finalError ?? "unknown error"}`;
+        this.appendBanner("retry", status);
+        return;
+      }
+
+      if (event.type === "extension_error") {
+        const line = `${event.extensionPath ?? "extension"}: ${event.error ?? "unknown error"}`;
+        this.appendBanner("error", line);
+        return;
+      }
+
+      if (event.type === "rpc_error" || event.type === "rpc_process_crashed") {
+        this.error = event.message ?? "RPC process error";
+        this.isSendingPrompt = false;
+      }
+    },
+
+    upsertMessage(rawMessage) {
+      if (!rawMessage || typeof rawMessage !== "object") {
+        return;
+      }
+
+      const messageId = String(rawMessage.id ?? "");
+      if (!messageId) {
+        return;
+      }
+
+      const role = String(rawMessage.role ?? "");
+      if (role === "assistant") {
+        return;
+      }
+
+      const normalized = normalizeMessage({ ...rawMessage, id: messageId, timestamp: toIsoTimestamp(rawMessage.timestamp) });
+      const idx = this.renderedMessages.findIndex((item) => item.id === messageId);
+      if (idx >= 0) {
+        this.renderedMessages[idx] = normalized;
+      } else {
+        this.renderedMessages.push(normalized);
+      }
+
+      this.$nextTick(() => {
+        highlightCodeBlocks(this.$refs.thread);
+        this.scrollThreadToBottom();
+      });
+    },
+
+    ensureStreamingMessage(eventMessage) {
+      const eventId = String(eventMessage?.id ?? "");
+      const messageId = eventId || this.streamMessageId || `stream-${Date.now()}`;
+      this.streamMessageId = messageId;
+
+      let message = this.renderedMessages.find((item) => item.id === messageId);
+      if (!message) {
+        const normalized = normalizeMessage({
+          id: messageId,
+          role: "assistant",
+          timestamp: toIsoTimestamp(eventMessage?.timestamp),
+          content: "",
+          model: eventMessage?.model,
+        });
+        message = {
+          ...normalized,
+          stream: {
+            textBuffers: {},
+            thinkingBuffers: {},
+            toolCallBuffers: {},
+          },
+        };
+        this.renderedMessages.push(message);
+      }
+
+      if (!message.stream) {
+        message.stream = {
+          textBuffers: {},
+          thinkingBuffers: {},
+          toolCallBuffers: {},
+        };
+      }
+
+      return message;
+    },
+
+    ensurePart(message, key, createPart) {
+      const idx = message.parts.findIndex((part) => part.key === key);
+      if (idx >= 0) {
+        return message.parts[idx];
+      }
+      const next = createPart();
+      message.parts.push(next);
+      return next;
+    },
+
+    scheduleMarkdownRender(messageId, contentIndex) {
+      const key = String(contentIndex);
+      if (!this.markdownRenderQueue.has(messageId)) {
+        this.markdownRenderQueue.set(messageId, new Set());
+      }
+      this.markdownRenderQueue.get(messageId).add(key);
+
+      if (this.markdownFrame != null) {
+        return;
+      }
+
+      this.markdownFrame = window.requestAnimationFrame(() => {
+        this.flushMarkdownRender();
+      });
+    },
+
+    flushMarkdownRender() {
+      this.markdownFrame = null;
+
+      for (const [messageId, indexes] of this.markdownRenderQueue.entries()) {
+        const message = this.renderedMessages.find((item) => item.id === messageId);
+        if (!message?.stream) {
+          continue;
+        }
+
+        for (const index of indexes) {
+          const text = message.stream.textBuffers[index] ?? "";
+          const partKey = `${messageId}-stream-text-${index}`;
+          const part = this.ensurePart(message, partKey, () => ({
+            type: "text",
+            key: partKey,
+            render: "html",
+            content: "",
+          }));
+          part.render = "html";
+          part.content = renderMarkdown(text);
+        }
+      }
+
+      this.markdownRenderQueue.clear();
+
+      this.$nextTick(() => {
+        highlightCodeBlocks(this.$refs.thread);
+        this.scrollThreadToBottom();
+      });
+    },
+
+    handleAssistantDelta(event) {
+      const message = this.ensureStreamingMessage(event.message);
+      const delta = event.assistantMessageEvent ?? {};
+      const deltaType = delta.type;
+      const contentIndex = String(delta.contentIndex ?? 0);
+
+      if (deltaType === "text_start") {
+        message.stream.textBuffers[contentIndex] = "";
+        this.scheduleMarkdownRender(message.id, contentIndex);
+        return;
+      }
+
+      if (deltaType === "text_delta") {
+        message.stream.textBuffers[contentIndex] = (message.stream.textBuffers[contentIndex] ?? "") + String(delta.delta ?? "");
+        this.scheduleMarkdownRender(message.id, contentIndex);
+        return;
+      }
+
+      if (deltaType === "text_end") {
+        if (typeof delta.content === "string") {
+          message.stream.textBuffers[contentIndex] = delta.content;
+        }
+        this.scheduleMarkdownRender(message.id, contentIndex);
+        return;
+      }
+
+      if (deltaType === "thinking_start") {
+        message.stream.thinkingBuffers[contentIndex] = "";
+        const key = `${message.id}-stream-thinking-${contentIndex}`;
+        this.ensurePart(message, key, () => ({
+          type: "thinking",
+          key,
+          content: "",
+        }));
+        this.scrollThreadToBottom();
+        return;
+      }
+
+      if (deltaType === "thinking_delta" || deltaType === "thinking_end") {
+        const nextText =
+          deltaType === "thinking_end" && typeof delta.content === "string"
+            ? delta.content
+            : (message.stream.thinkingBuffers[contentIndex] ?? "") + String(delta.delta ?? "");
+        message.stream.thinkingBuffers[contentIndex] = nextText;
+
+        const key = `${message.id}-stream-thinking-${contentIndex}`;
+        const part = this.ensurePart(message, key, () => ({
+          type: "thinking",
+          key,
+          content: "",
+        }));
+        part.content = renderMarkdown(nextText);
+
+        this.$nextTick(() => {
+          highlightCodeBlocks(this.$refs.thread);
+          this.scrollThreadToBottom();
+        });
+        return;
+      }
+
+      if (deltaType === "toolcall_start") {
+        message.stream.toolCallBuffers[contentIndex] = "";
+        const key = `${message.id}-stream-tool-${contentIndex}`;
+        this.ensurePart(message, key, () => ({
+          type: "tool_call",
+          key,
+          name: "tool",
+          args: "",
+          argsSummary: "",
+          output: "",
+          status: "running",
+        }));
+        return;
+      }
+
+      if (deltaType === "toolcall_delta" || deltaType === "toolcall_end") {
+        const chunk = String(delta.delta ?? "");
+        message.stream.toolCallBuffers[contentIndex] = (message.stream.toolCallBuffers[contentIndex] ?? "") + chunk;
+
+        const key = `${message.id}-stream-tool-${contentIndex}`;
+        const part = this.ensurePart(message, key, () => ({
+          type: "tool_call",
+          key,
+          name: "tool",
+          args: "",
+          argsSummary: "",
+          output: "",
+          status: "running",
+        }));
+
+        const fullToolCall =
+          delta.toolCall ??
+          delta.partial?.content?.[Number(contentIndex)] ??
+          findToolCallInMessage(event.message, contentIndex);
+
+        const argsText = fullToolCall?.arguments ? safeString(fullToolCall.arguments) : message.stream.toolCallBuffers[contentIndex] ?? "";
+
+        part.name = fullToolCall?.name ?? part.name ?? "tool";
+        part.toolCallId = fullToolCall?.id ?? part.toolCallId;
+        part.args = argsText;
+        part.argsSummary = clampString(argsText.replace(/\s+/g, " ").trim(), 120);
+        part.status = deltaType === "toolcall_end" ? "done" : "running";
+
+        if (part.toolCallId) {
+          this.toolCallPartById.set(part.toolCallId, { messageId: message.id, key });
+        }
+
+        this.scrollThreadToBottom();
+      }
+    },
+
+    handleToolExecutionStart(event) {
+      const message = this.ensureStreamingMessage({ id: this.streamMessageId });
+      const toolCallId = String(event.toolCallId ?? `tool-${Date.now()}`);
+      const key = `${message.id}-tool-exec-${toolCallId}`;
+      const argsText = safeString(event.args ?? "");
+      const part = this.ensurePart(message, key, () => ({
+        type: "tool_call",
+        key,
+        name: event.toolName ?? "tool",
+        args: argsText,
+        argsSummary: clampString(argsText.replace(/\s+/g, " ").trim(), 120),
+        output: "",
+        status: "running",
+        toolCallId,
+      }));
+
+      part.name = event.toolName ?? part.name ?? "tool";
+      part.args = argsText;
+      part.argsSummary = clampString(argsText.replace(/\s+/g, " ").trim(), 120);
+      part.status = "running";
+      part.toolCallId = toolCallId;
+
+      this.toolCallPartById.set(toolCallId, { messageId: message.id, key });
+      this.scrollThreadToBottom();
+    },
+
+    findToolCallPart(toolCallId) {
+      const ref = this.toolCallPartById.get(toolCallId);
+      if (!ref) {
+        return null;
+      }
+      const message = this.renderedMessages.find((item) => item.id === ref.messageId);
+      if (!message) {
+        return null;
+      }
+      return message.parts.find((part) => part.key === ref.key) ?? null;
+    },
+
+    handleToolExecutionUpdate(event) {
+      const toolCallId = String(event.toolCallId ?? "");
+      if (!toolCallId) {
+        return;
+      }
+
+      let part = this.findToolCallPart(toolCallId);
+      if (!part) {
+        this.handleToolExecutionStart(event);
+        part = this.findToolCallPart(toolCallId);
+      }
+      if (!part) {
+        return;
+      }
+
+      part.status = "running";
+      part.output = extractToolOutput(event.partialResult);
+      this.scrollThreadToBottom();
+    },
+
+    handleToolExecutionEnd(event) {
+      const toolCallId = String(event.toolCallId ?? "");
+      if (!toolCallId) {
+        return;
+      }
+
+      let part = this.findToolCallPart(toolCallId);
+      if (!part) {
+        this.handleToolExecutionStart(event);
+        part = this.findToolCallPart(toolCallId);
+      }
+      if (!part) {
+        return;
+      }
+
+      part.status = event.isError ? "error" : "success";
+      part.output = extractToolOutput(event.result);
+      this.scrollThreadToBottom();
+    },
+
+    handleMessageEnd(event) {
+      const message = event.message;
+      const role = String(message?.role ?? "");
+      const messageId = String(message?.id ?? this.streamMessageId ?? "");
+
+      if (role === "assistant") {
+        const finalMessage = normalizeMessage({
+          ...(message ?? {}),
+          id: messageId || `stream-${Date.now()}`,
+          timestamp: toIsoTimestamp(message?.timestamp),
+        });
+
+        const idx = this.renderedMessages.findIndex((item) => item.id === finalMessage.id || item.id === this.streamMessageId);
+        if (idx >= 0) {
+          this.renderedMessages[idx] = finalMessage;
+        } else {
+          this.renderedMessages.push(finalMessage);
+        }
+
+        this.streamMessageId = "";
+        this.isSendingPrompt = false;
+        this.$nextTick(() => {
+          highlightCodeBlocks(this.$refs.thread);
+          this.scrollThreadToBottom();
+        });
+        this.loadSessions(false);
+        return;
+      }
+
+      this.upsertMessage(message);
+    },
+
+    appendBanner(type, text) {
+      const partType = type === "error" ? "error" : type === "retry" ? "retry" : "compaction";
+      const message = {
+        id: `banner-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        role: partType === "error" ? "error" : "summary",
+        roleLabel: partType === "error" ? "error" : "system",
+        timestamp: formatTimestamp(new Date().toISOString()),
+        parts: [
+          partType === "error"
+            ? { type: "error", key: `banner-${Date.now()}`, text }
+            : partType === "retry"
+              ? { type: "retry", key: `banner-${Date.now()}`, summary: text }
+              : { type: "compaction", key: `banner-${Date.now()}`, summary: text },
+        ],
+        usageLine: "",
+        canFork: false,
+      };
+
+      this.renderedMessages.push(message);
+      this.scrollThreadToBottom();
+    },
+
+    scrollThreadToBottom() {
+      const thread = this.$refs.thread;
+      if (!thread) {
+        return;
+      }
+      thread.scrollTop = thread.scrollHeight;
+    },
+
+    startPolling() {
+      this.stopPolling();
+      this.poller = setInterval(() => {
+        this.loadSessions(false);
+      }, CHAT_REFRESH_INTERVAL);
+    },
+
+    stopPolling() {
+      if (this.poller) {
+        clearInterval(this.poller);
+        this.poller = null;
+      }
+    },
+
+    async loadSessions(showSpinner = true) {
+      if (showSpinner) {
+        this.isLoadingSessions = true;
+      }
+      this.error = "";
+
+      try {
+        const sessions = await fetchJson("/api/sessions");
+        this.sessions = sessions;
+
+        if (!this.activeSessionId && sessions.length > 0) {
+          await this.selectSession(sessions[0].id);
+        }
+      } catch (error) {
+        this.error = error.message ?? "Failed to load sessions";
+      } finally {
+        this.isLoadingSessions = false;
+      }
+    },
+
+    async reloadActiveSession() {
+      if (!this.activeSessionId) {
+        return;
+      }
+      await this.selectSession(this.activeSessionId);
+    },
+
+    async selectSession(sessionId) {
+      if (!sessionId) {
+        return;
+      }
+
+      this.activeSessionId = sessionId;
+      this.isLoadingSession = true;
+      this.error = "";
+      this.streamMessageId = "";
+      this.toolCallPartById.clear();
+
+      try {
+        const session = await fetchJson(`/api/sessions/${sessionId}`);
+        this.applySession(session);
+      } catch (error) {
+        this.error = error.message ?? "Failed to load session";
+      } finally {
+        this.isLoadingSession = false;
+      }
+    },
+
+    applySession(session) {
+      this.activeSession = session;
+      this.renderedMessages = (session.messages ?? []).map(normalizeMessage);
+
+      this.$nextTick(() => {
+        highlightCodeBlocks(this.$refs.thread);
+      });
+    },
+
+    sessionLabel(session) {
+      if (!session) {
+        return "";
+      }
+      const title = session.name ?? session.header?.id ?? session.id ?? "session";
+      const timestamp = formatTimestamp(session.header?.timestamp ?? session.timestamp);
+      return `${title}${timestamp ? ` · ${timestamp}` : ""}`;
+    },
+
+    messageCountLabel(session) {
+      if (!session) {
+        return "";
+      }
+      const count = session.messageCount ?? session.messages?.length ?? 0;
+      return `${count} message${count === 1 ? "" : "s"}`;
+    },
+
+    formatTimestamp(value) {
+      return formatTimestamp(value);
+    },
+
+    hasMessages() {
+      return this.renderedMessages.length > 0;
+    },
+
+    latestForkPointId() {
+      return this.activeSession?.forkPoints?.at?.(-1)?.id ?? "";
+    },
+
+    hasForkPoints() {
+      return Boolean(this.latestForkPointId());
+    },
+
+    isForkActive() {
+      return Boolean(this.activeRpcSessionId);
+    },
+
+    sessionForkBadge(session) {
+      if (!session?.parentSession) {
+        return "";
+      }
+      return "fork";
+    },
+
+    sessionForkTitle(session) {
+      return session?.parentSession ? `forked from ${session.parentSession}` : "";
+    },
+
+    canForkMessage(message) {
+      return Boolean(message?.canFork && this.activeSessionId);
+    },
+
+    async forkFromLatest() {
+      const entryId = this.latestForkPointId();
+      if (!entryId) {
+        this.error = "No user message available to fork from";
+        return;
+      }
+      await this.forkFromEntry(entryId);
+    },
+
+    async forkFromEntry(entryId) {
+      if (!this.activeSessionId || !entryId || this.isForking) {
+        return;
+      }
+
+      this.error = "";
+      this.isForking = true;
+
+      try {
+        const forkResult = await postJson(`/api/sessions/${this.activeSessionId}/fork`, { entryId });
+
+        this.activeSessionId = forkResult.sessionId;
+        this.activeRpcSessionId = "";
+        this.activeRpcSessionFile = forkResult.sessionFile;
+        this.promptText = "";
+
+        this.applySession(forkResult.session);
+        await this.loadSessions(false);
+        this.startRpcSession(forkResult.sessionFile);
+      } catch (error) {
+        this.error = error.message ?? "Failed to fork session";
+        this.isForking = false;
+      }
+    },
+
+    startRpcSession(sessionFile) {
+      const sent = this.sendWs({
+        type: "rpc_command",
+        sessionFile,
+        command: {
+          type: "switch_session",
+          sessionFile,
+          sessionPath: sessionFile,
+          path: sessionFile,
+        },
+      });
+
+      if (!sent) {
+        this.isForking = false;
+      }
+    },
+
+    async sendPrompt() {
+      const message = this.promptText.trim();
+      if (!message || !this.activeRpcSessionId || this.isSendingPrompt) {
+        return;
+      }
+
+      this.error = "";
+      this.isSendingPrompt = true;
+      this.promptText = "";
+      this.streamMessageId = "";
+
+      const sent = this.sendWs({
+        type: "rpc_command",
+        sessionId: this.activeRpcSessionId,
+        command: {
+          type: "prompt",
+          message,
+        },
+      });
+
+      if (!sent) {
+        this.isSendingPrompt = false;
+      } else {
+        this.$nextTick(() => {
+          this.scrollThreadToBottom();
+        });
+      }
+    },
+
+    messageForkPreview(message) {
+      const firstText = message?.parts?.find((part) => part.type === "text");
+      const text = firstText ? extractText(firstText.content ?? "") : "";
+      return clampString(text.replace(/\s+/g, " ").trim(), 80) || "Fork from this prompt";
+    },
+  }));
+});
