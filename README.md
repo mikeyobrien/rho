@@ -247,15 +247,8 @@ rho/
 │   └── linux/
 │       ├── skills/          # notification, clipboard, open-url, tts
 │       └── setup.sh
-├── scripts/                 # Legacy wrappers (delegate to the Node CLI)
-│   ├── rho
-│   ├── rho-daemon
-│   ├── rho-status
-│   ├── rho-stop
-│   ├── rho-trigger
-│   └── rho-login
 ├── configs/                 # Configuration files
-│   └── tmux-rho.conf        # SSH-friendly tmux config (installed on macOS/Linux)
+│   └── tmux-rho.conf        # SSH-friendly tmux config (used by rho's tmux socket)
 ├── brain/                   # Default brain files
 ├── tasker/                  # Importable Tasker profiles (Android)
 ├── bootstrap.sh             # Universal installer (curl | bash)
@@ -268,18 +261,11 @@ rho/
 
 ## Configuration
 
-The installer writes `~/.config/rho/config` with:
-
-```bash
-RHO_DIR=/path/to/rho          # Where the repo lives
-RHO_PLATFORM=android|macos|linux  # Detected platform
-```
-
-Scripts source this file at startup. You can override values manually.
-
 Doom-style config lives in:
 - `~/.rho/init.toml` (modules + settings)
 - `~/.rho/packages.toml` (third-party pi packages)
+
+`install.sh` installs the `rho` command on your PATH (typically `$PREFIX/bin` on Termux or `~/.local/bin` on macOS/Linux).
 
 After editing either file, run:
 

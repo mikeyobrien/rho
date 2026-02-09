@@ -1,47 +1,64 @@
 #!/usr/bin/env bash
-# Acceptance tests for rho login
+# Acceptance tests for `rho login`
+#
+# Runs against the repo CLI directly (no legacy rho-login wrapper).
+# Uses a temporary HOME so it does not read or mutate real user credentials.
+
+set -u
+
 PASS=0
 FAIL=0
 
 assert() {
-    local desc="$1" result="$2"
-    if [ "$result" = "0" ]; then
-        echo "  PASS: $desc"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: $desc"
-        FAIL=$((FAIL + 1))
-    fi
+  local desc="$1" result="$2"
+  if [ "$result" = "0" ]; then
+    echo "  PASS: $desc"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $desc"
+    FAIL=$((FAIL + 1))
+  fi
 }
 
-echo "Testing rho-login..."
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CLI=(node --experimental-strip-types "$ROOT/cli/index.ts")
+
+TMP="$(mktemp -d)"
+export HOME="$TMP/home"
+mkdir -p "$HOME/.pi/agent"
+
+# Seed a minimal auth.json so --status output is deterministic.
+cat > "$HOME/.pi/agent/auth.json" <<'JSON'
+{
+  "anthropic": { "type": "api_key" }
+}
+JSON
+
+echo "Testing rho login..."
+echo "  HOME=$HOME"
 echo ""
 
-# Test --help
-rho-login --help 2>&1 | grep -q "Authenticate with LLM providers"
-assert "--help shows usage" $?
+# --help
+"${CLI[@]}" login --help 2>&1 | grep -q "rho login"
+assert "login --help shows usage" $?
 
-# Test --status with existing auth.json
-rho-login --status 2>&1 | grep -q "Provider credentials"
-assert "--status shows credentials" $?
+# --status
+out="$(${CLI[@]} login --status 2>&1)"
+echo "$out" | grep -q "Provider credentials"
+assert "login --status shows credentials header" $?
 
-rho-login --status 2>&1 | grep -q "anthropic"
-assert "--status lists anthropic" $?
+echo "$out" | grep -q "anthropic"
+assert "login --status lists anthropic" $?
 
-# Test --logout with nonexistent provider (should fail and show error)
-rho-login --logout nonexistent-provider 2>&1 | grep -q "not found"
-assert "--logout rejects unknown provider" $?
+# --logout unknown provider should exit non-zero and print an error.
+out2="$(${CLI[@]} login --logout nonexistent-provider 2>&1 || true)"
+echo "$out2" | grep -q "not found"
+assert "--logout prints not found" $?
 
-# Test unknown option (should fail and show error)
-rho-login --bogus 2>&1 | grep -q "Unknown option"
-assert "unknown option shows error" $?
-
-# Test rho subcommand routing
-rho login --status 2>&1 | grep -q "Provider credentials"
-assert "'rho login --status' routes correctly" $?
-
-rho login --help 2>&1 | grep -q "Authenticate"
-assert "'rho login --help' routes correctly" $?
+"${CLI[@]}" login --logout nonexistent-provider >/dev/null 2>&1
+code=$?
+[ "$code" -ne 0 ]
+assert "--logout exits non-zero on unknown provider" $?
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

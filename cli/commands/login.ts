@@ -1,7 +1,7 @@
 /**
  * rho login — Authenticate with pi providers (and show auth status).
  *
- * This is a Node port of scripts/rho-login.
+ * This is the canonical Node implementation (legacy bash wrappers removed).
  *
  * Usage:
  *   rho login
