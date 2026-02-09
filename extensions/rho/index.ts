@@ -2298,13 +2298,38 @@ export default function (pi: ExtensionAPI) {
         }
 
         case "search": {
-          const query = (params.query || "").toLowerCase();
+          const queryWords = (params.query || "").toLowerCase().split(/\s+/).filter(Boolean);
+          if (queryWords.length === 0) {
+            return { content: [{ type: "text", text: "Error: query required" }], details: { count: 0 } };
+          }
           const memory = readJsonl<Entry>(MEMORY_FILE);
-          const matches = memory.filter((e) => {
-            if (e.type === "learning") return (e as LearningEntry).text.toLowerCase().includes(query);
-            if (e.type === "preference") return (e as PreferenceEntry).text.toLowerCase().includes(query);
-            return false;
-          });
+
+          const scored: Array<{ entry: Entry; score: number }> = [];
+          for (const e of memory) {
+            let text = "";
+            if (e.type === "learning") text = (e as LearningEntry).text.toLowerCase();
+            else if (e.type === "preference") text = (e as PreferenceEntry).text.toLowerCase();
+            else continue;
+
+            // All query words must appear
+            const allMatch = queryWords.every(w => text.includes(w));
+            if (!allMatch) continue;
+
+            // Score: word boundary matches count more
+            let score = 0;
+            for (const w of queryWords) {
+              const re = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+              score += re.test(text) ? 2 : 1;
+            }
+            // Boost by usage count for learnings
+            if (e.type === "learning") score += Math.min((e as LearningEntry).used, 3);
+
+            scored.push({ entry: e, score });
+          }
+
+          scored.sort((a, b) => b.score - a.score);
+          const matches = scored.map(s => s.entry);
+
           return {
             content: [{ type: "text", text: matches.length ? matches.map((m) => `[${m.id}] ${(m as LearningEntry | PreferenceEntry).text}`).join("\n") : "No matches" }],
             details: { count: matches.length },
