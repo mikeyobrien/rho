@@ -2993,6 +2993,44 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // ── Command: /subagents ──────────────────────────────────────────────────────
+
+  if (!IS_SUBAGENT) {
+    pi.registerCommand("subagents", {
+      description: "List active subagent tmux windows",
+      handler: async (_args, ctx) => {
+        try {
+          const sessionName = "rho";
+          // List windows in the rho session, using the dedicated socket
+          const result = execSync(
+            `tmux -L ${shellEscape(sessionName)} list-windows -t ${shellEscape(sessionName)} -F "#{window_index}:#{window_name}:#{pane_dead}"`,
+            { encoding: "utf-8" }
+          );
+          const windows = result.trim().split("\n").filter(Boolean);
+          const subagents = windows
+            .map(line => {
+              const [idx, name, dead] = line.split(":");
+              return { idx, name, dead: dead === "1" };
+            })
+            .filter(w => w.name.startsWith("subagent") || w.name === "heartbeat");
+
+          if (subagents.length === 0) {
+            ctx.ui.notify("No active subagent windows.", "info");
+            return;
+          }
+
+          const lines = subagents.map(w => {
+            const status = w.dead ? "done" : "running";
+            return `${w.name} (window ${w.idx}): ${status}`;
+          });
+          ctx.ui.notify(`Subagents (${subagents.length}):\n${lines.join("\n")}`, "info");
+        } catch {
+          ctx.ui.notify("No tmux session found.", "info");
+        }
+      },
+    });
+  }
+
   // ── Command: /rho ──────────────────────────────────────────────────────────
 
   if (!IS_SUBAGENT) {
