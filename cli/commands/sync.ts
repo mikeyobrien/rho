@@ -154,17 +154,24 @@ Options:
   }
 
   for (const src of planBefore.packagesToInstall) {
-    const ok = runPi(["install", src], { verbose });
-    if (!ok) {
-      console.warn(`Warning: pi install failed for ${src} (continuing)`);
+    const r = runPi(["install", src], { verbose });
+    if (!r.ok) {
+      console.error(`Error: pi install failed for ${src}`);
+      const msg = (r.stderr || r.stdout || "").trim();
+      if (msg) console.error(msg);
+      if (!verbose) console.error("Re-run with --verbose for full output.");
+      process.exit(1);
     }
   }
 
   for (const src of planBefore.packagesToRemove) {
-    const ok = runPi(["remove", src], { verbose });
-    if (!ok) {
-      // Non-fatal: we will still remove from settings.json
-      console.warn(`Warning: pi remove failed for ${src} (continuing)`);
+    const r = runPi(["remove", src], { verbose });
+    if (!r.ok) {
+      console.error(`Error: pi remove failed for ${src}`);
+      const msg = (r.stderr || r.stdout || "").trim();
+      if (msg) console.error(msg);
+      if (!verbose) console.error("Re-run with --verbose for full output.");
+      process.exit(1);
     }
   }
 
@@ -323,12 +330,23 @@ function ensurePiAvailable(): void {
   }
 }
 
-function runPi(args: string[], opts: { verbose: boolean }): boolean {
+function runPi(args: string[], opts: { verbose: boolean }): {
+  ok: boolean;
+  status: number | null;
+  stdout: string;
+  stderr: string;
+} {
   const r = spawnSync("pi", args, {
     stdio: opts.verbose ? "inherit" : "pipe",
     encoding: "utf-8",
   });
-  return r.status === 0;
+
+  return {
+    ok: r.status === 0,
+    status: r.status ?? null,
+    stdout: typeof r.stdout === "string" ? r.stdout : "",
+    stderr: typeof r.stderr === "string" ? r.stderr : "",
+  };
 }
 
 function findPackageIndex(packages: any[], source: string): number {
