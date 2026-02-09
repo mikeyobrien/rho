@@ -2683,7 +2683,7 @@ export default function (pi: ExtensionAPI) {
           return { content: [{ type: "text", text: "Error: mode must be 'interactive' or 'print'" }], details: { error: true } };
         }
 
-        try { execSync(`tmux has-session -t ${shellEscape(sessionName)}`, { stdio: "ignore" }); } catch {
+        try { execSync(`tmux -L ${shellEscape(sessionName)} has-session -t ${shellEscape(sessionName)}`, { stdio: "ignore" }); } catch {
           return { content: [{ type: "text", text: `Error: tmux session '${sessionName}' not found` }], details: { error: true } };
         }
 
@@ -2706,12 +2706,12 @@ export default function (pi: ExtensionAPI) {
             ? `RHO_SUBAGENT=1 pi -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
             : `RHO_SUBAGENT=1 pi --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
         const innerCommand = `bash -lc ${shellEscape(script)}`;
-        const tmuxCommand = `tmux new-window -d -P -F "#{session_name}:#{window_index}" -t ${shellEscape(sessionName)} -n ${shellEscape(windowName)} ${shellEscape(innerCommand)}`;
+        const tmuxCommand = `tmux -L ${shellEscape(sessionName)} new-window -d -P -F "#{session_name}:#{window_index}" -t ${shellEscape(sessionName)} -n ${shellEscape(windowName)} ${shellEscape(innerCommand)}`;
 
         let windowId = "";
         try {
           windowId = execSync(tmuxCommand, { encoding: "utf-8" }).trim();
-          if (windowId) execSync(`tmux set-option -t ${shellEscape(windowId)} remain-on-exit on`, { stdio: "ignore" });
+          if (windowId) execSync(`tmux -L ${shellEscape(sessionName)} set-option -t ${shellEscape(windowId)} remain-on-exit on`, { stdio: "ignore" });
         } catch {
           return { content: [{ type: "text", text: "Error: failed to create tmux window" }], details: { error: true } };
         }
