@@ -1,5 +1,5 @@
 # Rho Configuration
-# Edit this file, then run `rho sync --yes` to apply changes.
+# Edit this file, then run `rho sync` to apply changes.
 # Docs: https://github.com/mikeyobrien/rho
 
 # ── Agent Identity ──────────────────────────────────────

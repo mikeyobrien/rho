@@ -110,5 +110,5 @@ Options:
   console.log(`\nNext steps:`);
   console.log(`  1. Edit ~/.rho/init.toml to configure modules`);
   console.log(`  2. Edit ~/.rho/SOUL.md to define your agent's identity`);
-  console.log(`  3. Run \`rho sync --yes\` to apply configuration`);
+  console.log(`  3. Run \`rho sync\` to apply configuration`);
 }

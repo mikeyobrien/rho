@@ -43,22 +43,13 @@ Reads your Rho config, builds module filters, updates
 declared in packages.toml, and writes ~/.rho/sync.lock.
 
 Options:
-  --yes, -y    Apply changes (required)
   --dry-run    Show what would change without writing or installing
   --verbose    Show detailed output`);
     return;
   }
 
+  const dryRun = args.includes("--dry-run");
   const verbose = args.includes("--verbose");
-  const yes = args.includes("--yes") || args.includes("-y") || process.env.RHO_SYNC_YES === "1";
-  const userDryRun = args.includes("--dry-run");
-  const dryRun = userDryRun || !yes;
-
-  if (!yes && !userDryRun) {
-    console.log("Note: rho sync is currently gated.");
-    console.log("Run: rho sync --yes");
-    console.log("");
-  }
 
   // ---- 1. Read init.toml ----
   if (!fs.existsSync(INIT_TOML)) {

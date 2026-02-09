@@ -353,7 +353,7 @@ bootstrap_rho_config() {
   node --experimental-strip-types "$REPO_DIR/cli/index.ts" init --name "rho" >/dev/null 2>&1 || true
 
   # Sync using the local repo path as the package source.
-  RHO_SOURCE="$REPO_DIR" node --experimental-strip-types "$REPO_DIR/cli/index.ts" sync --yes
+  RHO_SOURCE="$REPO_DIR" node --experimental-strip-types "$REPO_DIR/cli/index.ts" sync
 }
 
 # --- Platform Setup ---

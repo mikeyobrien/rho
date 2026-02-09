@@ -143,7 +143,7 @@ Options:
 
     // Spawn a fresh Node process to ensure we run the on-disk CLI (post-upgrade).
     const cliPath = path.join(pkgRoot, "cli", "index.ts");
-    const r = spawnSync(process.execPath, ["--experimental-strip-types", cliPath, "sync", "--yes"], {
+    const r = spawnSync(process.execPath, ["--experimental-strip-types", cliPath, "sync"], {
       stdio: "inherit",
       env: { ...process.env },
     });

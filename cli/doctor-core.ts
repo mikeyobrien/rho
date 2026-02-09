@@ -197,7 +197,7 @@ export function checkDataDir(name: string, exists: boolean): CheckResult {
     return {
       status: "warn",
       message: `~/.rho/${name}/ not found`,
-      fix: "Run `rho sync --yes` (or `rho init`) to create data directories",
+      fix: "Run `rho sync` or `rho init` to create data directories",
     };
   }
 

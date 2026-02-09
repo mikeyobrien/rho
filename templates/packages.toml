@@ -1,6 +1,6 @@
 # Additional Pi Packages
 # Add third-party extensions and skills here.
-# Run `rho sync --yes` after editing to install and activate.
+# Run `rho sync` after editing to install and activate.
 #
 # Each [[packages]] entry needs at minimum a `source` field.
 # Optional `extensions` and `skills` arrays filter what loads.
