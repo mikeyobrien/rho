@@ -217,22 +217,22 @@ Options:
 
   // ---- 14. Print result summary ----
   const parts: string[] = [];
-  const disabledCount = countDisabledModules(config);
-  if (disabledCount > 0) parts.push(`${disabledCount} module(s) disabled`);
+  const disabledNames = getDisabledModuleNames(config);
+  if (disabledNames.length > 0) parts.push(`disabled: ${disabledNames.join(", ")}`);
   if (planBefore.packagesToInstall.length > 0) parts.push(`${planBefore.packagesToInstall.length} package(s) installed`);
   if (planBefore.packagesToRemove.length > 0) parts.push(`${planBefore.packagesToRemove.length} package(s) removed`);
 
   console.log(parts.length > 0 ? `Synced: ${parts.join(", ")}.` : "Synced: no changes needed.");
 }
 
-function countDisabledModules(config: any): number {
-  let count = 0;
+function getDisabledModuleNames(config: any): string[] {
+  const names: string[] = [];
   for (const cat of Object.values(config.modules) as Record<string, boolean>[]) {
-    for (const enabled of Object.values(cat)) {
-      if (!enabled) count++;
+    for (const [name, enabled] of Object.entries(cat)) {
+      if (!enabled) names.push(name);
     }
   }
-  return count;
+  return names;
 }
 
 function resolveRhoRootOnDisk(): string {
