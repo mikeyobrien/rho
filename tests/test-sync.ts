@@ -115,8 +115,8 @@ console.log("\n-- buildRhoPackageEntry: one tool disabled --");
   const entry = buildRhoPackageEntry(config, RHO_ROOT);
 
   assert(entry.extensions !== undefined, "extensions array present");
-  assertIncludes(entry.extensions!, "extensions/*", "starts with extensions/*");
-  assertIncludes(entry.extensions!, "!extensions/x-search", "excludes x-search extension");
+  assertIncludes(entry.extensions!, "extensions/**/*.ts", "includes extension entrypoints");
+  assertIncludes(entry.extensions!, "!extensions/x-search/**", "excludes x-search extension");
   // skills unaffected since x-search has no skills
   assert(entry.skills === undefined, "skills omitted — x-search has no skills");
 }
@@ -127,7 +127,8 @@ console.log("\n-- buildRhoPackageEntry: module with both extensions and skills d
   const entry = buildRhoPackageEntry(config, RHO_ROOT);
 
   assert(entry.extensions !== undefined, "extensions array present");
-  assertIncludes(entry.extensions!, "!extensions/email", "excludes email extension");
+  assertIncludes(entry.extensions!, "extensions/**/*.ts", "includes extension entrypoints");
+  assertIncludes(entry.extensions!, "!extensions/email/**", "excludes email extension");
   assert(entry.skills !== undefined, "skills array present");
   assertIncludes(entry.skills!, "skills/*", "starts with skills/*");
   assertIncludes(entry.skills!, "!skills/rho-cloud-email", "excludes rho-cloud-email skill");
@@ -147,11 +148,11 @@ console.log("\n-- buildRhoPackageEntry: multiple modules disabled --");
 
   // Extensions
   assert(entry.extensions !== undefined, "extensions array present");
-  assertIncludes(entry.extensions!, "extensions/*", "starts with extensions/*");
-  assertIncludes(entry.extensions!, "!extensions/x-search", "excludes x-search");
-  assertIncludes(entry.extensions!, "!extensions/email", "excludes email");
-  assertIncludes(entry.extensions!, "!extensions/moltbook-viewer", "excludes moltbook-viewer");
-  assertIncludes(entry.extensions!, "!extensions/vault-search", "excludes vault-search");
+  assertIncludes(entry.extensions!, "extensions/**/*.ts", "includes extension entrypoints");
+  assertIncludes(entry.extensions!, "!extensions/x-search/**", "excludes x-search");
+  assertIncludes(entry.extensions!, "!extensions/email/**", "excludes email");
+  assertIncludes(entry.extensions!, "!extensions/moltbook-viewer/**", "excludes moltbook-viewer");
+  assertIncludes(entry.extensions!, "!extensions/vault-search/**", "excludes vault-search");
 
   // Skills
   assert(entry.skills !== undefined, "skills array present");
@@ -206,9 +207,9 @@ console.log("\n-- buildRhoPackageEntry: all non-core modules disabled --");
   });
   const entry = buildRhoPackageEntry(config, RHO_ROOT);
 
-  // Should have extensions/* plus exclusions for all non-core
+  // Should have includes + exclusions for all non-core
   assert(entry.extensions !== undefined, "extensions array present");
-  assertIncludes(entry.extensions!, "extensions/*", "starts with extensions/*");
+  assertIncludes(entry.extensions!, "extensions/**/*.ts", "includes extension entrypoints");
 
   // Count: vault-search, brave-search, x-search, email, usage-bars, moltbook-viewer = 6 exclusions
   const extExclusions = entry.extensions!.filter((p) => p.startsWith("!"));
@@ -352,7 +353,7 @@ console.log("\n-- planSync: updates existing object entry --");
   const existingSettings = {
     packages: [
       "npm:pi-interactive-shell",
-      { source: RHO_ROOT, _managed_by: "rho", extensions: ["extensions/*", "!extensions/old"] },
+      { source: RHO_ROOT, _managed_by: "rho", extensions: ["extensions/**/*.ts", "!extensions/old"] },
     ],
   };
   const config = makeConfig({ modules: { tools: { "x-search": false } } });
@@ -366,7 +367,7 @@ console.log("\n-- planSync: updates existing object entry --");
 
   const rhoEntry = plan.settingsJson.packages[1] as any;
   assertEq(rhoEntry._managed_by, "rho", "marker preserved");
-  assertIncludes(rhoEntry.extensions, "!extensions/x-search", "new exclusion applied");
+  assertIncludes(rhoEntry.extensions, "!extensions/x-search/**", "new exclusion applied");
   assertNotIncludes(rhoEntry.extensions, "!extensions/old", "old exclusion removed");
 }
 

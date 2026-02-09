@@ -40,14 +40,30 @@ export interface SyncPlan {
 
 /**
  * Build the pi package entry for Rho based on which modules are enabled/disabled.
- * Uses exclusion-based filtering: starts with `extensions/*` / `skills/*` and
- * adds `!path` patterns for disabled modules.
+ * Uses exclusion-based filtering: includes known entrypoints and adds
+ * `!path` patterns for disabled modules.
  *
  * Core (alwaysOn) modules are never excluded regardless of config.
  */
 export function buildRhoPackageEntry(config: RhoConfig, rhoRoot: string): RhoPackageEntry {
   const extExclusions: string[] = [];
   const skillExclusions: string[] = [];
+
+  const toExtensionExcludePattern = (p: string): string => {
+    // Pi filters match discovered extension entrypoints (files), e.g.
+    //   extensions/<name>/index.ts
+    // Our registry uses extension directories (extensions/<name>), so exclude
+    // everything under that directory.
+    if (p.endsWith(".ts") || p.endsWith(".js")) return `!${p}`;
+    return `!${p}/**`;
+  };
+
+  const toSkillExcludePattern = (p: string): string => {
+    // Skills are discovered as skills/<name>/SKILL.md.
+    // Pi's matcher special-cases SKILL.md to also match the parent directory,
+    // so excluding skills/<name> works.
+    return `!${p}`;
+  };
 
   // Iterate all module categories
   const allCategories = ["core", "knowledge", "tools", "ui", "skills"] as const;
@@ -63,10 +79,10 @@ export function buildRhoPackageEntry(config: RhoConfig, rhoRoot: string): RhoPac
       if (reg.alwaysOn) continue;
 
       for (const ext of reg.extensions) {
-        extExclusions.push(`!${ext}`);
+        extExclusions.push(toExtensionExcludePattern(ext));
       }
       for (const skill of reg.skills) {
-        skillExclusions.push(`!${skill}`);
+        skillExclusions.push(toSkillExcludePattern(skill));
       }
     }
   }
@@ -77,11 +93,21 @@ export function buildRhoPackageEntry(config: RhoConfig, rhoRoot: string): RhoPac
   };
 
   if (extExclusions.length > 0) {
-    entry.extensions = ["extensions/*", ...extExclusions];
+    // Include discovered extension entrypoints (index.ts + any direct .ts/.js).
+    // Then layer on exclusions for disabled modules.
+    entry.extensions = [
+      "extensions/**/*.ts",
+      "extensions/**/*.js",
+      ...extExclusions,
+    ];
   }
 
   if (skillExclusions.length > 0) {
-    entry.skills = ["skills/*", ...skillExclusions];
+    // Skills are directories with SKILL.md.
+    entry.skills = [
+      "skills/*",
+      ...skillExclusions,
+    ];
   }
 
   return entry;
