@@ -74,7 +74,7 @@ function makeConfig(overrides?: {
     core: { heartbeat: true, memory: true },
     knowledge: { vault: true },
     tools: { "brave-search": true, "x-search": true, email: true },
-    skills: { "session-search": true, "update-pi": true, "rho-onboard": true },
+    skills: { "session-search": true, "update-pi": true },
     ui: { "usage-bars": true, moltbook: true },
   };
   if (overrides?.modules) {
@@ -203,7 +203,7 @@ console.log("\n-- buildRhoPackageEntry: all non-core modules disabled --");
     modules: {
       knowledge: { vault: false },
       tools: { "brave-search": false, "x-search": false, email: false, "agent-sop": false },
-      skills: { "session-search": false, "update-pi": false, "rho-onboard": false },
+      skills: { "session-search": false, "update-pi": false },
       ui: { "usage-bars": false, moltbook: false },
     },
   });
@@ -218,10 +218,9 @@ console.log("\n-- buildRhoPackageEntry: all non-core modules disabled --");
   assertEq(extExclusions.length, 7, "7 extension exclusions");
 
   assert(entry.skills !== undefined, "skills array present");
-  // Count: vault-clean, rho-cloud-email, rho-cloud-onboard, session-search, update-pi, rho-onboard = 6 exclusions
+  // Count: vault-clean, rho-cloud-email, rho-cloud-onboard, session-search, update-pi = 5 exclusions
   const skillExclusions = entry.skills!.filter((p) => p.startsWith("!"));
-  assertEq(skillExclusions.length, 6, "6 skill exclusions");
-  assertIncludes(entry.skills!, "!skills/rho-onboard", "excludes rho-onboard");
+  assertEq(skillExclusions.length, 5, "5 skill exclusions");
 }
 
 // ================================================================

@@ -75,12 +75,6 @@ export const REGISTRY: Record<string, ModuleEntry> = {
     skills: ["skills/update-pi"],
     description: "Update pi coding agent to latest version",
   },
-  "rho-onboard": {
-    category: "skills",
-    extensions: [],
-    skills: ["skills/rho-onboard"],
-    description: "Install and configure Rho from scratch (agent SOP)",
-  },
   "soul-update": {
     category: "skills",
     extensions: [],

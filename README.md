@@ -12,16 +12,35 @@ Built on [pi coding agent](https://github.com/badlogic/pi-mono).
 
 ## Quick start
 
-Prerequisites: Node.js (18+), npm, tmux.
+### Install with your agent
+
+If you already have a coding agent running, let it install rho. The [`SKILL.md`](SKILL.md) in this repo is a portable runbook any agent can follow.
+
+**Claude Code:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/mikeyobrien/rho/main/SKILL.md -o /tmp/install-rho.md && claude "Read /tmp/install-rho.md and follow the steps to install Rho on this machine"
+```
+
+**Codex:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/mikeyobrien/rho/main/SKILL.md -o /tmp/install-rho.md && codex "Read /tmp/install-rho.md and follow the steps to install Rho on this machine"
+```
+
+**pi:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/mikeyobrien/rho/main/SKILL.md -o /tmp/install-rho.md && pi --skill /tmp/install-rho.md "Install Rho on this machine"
+```
+
+The agent handles platform detection, dependency installation, and config bootstrapping interactively.
+
+### macOS / Linux
 
 ```bash
-npm install -g @mariozechner/pi-coding-agent
-npm install -g @rhobot-dev/rho
-rho init --name myagent
-rho sync
-rho login
-rho
+git clone https://github.com/mikeyobrien/rho.git ~/.rho/project
+cd ~/.rho/project && ./install.sh
 ```
+
+Prerequisites: Node.js (18+), tmux, git. The installer checks and tells you what's missing. NixOS is detected and supported.
 
 ### Android (Termux)
 
@@ -31,14 +50,24 @@ Install [Termux](https://f-droid.org/packages/com.termux/) and [Termux:API](http
 curl -fsSL https://runrho.dev/install | bash
 ```
 
+Or step by step:
+
+```bash
+pkg install nodejs-lts tmux git
+npm install -g @mariozechner/pi-coding-agent
+git clone https://github.com/mikeyobrien/rho.git ~/.rho/project
+cd ~/.rho/project && ./install.sh
+```
+
 ### iPhone / iPad (via SSH)
 
 Rho runs on a server you SSH into. Use [Termius](https://apps.apple.com/app/termius-terminal-ssh-client/id549039908) or any SSH client.
 
 ```bash
 # On your server (VPS, home machine, or free Oracle Cloud instance):
-npm install -g @mariozechner/pi-coding-agent @rhobot-dev/rho
-rho init && rho sync && rho login && rho start
+git clone https://github.com/mikeyobrien/rho.git ~/.rho/project
+cd ~/.rho/project && ./install.sh
+rho login && rho start
 
 # On your iPhone: connect via SSH, then:
 rho
@@ -243,7 +272,7 @@ rho/
 │   ├── rho-cloud-onboard/
 │   ├── session-search/
 │   ├── update-pi/
-│   └── rho-onboard/
+│   └── soul-update/
 ├── platforms/               # Platform-only local skills/extensions installed by install.sh
 │   ├── android/
 │   │   ├── extensions/      # tasker.ts
@@ -259,7 +288,9 @@ rho/
 │   └── tmux-rho.conf        # SSH-friendly tmux config (used by rho's tmux socket)
 ├── brain/                   # Default brain files
 ├── tasker/                  # Importable Tasker profiles (Android)
-├── install.sh               # Universal installer (auto-detects user vs dev mode)
+├── SKILL.md                 # Portable install skill (works with any agent)
+├── bootstrap.sh             # Universal installer (curl | bash)
+├── install.sh               # Cross-platform installer (platform extras + rho init/sync)
 ├── AGENTS.md.template       # Agent operating principles
 ├── RHO.md.template          # Check-in checklist
 ├── HEARTBEAT.md.template    # Scheduled tasks
@@ -272,22 +303,13 @@ Doom-style config lives in:
 - `~/.rho/init.toml` (modules + settings)
 - `~/.rho/packages.toml` (third-party pi packages)
 
+`install.sh` installs the `rho` command on your PATH (typically `$PREFIX/bin` on Termux or `~/.local/bin` on macOS/Linux).
+
 After editing either file, run:
 
 ```bash
 rho sync
 ```
-
-## Development
-
-Clone the repo anywhere and run the developer install script:
-
-```bash
-git clone https://github.com/mikeyobrien/rho.git
-cd rho && ./install.sh
-```
-
-This symlinks the `rho` CLI from your checkout, installs dependencies, and runs `rho init` + `rho sync` pointing at the local source. Works from any directory.
 
 ## Adding a platform
 

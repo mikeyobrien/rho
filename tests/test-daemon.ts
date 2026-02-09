@@ -69,7 +69,6 @@ function makeConfig(overrides?: Partial<{
       skills: overrides?.skills ?? {
         "session-search": true,
         "update-pi": true,
-        "rho-onboard": true,
       },
       ui: overrides?.ui ?? {
         "usage-bars": true,
@@ -199,7 +198,7 @@ console.log("\n=== countModules ===\n");
 {
   const config = makeConfig();
   const counts = countModules(config);
-  assertEq(counts.enabled, 11, "all 11 modules enabled");
+  assertEq(counts.enabled, 10, "all 10 modules enabled");
   assertEq(counts.disabled, 0, "0 disabled");
 }
 
@@ -209,7 +208,7 @@ console.log("\n=== countModules ===\n");
     ui: { "usage-bars": true, moltbook: false },
   });
   const counts = countModules(config);
-  assertEq(counts.enabled, 9, "9 enabled");
+  assertEq(counts.enabled, 8, "8 enabled");
   assertEq(counts.disabled, 2, "2 disabled");
 }
 
@@ -218,12 +217,12 @@ console.log("\n=== countModules ===\n");
   const config = makeConfig({
     knowledge: { vault: false },
     tools: { "brave-search": false, "x-search": false, email: false },
-    skills: { "session-search": false, "update-pi": false, "rho-onboard": false },
+    skills: { "session-search": false, "update-pi": false },
     ui: { "usage-bars": false, moltbook: false },
   });
   const counts = countModules(config);
   assertEq(counts.enabled, 2, "only core enabled");
-  assertEq(counts.disabled, 9, "9 disabled");
+  assertEq(counts.disabled, 8, "8 disabled");
 }
 
 {
@@ -309,7 +308,7 @@ console.log("\n=== formatStatus ===\n");
   assert(output.includes("platform: android"), "shows platform");
   assert(output.includes("Heartbeat: running"), "shows running state");
   assert(output.includes("next:"), "shows next check-in when available");
-  assert(output.includes("11 enabled"), "shows enabled count");
+  assert(output.includes("10 enabled"), "shows enabled count");
   assert(output.includes("heartbeat ✓"), "shows modules");
   assert(output.includes("Recent output"), "shows pane output header");
   assert(output.includes("Last heartbeat: ok"), "shows pane content");
@@ -364,7 +363,7 @@ console.log("\n=== formatStatus ===\n");
     paneOutput: null,
   };
   const output = formatStatus(info);
-  assert(output.includes("9 enabled, 2 disabled"), "shows disabled count");
+  assert(output.includes("8 enabled, 2 disabled"), "shows disabled count");
 }
 
 {
@@ -467,7 +466,7 @@ console.log("\n=== Edge cases ===\n");
   const config = makeConfig({
     knowledge: { vault: false },
     tools: { "brave-search": false, "x-search": false, email: false },
-    skills: { "session-search": false, "update-pi": false, "rho-onboard": false },
+    skills: { "session-search": false, "update-pi": false },
     ui: { "usage-bars": false, moltbook: false },
   });
   const info: StatusInfo = {
@@ -479,7 +478,7 @@ console.log("\n=== Edge cases ===\n");
     paneOutput: null,
   };
   const output = formatStatus(info);
-  assert(output.includes("2 enabled, 9 disabled"), "mostly disabled status");
+  assert(output.includes("2 enabled, 8 disabled"), "mostly disabled status");
   assert(output.includes("vault ✗"), "vault shown as disabled");
 }
 

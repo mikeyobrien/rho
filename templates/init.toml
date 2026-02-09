@@ -29,7 +29,6 @@ agent-sop = true                      # Standard Operating Procedures for struct
 [modules.skills]
 session-search = true                 # Search across pi session logs
 update-pi = true                      # Update pi coding agent to latest version
-rho-onboard = true                    # Install and configure Rho from scratch (agent SOP)
 soul-update = true                    # Mine sessions to learn about the user and evolve SOUL.md
 
 [modules.ui]

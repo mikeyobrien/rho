@@ -40,7 +40,6 @@ email = false         # Agent email at name@rhobot.dev
 [modules.skills]
 session-search = true # Search across pi session logs
 update-pi = true      # Update pi to latest version
-rho-onboard = true    # Install/configure Rho from scratch
 soul-update = true    # Mine sessions to evolve SOUL.md
 
 [modules.ui]
