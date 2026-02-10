@@ -16,13 +16,13 @@
     />
     <link rel="stylesheet" href="/css/style.css" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
     <script src="/js/app.js" defer></script>
     <script src="/js/chat.js" defer></script>
     <script src="/js/files.js" defer></script>
     <script src="/js/tasks.js" defer></script>
+    <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
   <body>
     <div class="app" x-data="rhoApp()">
@@ -430,10 +430,10 @@
                   <template x-for="file in files" :key="file.path">
                     <button
                       class="file-item"
-                      :class="{ active: file.path === activeFilePath, disabled: file.isDirectory }"
+                      :class="{ active: file.path === activeFilePath, disabled: file.isDirectory === true }"
                       type="button"
                       @click="selectFile(file)"
-                      :disabled="file.isDirectory"
+                      :disabled="file.isDirectory === true"
                     >
                       <div class="file-item-main">
                         <div class="file-name" x-text="file.name"></div>

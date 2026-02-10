@@ -118,7 +118,7 @@ document.addEventListener("alpine:init", () => {
       this.conflict = null;
       this.dirty = false;
       try {
-        const data = await fetchFilesJson(`/api/files/${encodeURIComponent(file.path)}`);
+        const data = await fetchFilesJson(`/api/file?path=${encodeURIComponent(file.path)}`);
         this.content = data.content ?? "";
         this.lastSavedContent = this.content;
         this.dirty = false;
@@ -146,7 +146,7 @@ document.addEventListener("alpine:init", () => {
       this.error = "";
       this.saveStatus = "";
       try {
-        const response = await fetch(`/api/files/${encodeURIComponent(this.activeFile.path)}`,
+        const response = await fetch(`/api/file?path=${encodeURIComponent(this.activeFile.path)}`,
           {
             method: "PUT",
             headers: { "Content-Type": "text/plain" },

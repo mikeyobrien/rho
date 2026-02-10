@@ -185,18 +185,11 @@ app.get("/api/files", async (c) => {
   }
 });
 
-app.get("/api/files/*", async (c) => {
+app.get("/api/file", async (c) => {
   ensureFileWatcherStarted();
-  const rawPath = c.req.param("*");
-  if (!rawPath) {
+  const requestedPath = c.req.query("path");
+  if (!requestedPath) {
     return c.json({ error: "File path required" }, 400);
-  }
-
-  let requestedPath = rawPath;
-  try {
-    requestedPath = decodeURIComponent(rawPath);
-  } catch {
-    return c.json({ error: "Invalid file path" }, 400);
   }
 
   const knownFile = findKnownFileByPath(requestedPath);
@@ -219,18 +212,11 @@ app.get("/api/files/*", async (c) => {
   }
 });
 
-app.put("/api/files/*", async (c) => {
+app.put("/api/file", async (c) => {
   ensureFileWatcherStarted();
-  const rawPath = c.req.param("*");
-  if (!rawPath) {
+  const requestedPath = c.req.query("path");
+  if (!requestedPath) {
     return c.json({ error: "File path required" }, 400);
-  }
-
-  let requestedPath = rawPath;
-  try {
-    requestedPath = decodeURIComponent(rawPath);
-  } catch {
-    return c.json({ error: "Invalid file path" }, 400);
   }
 
   const knownFile = findKnownFileByPath(requestedPath);
