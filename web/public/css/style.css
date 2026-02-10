@@ -2274,8 +2274,9 @@ body.chat-maximized .chat-thread-body {
 
 body.chat-maximized .chat-maximize-btn {
   position: fixed;
-  top: 0.25rem;
-  right: 0.25rem;
+  bottom: 0.5rem;
+  right: 0.5rem;
+  top: auto;
   z-index: 110;
-  opacity: 0.6;
+  opacity: 0.4;
 }
