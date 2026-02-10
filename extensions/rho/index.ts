@@ -2443,11 +2443,7 @@ Instructions:
   pi.registerCommand("consolidate", {
     description: "Run memory consolidation — deduplicate, merge, and clean stale entries",
     handler: async (_args, ctx) => {
-      ctx.ui.setEditorText(
-        "Run the memory consolidation SOP from ~/.rho/project/sops/memory-consolidate.sop.md — " +
-        "follow all steps in order. When complete, update the meta entry: " +
-        "brain action=add type=meta key=memory.last_consolidation value=<current ISO timestamp>"
-      );
+      ctx.ui.setEditorText("Run the memory consolidation SOP at ~/.rho/project/sops/memory-consolidate.sop.md");
     },
   });
 
