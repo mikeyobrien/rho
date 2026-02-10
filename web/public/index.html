@@ -81,7 +81,7 @@
               >
                 <span class="mobile-panel-toggle-label">
                   <span x-text="activeSession ? (activeSession.name || 'Session') : 'Sessions'"></span>
-                  <span class="mobile-panel-toggle-count" x-text="sessions.length + ' session' + (sessions.length === 1 ? '' : 's')"></span>
+                  <span class="mobile-panel-toggle-count" x-text="sessionsTotal + ' session' + (sessionsTotal === 1 ? '' : 's')"></span>
                 </span>
                 <span class="mobile-panel-toggle-arrow">&#x25BC;</span>
               </button>
