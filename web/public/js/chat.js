@@ -848,16 +848,19 @@ document.addEventListener("alpine:init", () => {
           this.isSendingPrompt = false;
         }
         // Handle get_state response
-        if (event.command === "get_state" && event.success && event.state) {
-          this.handleStateUpdate(event.state);
+        if (event.command === "get_state" && event.success) {
+          const state = event.state ?? event.data ?? {};
+          this.handleStateUpdate(state);
         }
         // Handle get_available_models response
-        if (event.command === "get_available_models" && event.success && event.models) {
-          this.availableModels = event.models;
+        if (event.command === "get_available_models" && event.success) {
+          const models = event.models ?? event.data?.models ?? [];
+          this.availableModels = models;
         }
         // Handle get_session_stats response
-        if (event.command === "get_session_stats" && event.success && event.stats) {
-          this.handleSessionStatsUpdate(event.stats);
+        if (event.command === "get_session_stats" && event.success) {
+          const stats = event.stats ?? event.data ?? {};
+          this.handleSessionStatsUpdate(stats);
         }
         return;
       }
