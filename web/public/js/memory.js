@@ -11,6 +11,7 @@ document.addEventListener("alpine:init", () => {
     error: "",
 
     async init() {
+      console.log('[rho-memory] init called');
       await this.load();
     },
 
@@ -59,10 +60,13 @@ document.addEventListener("alpine:init", () => {
           categories: data.categories,
         };
         this.updateDisplay();
+        console.log('[rho-memory] loaded', this.entries.length, 'entries, display:', this.displayEntries.length);
       } catch (err) {
         this.error = err.message || "Failed to load memory";
+        console.error('[rho-memory] load error:', err);
       } finally {
         this.isLoading = false;
+        console.log('[rho-memory] isLoading:', this.isLoading, 'entries:', this.entries.length);
       }
     },
 
