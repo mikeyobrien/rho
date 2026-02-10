@@ -61,7 +61,7 @@ export class RPCManager {
     }
 
     const id = randomUUID();
-    const child = spawn("pi", ["--mode", "rpc", "--no-session"], {
+    const child = spawn("pi", ["--mode", "rpc"], {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
     });
