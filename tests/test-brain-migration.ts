@@ -10,6 +10,7 @@ import * as os from "node:os";
 import {
   detectMigrationWithPaths,
   runMigrationWithPaths,
+  cleanupLegacyFilesWithPaths,
   type MigrationPaths,
 } from "../extensions/lib/brain-migration.ts";
 
@@ -360,31 +361,78 @@ async function testMigrate_MetaMarkerWritten() {
   }
 }
 
-async function testMigrate_LegacyFilesUntouched() {
-  console.log("\n── runMigration: legacy files untouched after migration");
+async function testCleanup_RemovesLegacyFiles() {
+  console.log("\n── cleanupLegacyFiles: removes legacy files after migration");
   const dir = makeTmpDir();
   try {
     const paths = makePaths(dir);
-    const coreContent = JSON.stringify({ id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" }) + "\n";
-    const tasksContent = JSON.stringify({ id: "t-1", description: "Do stuff", status: "pending", priority: "normal", tags: [], created: "2024-01-01T00:00:00Z", due: null, completedAt: null }) + "\n";
+    writeLines(paths.legacyCore, [
+      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+    ]);
+    writeLines(paths.legacyMemory, [
+      { id: "l-1", type: "learning", text: "Use tsx", used: 0, last_used: "2024-01-01", created: "2024-01-01" },
+    ]);
+    writeLines(paths.legacyTasks, [
+      { id: "t-1", description: "Do stuff", status: "pending", priority: "normal", tags: [], created: "2024-01-01T00:00:00Z", due: null, completedAt: null },
+    ]);
 
-    fs.writeFileSync(paths.legacyCore, coreContent);
-    fs.writeFileSync(paths.legacyTasks, tasksContent);
+    // Migrate first
+    await runMigrationWithPaths(paths);
+    assert(fs.existsSync(paths.legacyCore), "core.jsonl exists before cleanup");
 
-    // Record mtimes
-    const coreMtime = fs.statSync(paths.legacyCore).mtimeMs;
-    const tasksMtime = fs.statSync(paths.legacyTasks).mtimeMs;
+    // Cleanup
+    const removed = cleanupLegacyFilesWithPaths(paths);
+    assertEq(removed.length, 3, "3 files removed");
+    assert(!fs.existsSync(paths.legacyCore), "core.jsonl gone");
+    assert(!fs.existsSync(paths.legacyMemory), "memory.jsonl gone");
+    assert(!fs.existsSync(paths.legacyTasks), "tasks.jsonl gone");
 
-    // Small delay to ensure different mtime if files were written
-    await new Promise((r) => setTimeout(r, 50));
+    // brain.jsonl still intact
+    const { entries } = readBrain(paths.brainPath);
+    const brain = foldBrain(entries);
+    assertEq(brain.behaviors.length, 1, "brain data preserved");
+  } finally {
+    cleanup(dir);
+  }
+}
+
+async function testCleanup_FailsBeforeMigration() {
+  console.log("\n── cleanupLegacyFiles: throws if migration not done");
+  const dir = makeTmpDir();
+  try {
+    const paths = makePaths(dir);
+    writeLines(paths.legacyCore, [
+      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+    ]);
+
+    let threw = false;
+    try {
+      cleanupLegacyFilesWithPaths(paths);
+    } catch (e: any) {
+      threw = true;
+      assert(e.message.includes("migration has not been completed"), "correct error message");
+    }
+    assert(threw, "cleanup threw before migration");
+    assert(fs.existsSync(paths.legacyCore), "core.jsonl still exists");
+  } finally {
+    cleanup(dir);
+  }
+}
+
+async function testCleanup_SkipsMissingFiles() {
+  console.log("\n── cleanupLegacyFiles: skips files that don't exist");
+  const dir = makeTmpDir();
+  try {
+    const paths = makePaths(dir);
+    writeLines(paths.legacyCore, [
+      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+    ]);
+    // Only core exists, no memory/context/tasks
 
     await runMigrationWithPaths(paths);
-
-    // Verify legacy files were not modified
-    assertEq(fs.readFileSync(paths.legacyCore, "utf-8"), coreContent, "core.jsonl content unchanged");
-    assertEq(fs.readFileSync(paths.legacyTasks, "utf-8"), tasksContent, "tasks.jsonl content unchanged");
-    assertEq(fs.statSync(paths.legacyCore).mtimeMs, coreMtime, "core.jsonl mtime unchanged");
-    assertEq(fs.statSync(paths.legacyTasks).mtimeMs, tasksMtime, "tasks.jsonl mtime unchanged");
+    const removed = cleanupLegacyFilesWithPaths(paths);
+    assertEq(removed.length, 1, "only 1 file removed");
+    assert(removed[0] === paths.legacyCore, "removed file is core.jsonl");
   } finally {
     cleanup(dir);
   }
@@ -526,7 +574,9 @@ async function main() {
   await testMigrate_TasksMinimalFields();
   await testMigrate_DuplicatesSkipped();
   await testMigrate_MetaMarkerWritten();
-  await testMigrate_LegacyFilesUntouched();
+  await testCleanup_RemovesLegacyFiles();
+  await testCleanup_FailsBeforeMigration();
+  await testCleanup_SkipsMissingFiles();
   await testMigrate_MixedAllTypes();
   await testMigrate_PreexistingBrainNotOverwritten();
   await testMigrate_MalformedLinesSkipped();

@@ -4,7 +4,8 @@
  * Detects legacy brain files (core.jsonl, memory.jsonl, context.jsonl, tasks.jsonl)
  * and migrates their entries into the unified brain.jsonl format.
  *
- * Legacy files are never modified or deleted — only read.
+ * Legacy files are only read during migration. After migration completes,
+ * cleanupLegacyFiles() can be called to remove them.
  */
 
 import * as fs from "node:fs";
@@ -317,4 +318,32 @@ export async function runMigrationWithPaths(paths: MigrationPaths): Promise<Migr
 /** Convenience wrapper using real paths. */
 export async function runMigration(): Promise<MigrationStats> {
   return runMigrationWithPaths(defaultPaths());
+}
+
+// ── Cleanup ───────────────────────────────────────────────────────
+
+/**
+ * Remove legacy files after successful migration.
+ * Only removes files that exist and are listed as legacy paths.
+ * Returns the list of files that were deleted.
+ */
+export function cleanupLegacyFilesWithPaths(paths: MigrationPaths): string[] {
+  const status = detectMigrationWithPaths(paths);
+  if (!status.alreadyMigrated) {
+    throw new Error("Cannot cleanup: migration has not been completed yet");
+  }
+
+  const removed: string[] = [];
+  for (const f of [paths.legacyCore, paths.legacyMemory, paths.legacyContext, paths.legacyTasks]) {
+    if (fs.existsSync(f)) {
+      fs.unlinkSync(f);
+      removed.push(f);
+    }
+  }
+  return removed;
+}
+
+/** Convenience wrapper using real paths. */
+export function cleanupLegacyFiles(): string[] {
+  return cleanupLegacyFilesWithPaths(defaultPaths());
 }

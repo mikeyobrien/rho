@@ -457,13 +457,13 @@ function approxTokens(s: string): number {
   return Math.ceil(s.length / 4);
 }
 
-function daysSince(isoDate: string): number {
+export function daysSince(isoDate: string): number {
   const then = new Date(isoDate).getTime();
   const now = Date.now();
   return Math.max(0, Math.floor((now - then) / (1000 * 60 * 60 * 24)));
 }
 
-function scoreLearning(l: LearningEntry, cwd: string): number {
+export function scoreLearning(l: LearningEntry, cwd: string): number {
   const recency = Math.max(0, 10 - Math.floor(daysSince(l.created) / 7));
   const scopeBoost = l.scope === "project" && l.projectPath && cwd.startsWith(l.projectPath) ? 5 : 0;
   const manualBoost = l.source === "manual" ? 2 : 0;
