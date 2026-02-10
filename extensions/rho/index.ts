@@ -41,6 +41,8 @@ import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { execSync } from "node:child_process";
 import { VaultSearch, parseFrontmatter, extractWikilinks, extractTitle } from "../lib/mod.ts";
+import { handleBrainAction } from "../lib/brain-tool.ts";
+import { readBrain, foldBrain, buildBrainPrompt, BRAIN_PATH } from "../lib/brain-store.ts";
 
 export { parseFrontmatter, extractWikilinks };
 export {
@@ -105,6 +107,9 @@ const HEARTBEAT_PROMPT_FILE = path.join(RHO_DIR, "heartbeat-prompt.txt");
 
 interface RhoConfig {
   autoMemory?: boolean;
+  decayAfterDays?: number;
+  decayMinScore?: number;
+  promptBudget?: number;
 }
 
 function readConfig(): RhoConfig {
@@ -120,7 +125,10 @@ function readConfig(): RhoConfig {
           : typeof obj.auto_memory === "boolean"
             ? obj.auto_memory
             : undefined;
-      return { autoMemory };
+      const decayAfterDays = typeof obj.decayAfterDays === "number" ? obj.decayAfterDays : undefined;
+      const decayMinScore = typeof obj.decayMinScore === "number" ? obj.decayMinScore : undefined;
+      const promptBudget = typeof obj.promptBudget === "number" ? obj.promptBudget : undefined;
+      return { autoMemory, decayAfterDays, decayMinScore, promptBudget };
     }
   } catch {
     // ignore
@@ -1518,6 +1526,48 @@ export default function (pi: ExtensionAPI) {
   let compactMemoryInFlight = false;
   let cachedBrainPrompt: string | null = null;
 
+  // ── Brain cache (mtime-based invalidation for brain.jsonl) ─────────────
+  interface BrainCache {
+    prompt: string;
+    mtimeMs: number;
+    builtAt: number;
+  }
+
+  let brainCache: BrainCache | null = null;
+  let currentCwd: string = process.cwd();
+
+  const memorySettings = (() => {
+    const cfg = readConfig();
+    return {
+      decayAfterDays: cfg.decayAfterDays ?? 90,
+      decayMinScore: cfg.decayMinScore ?? 3,
+      promptBudget: cfg.promptBudget ?? 2000,
+    };
+  })();
+
+  function isBrainCacheStale(): boolean {
+    if (!brainCache) return true;
+    try {
+      const stat = fs.statSync(BRAIN_PATH);
+      return stat.mtimeMs !== brainCache.mtimeMs;
+    } catch {
+      return true;
+    }
+  }
+
+  function rebuildBrainCache(cwd: string, promptBudget?: number): string {
+    const { entries } = readBrain(BRAIN_PATH);
+    const brain = foldBrain(entries);
+    const prompt = buildBrainPrompt(brain, cwd, { promptBudget: promptBudget ?? memorySettings.promptBudget });
+    try {
+      const stat = fs.statSync(BRAIN_PATH);
+      brainCache = { prompt, mtimeMs: stat.mtimeMs, builtAt: Date.now() };
+    } catch {
+      brainCache = { prompt, mtimeMs: 0, builtAt: Date.now() };
+    }
+    return prompt;
+  }
+
   // ── Vault state ────────────────────────────────────────────────────────────
 
   let vaultGraph: VaultGraph = buildGraph();
@@ -2018,6 +2068,8 @@ export default function (pi: ExtensionAPI) {
   // ── Event Handlers ─────────────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    currentCwd = ctx.cwd;
+
     if (!IS_SUBAGENT) {
       setRhoHeader(ctx);
       setRhoFooter(ctx);
@@ -2042,6 +2094,9 @@ export default function (pi: ExtensionAPI) {
 
     cachedBrainPrompt = extra.length > 0 ? "\n\n" + extra.join("\n\n") : null;
 
+    // Also build the new brain cache (Phase 2 — coexists with old buildBrainContext)
+    rebuildBrainCache(ctx.cwd);
+
     // Vault: rebuild graph
     rebuildVaultGraph();
 
@@ -2056,6 +2111,11 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async (event, _ctx) => {
+    // Rebuild brain cache if the file changed (e.g. another session wrote to it)
+    if (isBrainCacheStale()) {
+      rebuildBrainCache(currentCwd);
+    }
+
     if (cachedBrainPrompt) {
       return { systemPrompt: event.systemPrompt + cachedBrainPrompt };
     }
@@ -2152,8 +2212,87 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  // ── Tool: memory ───────────────────────────────────────────────────────────
+  // ── Tool: brain (unified memory/tasks/reminders) ────────────────────────────
 
+  pi.registerTool({
+    name: "brain",
+    label: "Brain",
+    description:
+      "Manage persistent memory, tasks, and reminders. " +
+      "Actions: add, update, remove, list, decay, task_done, task_clear, reminder_run",
+    parameters: Type.Object({
+      action: Type.String({ description: "Action: add, update, remove, list, decay, task_done, task_clear, reminder_run" }),
+      // All other params are optional — schema registry validates per-type
+      type: Type.Optional(Type.String({ description: "Entry type for add/list/remove: behavior, identity, user, learning, preference, context, task, reminder" })),
+      id: Type.Optional(Type.String({ description: "Entry id for update/remove/task_done/reminder_run" })),
+      text: Type.Optional(Type.String()),
+      category: Type.Optional(Type.String()),
+      key: Type.Optional(Type.String()),
+      value: Type.Optional(Type.String()),
+      description: Type.Optional(Type.String()),
+      project: Type.Optional(Type.String()),
+      path: Type.Optional(Type.String()),
+      content: Type.Optional(Type.String()),
+      priority: Type.Optional(Type.String()),
+      tags: Type.Optional(Type.String({ description: "Comma-separated tags" })),
+      due: Type.Optional(Type.String()),
+      enabled: Type.Optional(Type.Boolean()),
+      cadence: Type.Optional(Type.Any({ description: "Cadence object: {kind:'interval',every:'2h'} or {kind:'daily',at:'08:00'}" })),
+      query: Type.Optional(Type.String({ description: "Search query for list action" })),
+      filter: Type.Optional(Type.String({ description: "Filter for list: pending, done, all, active, disabled" })),
+      verbose: Type.Optional(Type.Boolean({ description: "Show full JSON in list output" })),
+      result: Type.Optional(Type.String({ description: "Result for reminder_run: ok, error, skipped" })),
+      error: Type.Optional(Type.String({ description: "Error message for reminder_run" })),
+      reason: Type.Optional(Type.String({ description: "Reason for remove" })),
+      source: Type.Optional(Type.String()),
+      scope: Type.Optional(Type.String()),
+      projectPath: Type.Optional(Type.String()),
+      status: Type.Optional(Type.String()),
+    }),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const result = await handleBrainAction(BRAIN_PATH, params, {
+        cwd: ctx.cwd,
+        decayAfterDays: memorySettings.decayAfterDays,
+        decayMinScore: memorySettings.decayMinScore,
+      });
+      if (result.ok) brainCache = null; // invalidate on writes
+      return {
+        content: [{ type: "text", text: result.message }],
+        details: { ok: result.ok, data: result.data },
+      };
+    },
+
+    renderCall(args, theme) {
+      let text = theme.fg("toolTitle", theme.bold("brain ")) + theme.fg("muted", args.action);
+      if (args.type) text += " " + theme.fg("accent", args.type);
+      if (args.text) {
+        const desc = args.text.length > 50 ? args.text.slice(0, 47) + "..." : args.text;
+        text += " " + theme.fg("dim", desc);
+      }
+      if (args.description) {
+        const desc = args.description.length > 50 ? args.description.slice(0, 47) + "..." : args.description;
+        text += " " + theme.fg("dim", desc);
+      }
+      if (args.id) text += " " + theme.fg("accent", args.id);
+      return new Text(text, 0, 0);
+    },
+
+    renderResult(result, _options, theme) {
+      const details = result.details as { ok: boolean; data?: any } | undefined;
+      if (!details?.ok) {
+        const text = result.content[0];
+        return new Text(theme.fg("error", text?.type === "text" ? text.text : "Error"), 0, 0);
+      }
+      const text = result.content[0];
+      return new Text(theme.fg("success", ">> ") + (text?.type === "text" ? text.text : ""), 0, 0);
+    },
+  });
+
+  // ── REMOVED: replaced by brain tool ────────────────────────────────────────
+  // The memory tool is superseded by the brain tool's add/update/remove/list/decay
+  // actions with type:"learning" and type:"preference". Kept commented for reference.
+  /*
   pi.registerTool({
     name: "memory",
     label: "Memory",
@@ -2274,9 +2413,12 @@ export default function (pi: ExtensionAPI) {
       }
     },
   });
+  */
 
-  // ── Tool: tasks ────────────────────────────────────────────────────────────
-
+  // ── REMOVED: replaced by brain tool ────────────────────────────────────────
+  // The tasks tool is superseded by the brain tool's add (type:"task"),
+  // task_done, task_clear, and list (type:"task") actions. Kept commented for reference.
+  /*
   if (!IS_SUBAGENT) {
     pi.registerTool({
       name: "tasks",
@@ -2377,6 +2519,7 @@ export default function (pi: ExtensionAPI) {
       },
     });
   }
+  */
 
   // ── Tool: vault ────────────────────────────────────────────────────────────
 
