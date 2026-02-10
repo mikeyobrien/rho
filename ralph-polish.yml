@@ -1,0 +1,100 @@
+# Web UI Polish: mobile, scrollbars, bugs
+# 6 tasks, Builder → Validator ping-pong
+
+event_loop:
+  completion_promise: "LOOP_COMPLETE"
+  starting_event: "build.start"
+  max_iterations: 25
+  max_runtime_seconds: 7200
+
+cli:
+  backend: "pi"
+  prompt_mode: "arg"
+
+core:
+  specs_dir: ".ralph/specs/"
+  guardrails:
+    - "CSS-only changes where possible — no unnecessary JS"
+    - "Test at 360px AND 1280px after every change"
+    - "Do NOT modify server.ts unless the task specifically requires it"
+    - "The web server is already running at http://127.0.0.1:3141 in a tmux window"
+    - "Use curl to verify API endpoints, not a browser"
+
+hats:
+  builder:
+    name: "⚙️ Builder"
+    description: "Implements one task at a time from the polish spec."
+    triggers: ["build.start", "validation.failed"]
+    publishes: ["implementation.ready"]
+    default_publishes: "implementation.ready"
+    instructions: |
+      ## BUILDER MODE
+
+      Implement the NEXT pending task from `.ralph/specs/web-ui-polish/tasks/`.
+
+      ### RULES
+      1. `grep -l "status: pending" .ralph/specs/web-ui-polish/tasks/*.code-task.md` to find next task
+      2. If none pending → publish `implementation.ready` immediately
+      3. Read the task file and design doc (`.ralph/specs/web-ui-polish/design.md`)
+      4. Implement ONLY that task's changes
+      5. Update frontmatter to `status: completed`
+      6. Publish `implementation.ready`
+
+      ### IMPORTANT
+      - The web server is running at http://127.0.0.1:3141
+      - Files to edit are in `web/public/css/style.css`, `web/public/index.html`, `web/public/js/*.js`, `web/session-reader.ts`
+      - After CSS changes, just reload the browser — no server restart needed
+      - For .ts changes, the server auto-restarts (tsx watch) or needs manual restart
+
+      ### If triggered by validation.failed
+      Read the validator's feedback and fix the issues.
+
+  validator:
+    name: "✅ Validator"
+    description: "Checks task completion and routes back for more work if needed."
+    triggers: ["implementation.ready"]
+    publishes: ["validation.passed", "validation.failed"]
+    default_publishes: "validation.passed"
+    instructions: |
+      ## VALIDATOR MODE
+
+      ### Step 1: Check remaining tasks
+      ```bash
+      grep -l "status: pending" .ralph/specs/web-ui-polish/tasks/*.code-task.md 2>/dev/null
+      ```
+
+      If pending tasks remain:
+      - Quickly verify the last completed task (check CSS syntax, no obvious errors)
+      - Publish `validation.failed` with "More tasks pending, continue"
+
+      If ALL tasks completed:
+      - Verify CSS is valid (no syntax errors)
+      - Verify no obvious broken HTML
+      - Use curl to check server still responds: `curl -s http://127.0.0.1:3141/api/health`
+      - If all OK → `validation.passed`
+      - If issues → `validation.failed` with details
+
+  committer:
+    name: "📦 Committer"
+    description: "Commits the polish changes."
+    triggers: ["validation.passed"]
+    publishes: ["LOOP_COMPLETE"]
+    default_publishes: "LOOP_COMPLETE"
+    instructions: |
+      ## COMMITTER MODE
+
+      ```bash
+      cd ~/projects/rho
+      git add web/
+      git commit -m "fix(web): mobile layout, scrollbar styling, and bug fixes
+
+      - Fix horizontal overflow at 360px caused by long session UUIDs
+      - Add custom dark-themed scrollbars (WebKit + Firefox)
+      - Collapsible session/file panels on mobile
+      - Sticky chat composer on mobile
+      - Touch-friendly tap targets (44px minimum)
+      - Display session names instead of raw UUIDs
+      - Nav tab cleanup on narrow screens"
+      ```
+
+      Publish LOOP_COMPLETE.
