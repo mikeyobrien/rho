@@ -4,7 +4,7 @@
 # Two modes, auto-detected:
 #
 #   User install (curl | bash, or run standalone):
-#     curl -fsSL https://runrho.dev/install | bash
+#     curl -fsSL https://rhobot.dev/install | bash
 #     Installs rho via npm. No repo clone needed.
 #
 #   Developer install (run from a git checkout):
