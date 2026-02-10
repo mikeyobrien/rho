@@ -115,16 +115,17 @@ function normalizeContentItem(item) {
 
   if (itemType === "toolCall") {
     const argsText = safeString(item.arguments ?? {});
+    const outputText = item.output ?? "";
     return [
       {
         type: "tool_call",
         name: item.name ?? "tool",
         args: argsText,
         argsSummary: clampString(argsText.replace(/\s+/g, " ").trim(), 120),
-        output: "",
-        outputPreview: "",
+        output: outputText,
+        outputPreview: generateOutputPreview(outputText),
         toolCallId: item.id ?? "",
-        status: "running",
+        status: outputText ? "done" : "running",
         duration: "",
       },
     ];
@@ -1472,9 +1473,40 @@ document.addEventListener("alpine:init", () => {
     applySession(session) {
       this.activeSession = session;
 
+      // Merge toolResult messages into preceding assistant's tool_call parts
+      const rawMessages = session.messages ?? [];
+      const mergedMessages = [];
+      for (let i = 0; i < rawMessages.length; i++) {
+        const msg = rawMessages[i];
+        if (msg.role === "toolResult" || msg.role === "tool_result" || msg.role === "tool") {
+          // Find the last assistant message and merge this result into its tool_call parts
+          for (let j = mergedMessages.length - 1; j >= 0; j--) {
+            if (mergedMessages[j].role === "assistant") {
+              const content = mergedMessages[j].content;
+              if (Array.isArray(content)) {
+                // Find first tool_call without merged output
+                const call = content.find(
+                  (c) => (c.type === "toolCall" || c.type === "tool_call" || c.type === "tool_use") && !c._merged
+                );
+                if (call) {
+                  const resultText = Array.isArray(msg.content)
+                    ? msg.content.map((c) => c.text ?? c.output ?? "").join("\n")
+                    : typeof msg.content === "string" ? msg.content : "";
+                  call.output = resultText;
+                  call._merged = true;
+                }
+              }
+              break;
+            }
+          }
+          continue; // Don't add toolResult as a separate message
+        }
+        mergedMessages.push({ ...msg });
+      }
+
       // Normalize messages, filter empty ones, and deduplicate by ID
       const seenIds = new Set();
-      this.renderedMessages = (session.messages ?? [])
+      this.renderedMessages = mergedMessages
         .map(normalizeMessage)
         .filter((msg) => {
           // Skip empty messages (no parts or all parts empty)
@@ -1511,9 +1543,10 @@ document.addEventListener("alpine:init", () => {
       if (!session) {
         return "";
       }
-      // Show session name, or truncated ID (first 8 chars) if no name
+      // Show session name, first prompt, or truncated ID
       const rawId = session.header?.id ?? session.id ?? "";
-      const title = session.name || (rawId ? rawId.substring(0, 8) : "session");
+      const firstPrompt = session.firstPrompt;
+      const title = session.name || (firstPrompt ? clampString(firstPrompt, 50) : (rawId ? rawId.substring(0, 8) : "session"));
       const timestamp = formatTimestamp(session.header?.timestamp ?? session.timestamp);
       return `${title}${timestamp ? ` · ${timestamp}` : ""}`;
     },

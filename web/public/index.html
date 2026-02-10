@@ -99,7 +99,7 @@
                       type="button"
                       @click="selectSession(session.id)"
                     >
-                      <div class="chat-session-title" x-text="session.name || session.id.substring(0, 8)"></div>
+                      <div class="chat-session-title" x-text="session.name || session.firstPrompt || session.id.substring(0, 8)"></div>
                       <div class="chat-session-meta">
                         <span x-text="formatTimestamp(session.timestamp)"></span>
                         <span x-text="messageCountLabel(session)"></span>

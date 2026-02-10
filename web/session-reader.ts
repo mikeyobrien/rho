@@ -162,12 +162,15 @@ export async function getSessionInfo(sessionFile: string): Promise<{
   const parsed = buildSessionContext(entries.entries, entries.entryMap);
 
   const lastMessage = parsed.messages.at(-1);
+  const firstUserMessage = parsed.messages.find((m: { role?: string }) => m.role === "user");
+  const firstPrompt = firstUserMessage ? extractPreview(firstUserMessage.content) : undefined;
   return {
     id: header.id,
     cwd: header.cwd ?? "",
     timestamp: header.timestamp ?? "",
     parentSession: header.parentSession,
     name: entries.name,
+    firstPrompt,
     messageCount: parsed.messages.length,
     lastMessage: lastMessage ? extractPreview(lastMessage.content) : undefined,
   };
