@@ -2231,6 +2231,342 @@ button { font: inherit; }
   }
 }
 
+/* ---- Memory view ---- */
+
+.memory-view .view-body {
+  max-width: none;
+}
+
+.memory-stats {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.memory-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.memory-stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.memory-stat-value.learning {
+  color: var(--cyan);
+}
+
+.memory-stat-value.preference {
+  color: var(--yellow);
+}
+
+.memory-stat-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.memory-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.memory-filters {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.memory-filter-btn {
+  border: 1px solid var(--border-bright);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.3rem 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.memory-filter-btn.active {
+  background: var(--green);
+  color: var(--bg);
+  border-color: var(--green);
+}
+
+.memory-filter-btn:not(.active):hover {
+  border-color: var(--green-dim);
+  color: var(--text);
+}
+
+.memory-filters-right {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.memory-category-select,
+.memory-sort-select {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
+.memory-category-select:focus,
+.memory-sort-select:focus {
+  outline: none;
+  border-color: var(--green-dim);
+}
+
+.memory-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.memory-search {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.5rem 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  caret-color: var(--green);
+}
+
+.memory-search:focus {
+  outline: none;
+  border-color: var(--green-dim);
+}
+
+.memory-search::placeholder {
+  color: var(--text-dim);
+}
+
+.memory-result-count {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.memory-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 2rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.memory-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cyan);
+  background: var(--bg-alt);
+  padding: 0.6rem 0.85rem;
+  transition: border-color 0.15s ease;
+}
+
+.memory-card:hover {
+  border-color: var(--border-bright);
+}
+
+.memory-card.preference {
+  border-left-color: var(--yellow);
+}
+
+.memory-card.stale {
+  opacity: 0.55;
+}
+
+.memory-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.memory-card-badges {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.memory-type-badge {
+  padding: 0.08rem 0.4rem;
+  border: 1px solid var(--border-bright);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.memory-type-badge.learning {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.memory-type-badge.preference {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
+.memory-category-badge {
+  padding: 0.08rem 0.4rem;
+  border: 1px solid var(--border-bright);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.memory-card-meta-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.memory-card-date {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.memory-delete-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.memory-card:hover .memory-delete-btn {
+  opacity: 1;
+}
+
+.memory-delete-btn:hover {
+  color: var(--red);
+}
+
+.memory-card-text {
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.memory-card-footer {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.memory-card-usage {
+  color: var(--green);
+}
+
+.memory-card-id {
+  margin-left: auto;
+  opacity: 0.4;
+  font-size: 0.55rem;
+}
+
+.memory-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 2rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .memory-stats {
+    gap: 1rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .memory-stat-value {
+    font-size: 1.1rem;
+  }
+
+  .memory-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .memory-filters-right {
+    flex-wrap: wrap;
+  }
+
+  .memory-filter-btn {
+    min-height: 44px;
+  }
+
+  .memory-list {
+    max-height: none;
+  }
+
+  .memory-delete-btn {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 400px) {
+  .memory-stats {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .memory-search-wrap {
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .memory-card {
+    padding: 0.4rem 0.6rem;
+  }
+
+  .memory-card-text {
+    font-size: 0.75rem;
+  }
+}
+
 /* Maximized chat mode */
 .chat-maximize-btn {
   position: absolute;

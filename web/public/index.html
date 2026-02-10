@@ -21,6 +21,7 @@
     <script src="/js/app.js?v=20260210t" defer></script>
     <script src="/js/chat.js?v=20260210t" defer></script>
     <script src="/js/files.js?v=20260210t" defer></script>
+    <script src="/js/memory.js?v=20260210t" defer></script>
     <script src="/js/tasks.js?v=20260210t" defer></script>
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
@@ -50,6 +51,16 @@
               :aria-selected="view === 'files'"
             >
               Files
+            </button>
+            <button
+              class="nav-tab"
+              :class="{ active: view === 'memory' }"
+              @click="setView('memory')"
+              type="button"
+              role="tab"
+              :aria-selected="view === 'memory'"
+            >
+              Memory
             </button>
             <button
               class="nav-tab"
@@ -529,6 +540,96 @@
                   placeholder="Select a file to view its contents."
                 ></textarea>
               </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view memory-view" x-show="view === 'memory'" x-cloak role="tabpanel">
+          <div class="view-header">// memory</div>
+          <div class="view-title">Agent memory</div>
+          <div class="view-body" x-data="rhoMemory()" x-init="init()">
+            <div class="memory-stats">
+              <span class="memory-stat">
+                <span class="memory-stat-value" x-text="stats.total">0</span>
+                <span class="memory-stat-label">total</span>
+              </span>
+              <span class="memory-stat">
+                <span class="memory-stat-value learning" x-text="stats.learnings">0</span>
+                <span class="memory-stat-label">learnings</span>
+              </span>
+              <span class="memory-stat">
+                <span class="memory-stat-value preference" x-text="stats.preferences">0</span>
+                <span class="memory-stat-label">preferences</span>
+              </span>
+            </div>
+
+            <div class="memory-controls">
+              <div class="memory-filters">
+                <button class="memory-filter-btn" :class="{ active: typeFilter === 'all' }" type="button" @click="setType('all')">All</button>
+                <button class="memory-filter-btn" :class="{ active: typeFilter === 'learning' }" type="button" @click="setType('learning')">Learnings</button>
+                <button class="memory-filter-btn" :class="{ active: typeFilter === 'preference' }" type="button" @click="setType('preference')">Preferences</button>
+              </div>
+              <div class="memory-filters-right">
+                <select class="memory-category-select" x-model="categoryFilter" @change="load()">
+                  <option value="">all categories</option>
+                  <template x-for="cat in stats.categories" :key="cat">
+                    <option :value="cat" x-text="cat"></option>
+                  </template>
+                </select>
+                <select class="memory-sort-select" x-model="sortBy" @change="">
+                  <option value="created">newest</option>
+                  <option value="last_used">last used</option>
+                  <option value="used">most used</option>
+                  <option value="alpha">a-z</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="memory-search-wrap">
+              <input
+                class="memory-search"
+                type="text"
+                placeholder="search memory..."
+                x-model="searchQuery"
+                @input.debounce.300ms="load()"
+              />
+              <span class="memory-result-count" x-show="!isLoading" x-text="sorted().length + ' entries'"></span>
+            </div>
+
+            <div class="memory-loading" x-show="isLoading">
+              <span class="loading-spinner"></span>
+              <span>Loading memory...</span>
+            </div>
+
+            <div class="memory-list" x-show="!isLoading">
+              <template x-for="entry in sorted()" :key="entry.id">
+                <div class="memory-card" :class="[entry.type, isStale(entry) ? 'stale' : '']">
+                  <div class="memory-card-header">
+                    <div class="memory-card-badges">
+                      <span class="memory-type-badge" :class="entry.type" x-text="entry.type"></span>
+                      <span class="memory-category-badge" x-show="entry.category" x-text="entry.category"></span>
+                    </div>
+                    <div class="memory-card-meta-right">
+                      <span class="memory-card-date" x-text="entry.created || '--'"></span>
+                      <button class="memory-delete-btn" type="button" @click="remove(entry)" title="Delete entry">&times;</button>
+                    </div>
+                  </div>
+                  <div class="memory-card-text" x-text="entry.text"></div>
+                  <div class="memory-card-footer">
+                    <span class="memory-card-usage" x-show="entry.used > 0">
+                      used <span x-text="entry.used"></span>x
+                    </span>
+                    <span class="memory-card-last-used" x-show="entry.last_used">
+                      last: <span x-text="entry.last_used"></span>
+                    </span>
+                    <span class="memory-card-id" x-text="entry.id"></span>
+                  </div>
+                </div>
+              </template>
+              <div class="memory-empty" x-show="sorted().length === 0 && !isLoading">
+                <span class="empty-icon">&#x1F9E0;</span>
+                <span>No matching entries</span>
+              </div>
             </div>
           </div>
         </section>

@@ -26,7 +26,6 @@ export function getKnownFiles(): KnownFile[] {
     { id: "rho-md", name: "RHO.md", category: "core", path: path.join(rhoHome, "RHO.md") },
     { id: "soul-md", name: "SOUL.md", category: "core", path: path.join(rhoHome, "SOUL.md") },
     { id: "agents-md", name: "AGENTS.md", category: "core", path: path.join(rhoHome, "AGENTS.md") },
-    { id: "memory-jsonl", name: "memory.jsonl", category: "brain", path: path.join(brainDir, "memory.jsonl") },
     { id: "tasks-jsonl", name: "tasks.jsonl", category: "brain", path: path.join(brainDir, "tasks.jsonl") },
     { id: "init-toml", name: "init.toml", category: "config", path: path.join(rhoHome, "init.toml") },
   ];

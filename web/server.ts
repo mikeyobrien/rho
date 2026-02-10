@@ -7,7 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { WebSocket } from "ws";
 import { FileWatcher } from "./file-watcher.ts";
-import { findKnownFileByPath, getKnownFiles } from "./config.ts";
+import { findKnownFileByPath, getKnownFiles, getRhoHome } from "./config.ts";
 import {
   createSessionNotFoundError,
   getRpcSessionFile,
@@ -403,6 +403,98 @@ app.delete("/api/tasks/:id", (c) => {
     return c.json({ error: result.message }, status);
   }
   return c.json({ status: "ok" });
+});
+
+// --- Memory API ---
+
+interface MemoryEntry {
+  id: string;
+  type: "learning" | "preference";
+  text: string;
+  category?: string;
+  used?: number;
+  last_used?: string;
+  created?: string;
+}
+
+async function readMemoryEntries(): Promise<MemoryEntry[]> {
+  const memoryPath = path.join(getRhoHome(), "brain", "memory.jsonl");
+  try {
+    const raw = await readFile(memoryPath, "utf-8");
+    return raw
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line) as MemoryEntry;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is MemoryEntry => entry !== null);
+  } catch {
+    return [];
+  }
+}
+
+app.get("/api/memory", async (c) => {
+  try {
+    const entries = await readMemoryEntries();
+
+    const typeFilter = c.req.query("type");
+    const categoryFilter = c.req.query("category");
+    const q = c.req.query("q")?.toLowerCase();
+
+    let filtered = entries;
+    if (typeFilter) {
+      filtered = filtered.filter((e) => e.type === typeFilter);
+    }
+    if (categoryFilter) {
+      filtered = filtered.filter((e) => e.category === categoryFilter);
+    }
+    if (q) {
+      filtered = filtered.filter(
+        (e) => e.text.toLowerCase().includes(q) || (e.category && e.category.toLowerCase().includes(q))
+      );
+    }
+
+    const categories = [...new Set(entries.filter((e) => e.category).map((e) => e.category!))].sort();
+
+    return c.json({
+      total: entries.length,
+      learnings: entries.filter((e) => e.type === "learning").length,
+      preferences: entries.filter((e) => e.type === "preference").length,
+      categories,
+      entries: filtered,
+    });
+  } catch (error) {
+    return c.json({ error: (error as Error).message ?? "Failed to read memory" }, 500);
+  }
+});
+
+app.delete("/api/memory/:id", async (c) => {
+  const entryId = c.req.param("id");
+  const memoryPath = path.join(getRhoHome(), "brain", "memory.jsonl");
+  try {
+    const raw = await readFile(memoryPath, "utf-8");
+    const lines = raw.trim().split("\n").filter(Boolean);
+    const filtered = lines.filter((line) => {
+      try {
+        const entry = JSON.parse(line);
+        return entry.id !== entryId;
+      } catch {
+        return true;
+      }
+    });
+    if (filtered.length === lines.length) {
+      return c.json({ error: "Entry not found" }, 404);
+    }
+    await writeFile(memoryPath, filtered.join("\n") + "\n", "utf-8");
+    return c.json({ status: "ok" });
+  } catch (error) {
+    return c.json({ error: (error as Error).message ?? "Failed to delete entry" }, 500);
+  }
 });
 
 app.get(
