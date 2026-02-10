@@ -1,0 +1,57 @@
+# Chat fixes: tool status/preview in read-only, fork button cleanup
+event_loop:
+  completion_promise: "LOOP_COMPLETE"
+  starting_event: "build.start"
+  max_iterations: 12
+  max_runtime_seconds: 3600
+
+cli:
+  backend: "pi"
+  prompt_mode: "arg"
+
+core:
+  specs_dir: ".ralph/specs/"
+  guardrails:
+    - "Read the full chat.js before making changes — understand the normalization pipeline"
+    - "Do NOT break streaming — only fix the JSONL parser path"
+    - "Test by reading the modified code and verifying logic"
+
+hats:
+  builder:
+    name: "⚙️ Builder"
+    description: "Implements one task at a time from the chat fixes spec."
+    triggers: ["build.start", "validation.failed"]
+    publishes: ["implementation.ready"]
+    default_publishes: "implementation.ready"
+    instructions: |
+      ## BUILDER
+      1. `grep -l "status: pending" .ralph/specs/chat-fixes/tasks/*.code-task.md` for next task
+      2. If none → publish `implementation.ready`
+      3. Read task + design doc + the relevant source files
+      4. Implement, update frontmatter to completed
+      5. Publish `implementation.ready`
+
+      Key files: `web/public/js/chat.js` (~1900 lines), `web/public/index.html`, `web/public/css/style.css`
+
+  validator:
+    name: "✅ Validator"
+    description: "Validates task completion and code quality."
+    triggers: ["implementation.ready"]
+    publishes: ["validation.passed", "validation.failed"]
+    default_publishes: "validation.passed"
+    instructions: |
+      ## VALIDATOR
+      If pending tasks → `validation.failed` "continue"
+      If all done → check syntax, `curl -s http://0.0.0.0:3141/api/health`, `validation.passed`
+
+  committer:
+    name: "📦 Committer"
+    description: "Commits the fixes."
+    triggers: ["validation.passed"]
+    publishes: ["LOOP_COMPLETE"]
+    default_publishes: "LOOP_COMPLETE"
+    instructions: |
+      ```bash
+      cd ~/projects/rho && git add web/ && git commit -m "fix(web): tool block status/preview in read-only, fork buttons user-only+hover"
+      ```
+      Publish LOOP_COMPLETE.
