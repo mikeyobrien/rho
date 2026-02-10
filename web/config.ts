@@ -23,10 +23,7 @@ export function getKnownFiles(): KnownFile[] {
   const vaultDir = path.join(brainDir, "vault");
 
   const files: KnownFile[] = [
-    { id: "rho-md", name: "RHO.md", category: "core", path: path.join(rhoHome, "RHO.md") },
-    { id: "soul-md", name: "SOUL.md", category: "core", path: path.join(rhoHome, "SOUL.md") },
-    { id: "agents-md", name: "AGENTS.md", category: "core", path: path.join(rhoHome, "AGENTS.md") },
-    { id: "tasks-jsonl", name: "tasks.jsonl", category: "brain", path: path.join(brainDir, "tasks.jsonl") },
+    { id: "brain-jsonl", name: "brain.jsonl", category: "brain", path: path.join(brainDir, "brain.jsonl") },
     { id: "init-toml", name: "init.toml", category: "config", path: path.join(rhoHome, "init.toml") },
   ];
 

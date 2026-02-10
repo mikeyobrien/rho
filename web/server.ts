@@ -2,12 +2,12 @@ import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import crypto from "node:crypto";
 import type { WebSocket } from "ws";
-import { FileWatcher } from "./file-watcher.ts";
-import { findKnownFileByPath, getKnownFiles, getRhoHome } from "./config.ts";
+import { getRhoHome } from "./config.ts";
 import {
   createSessionNotFoundError,
   getRpcSessionFile,
@@ -17,15 +17,13 @@ import {
 } from "./rpc-manager.ts";
 import { findSessionFileById, listSessions, readSession } from "./session-reader.ts";
 import { createTask, deleteTask, listAllTasks, updateTask } from "./task-api.ts";
+import { readBrain, foldBrain, appendBrainEntry, BRAIN_PATH } from "../extensions/lib/brain-store.ts";
 
 const app = new Hono();
 const publicDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "public");
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 export { injectWebSocket };
 
-const fileWatcher = new FileWatcher();
-let watcherStarted = false;
-const fileSubscribers = new Set<WSContext<WebSocket>>();
 const rpcSessionSubscribers = new Map<WSContext<WebSocket>, Map<string, () => void>>();
 let sessionManagerModulePromise: Promise<{ SessionManager: { open(path: string): { createBranchedSession(leafId: string): string | undefined } } }> | null = null;
 
@@ -35,48 +33,6 @@ type WSIncomingMessage = {
   sessionFile?: string;
   command?: RPCCommand;
 };
-
-function ensureFileWatcherStarted(): void {
-  if (!watcherStarted) {
-    fileWatcher.start();
-    watcherStarted = true;
-  }
-}
-
-async function listKnownFileMetadata(): Promise<
-  { name: string; category: string; path: string; lastModified: string; isDirectory?: boolean }[]
-> {
-  const files = getKnownFiles();
-  const results: { name: string; category: string; path: string; lastModified: string; isDirectory?: boolean }[] = [];
-
-  for (const file of files) {
-    try {
-      const info = await stat(file.path);
-      results.push({
-        name: file.name,
-        category: file.category,
-        path: file.path,
-        lastModified: info.mtime.toISOString(),
-        isDirectory: info.isDirectory() || undefined,
-      });
-    } catch {
-      // Skip missing files.
-    }
-  }
-
-  return results;
-}
-
-function broadcastFileChange(filePath: string, content: string): void {
-  const payload = JSON.stringify({ type: "file_changed", path: filePath, content });
-  for (const ws of fileSubscribers) {
-    try {
-      ws.send(payload);
-    } catch {
-      fileSubscribers.delete(ws);
-    }
-  }
-}
 
 function sendWsMessage(ws: WSContext<WebSocket>, message: Record<string, unknown>): void {
   ws.send(JSON.stringify(message));
@@ -169,74 +125,38 @@ async function loadPiSessionManagerModule(): Promise<{
   return sessionManagerModulePromise;
 }
 
-fileWatcher.onChange((filePath, content) => {
-  broadcastFileChange(filePath, content);
-});
+// --- Health ---
 
 app.get("/api/health", (c) => c.json({ status: "ok" }));
 
-app.get("/api/files", async (c) => {
-  ensureFileWatcherStarted();
+// --- Config API ---
+
+app.get("/api/config", async (c) => {
   try {
-    const files = await listKnownFileMetadata();
-    return c.json(files);
-  } catch (error) {
-    return c.json({ error: (error as Error).message ?? "Failed to list files" }, 500);
-  }
-});
-
-app.get("/api/file", async (c) => {
-  ensureFileWatcherStarted();
-  const requestedPath = c.req.query("path");
-  if (!requestedPath) {
-    return c.json({ error: "File path required" }, 400);
-  }
-
-  const knownFile = findKnownFileByPath(requestedPath);
-  if (!knownFile) {
-    return c.json({ error: "File not found" }, 404);
-  }
-
-  try {
-    const info = await stat(knownFile.path);
-    if (info.isDirectory()) {
-      return c.json({ error: "Cannot read a directory" }, 400);
-    }
-    const content = await readFile(knownFile.path, "utf-8");
-    return c.json({ path: knownFile.path, content });
+    const configPath = path.join(getRhoHome(), "init.toml");
+    const content = await readFile(configPath, "utf-8");
+    return c.json({ path: configPath, content });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return c.json({ error: "File not found" }, 404);
+      return c.json({ path: path.join(getRhoHome(), "init.toml"), content: "" });
     }
-    return c.json({ error: (error as Error).message ?? "Failed to read file" }, 500);
+    return c.json({ error: (error as Error).message }, 500);
   }
 });
 
-app.put("/api/file", async (c) => {
-  ensureFileWatcherStarted();
-  const requestedPath = c.req.query("path");
-  if (!requestedPath) {
-    return c.json({ error: "File path required" }, 400);
-  }
-
-  const knownFile = findKnownFileByPath(requestedPath);
-  if (!knownFile) {
-    return c.json({ error: "File not found" }, 404);
-  }
-
-  if (knownFile.isDirectory) {
-    return c.json({ error: "Cannot write to a directory" }, 400);
-  }
-
+app.put("/api/config", async (c) => {
   try {
     const content = await c.req.text();
-    await mkdir(path.dirname(knownFile.path), { recursive: true });
-    await writeFile(knownFile.path, content, "utf-8");
-    return c.json({ status: "ok", path: knownFile.path });
+    const configPath = path.join(getRhoHome(), "init.toml");
+    await mkdir(path.dirname(configPath), { recursive: true });
+    await writeFile(configPath, content, "utf-8");
+    return c.json({ status: "ok", path: configPath });
   } catch (error) {
-    return c.json({ error: (error as Error).message ?? "Failed to write file" }, 500);
+    return c.json({ error: (error as Error).message }, 500);
   }
 });
+
+// --- Sessions API ---
 
 app.get("/api/sessions", async (c) => {
   const cwd = c.req.query("cwd");
@@ -317,8 +237,7 @@ app.post("/api/sessions/:id/fork", async (c) => {
 
 app.post("/api/sessions/new", async (c) => {
   try {
-    const { randomUUID } = await import("node:crypto");
-    const sessionId = randomUUID();
+    const sessionId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
     const safeTimestamp = timestamp.replace(/[:.]/g, "-");
     const cwd = process.env.HOME ?? process.cwd();
@@ -340,7 +259,9 @@ app.post("/api/sessions/new", async (c) => {
   }
 });
 
-app.get("/api/tasks", (c) => {
+// --- Tasks API ---
+
+app.get("/api/tasks", async (c) => {
   try {
     const filter = c.req.query("filter");
     const tasks = listAllTasks(filter ?? undefined);
@@ -358,7 +279,7 @@ app.post("/api/tasks", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const result = createTask({
+  const result = await createTask({
     description: payload.description,
     priority: payload.priority as "urgent" | "high" | "normal" | "low" | undefined,
     tags: payload.tags,
@@ -380,7 +301,7 @@ app.patch("/api/tasks/:id", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const result = updateTask(taskId, {
+  const result = await updateTask(taskId, {
     description: payload.description,
     priority: payload.priority as "urgent" | "high" | "normal" | "low" | undefined,
     status: payload.status as "pending" | "done" | undefined,
@@ -395,9 +316,9 @@ app.patch("/api/tasks/:id", async (c) => {
   return c.json(result.task);
 });
 
-app.delete("/api/tasks/:id", (c) => {
+app.delete("/api/tasks/:id", async (c) => {
   const taskId = c.req.param("id");
-  const result = deleteTask(taskId);
+  const result = await deleteTask(taskId);
   if (!result.ok) {
     const status = result.message.includes("not found") ? 404 : 400;
     return c.json({ error: result.message }, status);
@@ -407,64 +328,36 @@ app.delete("/api/tasks/:id", (c) => {
 
 // --- Memory API ---
 
-interface MemoryEntry {
-  id: string;
-  type: "learning" | "preference";
-  text: string;
-  category?: string;
-  used?: number;
-  last_used?: string;
-  created?: string;
-}
-
-async function readMemoryEntries(): Promise<MemoryEntry[]> {
-  const memoryPath = path.join(getRhoHome(), "brain", "memory.jsonl");
-  try {
-    const raw = await readFile(memoryPath, "utf-8");
-    return raw
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        try {
-          return JSON.parse(line) as MemoryEntry;
-        } catch {
-          return null;
-        }
-      })
-      .filter((entry): entry is MemoryEntry => entry !== null);
-  } catch {
-    return [];
-  }
+async function readMemoryEntries() {
+  const { entries } = readBrain(BRAIN_PATH);
+  const brain = foldBrain(entries);
+  return { learnings: brain.learnings, preferences: brain.preferences };
 }
 
 app.get("/api/memory", async (c) => {
   try {
-    const entries = await readMemoryEntries();
+    const { learnings, preferences } = await readMemoryEntries();
+    const allEntries = [...learnings, ...preferences];
 
     const typeFilter = c.req.query("type");
     const categoryFilter = c.req.query("category");
     const q = c.req.query("q")?.toLowerCase();
 
-    let filtered = entries;
-    if (typeFilter) {
-      filtered = filtered.filter((e) => e.type === typeFilter);
-    }
-    if (categoryFilter) {
-      filtered = filtered.filter((e) => e.category === categoryFilter);
-    }
-    if (q) {
-      filtered = filtered.filter(
-        (e) => e.text.toLowerCase().includes(q) || (e.category && e.category.toLowerCase().includes(q))
-      );
-    }
+    let filtered = allEntries;
+    if (typeFilter) filtered = filtered.filter(e => e.type === typeFilter);
+    if (categoryFilter) filtered = filtered.filter(e => (e as any).category === categoryFilter);
+    if (q) filtered = filtered.filter(e => {
+      const text = (e as any).text || "";
+      const cat = (e as any).category || "";
+      return text.toLowerCase().includes(q) || cat.toLowerCase().includes(q);
+    });
 
-    const categories = [...new Set(entries.filter((e) => e.category).map((e) => e.category!))].sort();
+    const categories = [...new Set(preferences.map(p => p.category))].sort();
 
     return c.json({
-      total: entries.length,
-      learnings: entries.filter((e) => e.type === "learning").length,
-      preferences: entries.filter((e) => e.type === "preference").length,
+      total: allEntries.length,
+      learnings: learnings.length,
+      preferences: preferences.length,
       categories,
       entries: filtered,
     });
@@ -475,35 +368,36 @@ app.get("/api/memory", async (c) => {
 
 app.delete("/api/memory/:id", async (c) => {
   const entryId = c.req.param("id");
-  const memoryPath = path.join(getRhoHome(), "brain", "memory.jsonl");
   try {
-    const raw = await readFile(memoryPath, "utf-8");
-    const lines = raw.trim().split("\n").filter(Boolean);
-    const filtered = lines.filter((line) => {
-      try {
-        const entry = JSON.parse(line);
-        return entry.id !== entryId;
-      } catch {
-        return true;
-      }
-    });
-    if (filtered.length === lines.length) {
-      return c.json({ error: "Entry not found" }, 404);
-    }
-    await writeFile(memoryPath, filtered.join("\n") + "\n", "utf-8");
+    // Find the entry to determine its type
+    const { entries } = readBrain(BRAIN_PATH);
+    const brain = foldBrain(entries);
+    const allMemory = [...brain.learnings, ...brain.preferences];
+    const target = allMemory.find(e => e.id === entryId);
+    if (!target) return c.json({ error: "Entry not found" }, 404);
+
+    // Append tombstone
+    const tombstone = {
+      id: crypto.randomUUID().slice(0, 8),
+      type: "tombstone" as const,
+      target_id: entryId,
+      target_type: target.type,
+      reason: "deleted via web UI",
+      created: new Date().toISOString(),
+    };
+    await appendBrainEntry(BRAIN_PATH, tombstone);
     return c.json({ status: "ok" });
   } catch (error) {
     return c.json({ error: (error as Error).message ?? "Failed to delete entry" }, 500);
   }
 });
 
+// --- WebSocket ---
+
 app.get(
   "/ws",
   upgradeWebSocket(() => ({
-    onOpen: (_, ws) => {
-      ensureFileWatcherStarted();
-      fileSubscribers.add(ws);
-    },
+    onOpen: () => {},
     onMessage: async (event, ws) => {
       if (typeof event.data !== "string") {
         return;
@@ -513,17 +407,6 @@ app.get(
       try {
         payload = JSON.parse(event.data) as WSIncomingMessage;
       } catch {
-        return;
-      }
-
-      if (payload?.type === "subscribe_files") {
-        fileSubscribers.add(ws);
-        const files = await listKnownFileMetadata();
-        try {
-          ws.send(JSON.stringify({ type: "files", files }));
-        } catch {
-          fileSubscribers.delete(ws);
-        }
         return;
       }
 
@@ -580,15 +463,15 @@ app.get(
       }
     },
     onClose: (_, ws) => {
-      fileSubscribers.delete(ws);
       clearRpcSubscriptions(ws);
     },
     onError: (_, ws) => {
-      fileSubscribers.delete(ws);
       clearRpcSubscriptions(ws);
     },
   }))
 );
+
+// --- Static files ---
 
 app.get("/", async (c) => {
   const html = await readFile(path.join(publicDir, "index.html"), "utf-8");
@@ -599,17 +482,12 @@ app.use("/css/*", serveStatic({ root: publicDir }));
 app.use("/js/*", serveStatic({ root: publicDir }));
 app.use("/assets/*", serveStatic({ root: publicDir }));
 
-export function disposeServerResources(): void {
-  if (watcherStarted) {
-    fileWatcher.stop();
-    watcherStarted = false;
-  }
-  fileSubscribers.clear();
+// --- Cleanup ---
 
+export function disposeServerResources(): void {
   for (const ws of rpcSessionSubscribers.keys()) {
     clearRpcSubscriptions(ws);
   }
-
   rpcManager.dispose();
 }
 
