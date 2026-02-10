@@ -47,6 +47,11 @@ For every learning and preference, assign exactly one label:
 - You MUST NOT label a preference as "stale" unless it directly contradicts a newer preference
 - You MUST NOT label an entry as "vague" if it contains any specific, actionable detail
 - You MUST NOT invent new information — consolidation reduces and clarifies, never adds
+- You MUST NOT merge entries about different subjects just because they share keywords (e.g., "4-space indent in Python" and "2-space indent in YAML" are different facts)
+- You MUST NOT merge a project-scoped learning with a global learning — they apply to different contexts
+- You MUST NOT merge preferences that have the same text but different categories — category is part of the identity
+- You MUST NOT touch behavior, meta, identity, user, task, or reminder entries — only learnings and preferences
+- Entries that were already tombstoned will not appear in `brain action=list` — do not try to remove them
 - When two entries could be either "keep" or "merge", prefer "keep" — merging loses provenance
 - When uncertain, label "keep"
 

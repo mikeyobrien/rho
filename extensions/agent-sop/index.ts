@@ -230,7 +230,7 @@ export default function agentSOPExtension(pi: ExtensionAPI) {
 	// ─── Commands ─────────────────────────────────────────────────────────
 
 	pi.registerCommand("sop", {
-		description: "List available SOPs or run one: /sop [name] [args]",
+		description: "List available SOPs or run one: /sop [name] [args]. SOPs live in: .pi/sops/ (project), ~/.pi/agent/sops/ (user), ~/.rho/project/sops/ (bundled). To create a new SOP, run /sop create-sop.",
 		handler: async (args, ctx) => {
 			loadSOPs(ctx);
 

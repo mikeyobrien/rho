@@ -40,16 +40,32 @@ echo ""
 
 npx tsx tests/generate-synthetic-brain.ts "$BRAIN"
 
-BEFORE_LINES=$(wc -l < "$BRAIN" | tr -d ' ')
-BEFORE_LEARNINGS=$(grep -c '"type":"learning"' "$BRAIN" || true)
-BEFORE_PREFS=$(grep -c '"type":"preference"' "$BRAIN" || true)
-BEFORE_BEHAVIORS=$(grep -c '"type":"behavior"' "$BRAIN" || true)
+# Count from folded state (accurate after tombstones)
+BEFORE_STATS=$(RHO_BRAIN_PATH="$BRAIN" RHO_BRAIN_DIR="$TMPDIR" npx tsx -e "
+import { readBrain, foldBrain } from './extensions/lib/brain-store.ts';
+const { entries, stats } = readBrain('$BRAIN');
+const brain = foldBrain(entries);
+console.log(JSON.stringify({
+  lines: stats.total,
+  learnings: brain.learnings.length,
+  preferences: brain.preferences.length,
+  behaviors: brain.behaviors.length,
+  meta: brain.meta.size,
+  tombstones: brain.tombstoned.size,
+}));
+")
+BEFORE_LINES=$(echo "$BEFORE_STATS" | jq -r '.lines')
+BEFORE_LEARNINGS=$(echo "$BEFORE_STATS" | jq -r '.learnings')
+BEFORE_PREFS=$(echo "$BEFORE_STATS" | jq -r '.preferences')
+BEFORE_BEHAVIORS=$(echo "$BEFORE_STATS" | jq -r '.behaviors')
+BEFORE_META=$(echo "$BEFORE_STATS" | jq -r '.meta')
 
-echo "Generated synthetic brain:"
+echo "Generated synthetic brain (folded):"
 echo "  Total lines:  $BEFORE_LINES"
 echo "  Learnings:    $BEFORE_LEARNINGS"
 echo "  Preferences:  $BEFORE_PREFS"
 echo "  Behaviors:    $BEFORE_BEHAVIORS"
+echo "  Meta:         $BEFORE_META"
 echo ""
 
 # ── Build the prompt ───────────────────────────────────────────────
@@ -143,32 +159,31 @@ check() {
   fi
 }
 
-# Core invariants
+# ── Core invariants ────────────────────────────────────────────────
 check "no bad lines in brain.jsonl" "[[ $BAD_LINES -eq 0 ]]"
 check "behaviors untouched (still $BEFORE_BEHAVIORS)" "[[ $AFTER_BEHAVIORS -eq $BEFORE_BEHAVIORS ]]"
 check "at least 1 tombstone created" "[[ $TOMBSTONES -gt 0 ]]"
 check "learnings reduced" "[[ $AFTER_LEARNINGS -lt $BEFORE_LEARNINGS ]]"
 check "file is append-only (lines >= before)" "[[ $AFTER_LINES -ge $BEFORE_LINES ]]"
 
-# The synthetic brain has 5 exact/near-duplicate learnings.
-# A good consolidation should catch at least 3 of them.
+# ── Duplicate/stale removal ────────────────────────────────────────
 LEARNINGS_REMOVED=$((BEFORE_LEARNINGS - AFTER_LEARNINGS))
 check "removed at least 3 duplicate/stale learnings" "[[ $LEARNINGS_REMOVED -ge 3 ]]"
 
-# The synthetic brain has 2 contradictory preferences (old + new).
-# Good consolidation keeps the newer one.
-# Check that the newer preference text is still present
-NEWER_PREF_PRESENT=$(RHO_BRAIN_PATH="$BRAIN" npx tsx -e "
+# ── Contradictory preferences ─────────────────────────────────────
+PREF_CHECKS=$(RHO_BRAIN_PATH="$BRAIN" RHO_BRAIN_DIR="$TMPDIR" npx tsx -e "
 import { readBrain, foldBrain } from './extensions/lib/brain-store.ts';
 const { entries } = readBrain('$BRAIN');
 const brain = foldBrain(entries);
-const has = brain.preferences.some(p => p.text.includes('tabs for indentation'));
-console.log(has ? 'yes' : 'no');
+const newerKept = brain.preferences.some(p => p.text.includes('tabs for indentation'));
+const olderGone = !brain.preferences.some(p => p.text === 'Use 2 spaces for indentation');
+console.log(JSON.stringify({ newerKept, olderGone }));
 ")
-check "newer contradictory preference kept" "[[ '$NEWER_PREF_PRESENT' == 'yes' ]]"
+check "newer contradictory preference kept" "[[ $(echo "$PREF_CHECKS" | jq -r '.newerKept') == 'true' ]]"
+check "older contradictory preference removed" "[[ $(echo "$PREF_CHECKS" | jq -r '.olderGone') == 'true' ]]"
 
-# The 5 'keep' learnings should all survive
-KEEP_SURVIVED=$(RHO_BRAIN_PATH="$BRAIN" npx tsx -e "
+# ── Keeper survival ───────────────────────────────────────────────
+KEEP_SURVIVED=$(RHO_BRAIN_PATH="$BRAIN" RHO_BRAIN_DIR="$TMPDIR" npx tsx -e "
 import { readBrain, foldBrain } from './extensions/lib/brain-store.ts';
 const { entries } = readBrain('$BRAIN');
 const brain = foldBrain(entries);
@@ -183,6 +198,55 @@ const found = keepers.filter(k => brain.learnings.some(l => l.text.includes(k)))
 console.log(found.length);
 ")
 check "all 5 keeper learnings survived" "[[ '$KEEP_SURVIVED' == '5' ]]"
+
+# ── Semantically different entries must NOT merge ──────────────────
+SIMILAR_CHECKS=$(RHO_BRAIN_PATH="$BRAIN" RHO_BRAIN_DIR="$TMPDIR" npx tsx -e "
+import { readBrain, foldBrain } from './extensions/lib/brain-store.ts';
+const { entries } = readBrain('$BRAIN');
+const brain = foldBrain(entries);
+const pythonIndent = brain.learnings.some(l => l.text.includes('4-space indent in Python'));
+const yamlIndent = brain.learnings.some(l => l.text.includes('2-space indent in YAML'));
+console.log(JSON.stringify({ pythonIndent, yamlIndent }));
+")
+check "Python indent learning kept (not merged with YAML)" "[[ $(echo "$SIMILAR_CHECKS" | jq -r '.pythonIndent') == 'true' ]]"
+check "YAML indent learning kept (not merged with Python)" "[[ $(echo "$SIMILAR_CHECKS" | jq -r '.yamlIndent') == 'true' ]]"
+
+# ── Scoped vs global must NOT merge ───────────────────────────────
+SCOPE_CHECKS=$(RHO_BRAIN_PATH="$BRAIN" RHO_BRAIN_DIR="$TMPDIR" npx tsx -e "
+import { readBrain, foldBrain } from './extensions/lib/brain-store.ts';
+const { entries } = readBrain('$BRAIN');
+const brain = foldBrain(entries);
+const scopedRedis = brain.learnings.some(l => l.text.includes('5 minutes'));
+const globalRedis = brain.learnings.some(l => l.text.includes('1 hour') && l.text.includes('billing'));
+console.log(JSON.stringify({ scopedRedis, globalRedis }));
+")
+check "scoped Redis TTL learning kept" "[[ $(echo "$SCOPE_CHECKS" | jq -r '.scopedRedis') == 'true' ]]"
+check "global Redis TTL learning kept" "[[ $(echo "$SCOPE_CHECKS" | jq -r '.globalRedis') == 'true' ]]"
+
+# ── Same-text different-category preferences must keep both ────────
+CROSS_CAT=$(RHO_BRAIN_PATH="$BRAIN" RHO_BRAIN_DIR="$TMPDIR" npx tsx -e "
+import { readBrain, foldBrain } from './extensions/lib/brain-store.ts';
+const { entries } = readBrain('$BRAIN');
+const brain = foldBrain(entries);
+const explicit = brain.preferences.filter(p => p.text === 'Prefer explicit over implicit');
+console.log(explicit.length);
+")
+check "same-text different-category prefs both kept ($CROSS_CAT)" "[[ '$CROSS_CAT' -ge 2 ]]"
+
+# ── Meta entry survived ───────────────────────────────────────────
+META_OK=$(RHO_BRAIN_PATH="$BRAIN" RHO_BRAIN_DIR="$TMPDIR" npx tsx -e "
+import { readBrain, foldBrain } from './extensions/lib/brain-store.ts';
+const { entries } = readBrain('$BRAIN');
+const brain = foldBrain(entries);
+const sv = brain.meta.get('schema_version');
+console.log(sv?.value === '1' ? 'yes' : 'no');
+")
+check "meta schema_version=1 survived" "[[ '$META_OK' == 'yes' ]]"
+
+# ── Preference count sanity ────────────────────────────────────────
+# Started with 8 prefs (2 contradictory + 2 cross-category + 4 keepers)
+# Should lose exactly 1 (the old contradictory one), keep 7
+check "preferences lost at most 1 (was $BEFORE_PREFS, now $AFTER_PREFS)" "[[ $AFTER_PREFS -ge $((BEFORE_PREFS - 1)) ]]"
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

@@ -91,6 +91,27 @@ entries.push({ id: nextId(), type: "learning", text: "Database connections time 
 entries.push({ id: nextId(), type: "learning", text: "The code should be clean", source: "auto", created: daysAgo(40) });
 entries.push({ id: nextId(), type: "learning", text: "Testing is important for quality", source: "auto", created: daysAgo(35) });
 
+// ── Textually similar but semantically different (2 — must NOT merge) ─
+
+entries.push({ id: nextId(), type: "learning", text: "Use 4-space indent in Python files per PEP 8", source: "manual", created: daysAgo(8) });
+entries.push({ id: nextId(), type: "learning", text: "Use 2-space indent in YAML files per project convention", source: "manual", created: daysAgo(8) });
+
+// ── Scoped learning that must not merge with global ──────────────
+
+entries.push({ id: nextId(), type: "learning", text: "Redis cache TTL is 5 minutes", source: "manual", scope: "project", projectPath: "/home/user/webapp", created: daysAgo(6) });
+entries.push({ id: nextId(), type: "learning", text: "Redis cache TTL is 1 hour for the billing service", source: "manual", scope: "global", created: daysAgo(6) });
+
+// ── Same-text preferences in different categories (must keep both) ─
+
+entries.push({ id: nextId(), type: "preference", category: "Code", text: "Prefer explicit over implicit", created: daysAgo(20) });
+entries.push({ id: nextId(), type: "preference", category: "Communication", text: "Prefer explicit over implicit", created: daysAgo(20) });
+
+// ── Pre-existing tombstone (should be ignored, not re-processed) ─
+
+const tombstoneTargetId = nextId();
+entries.push({ id: tombstoneTargetId, type: "learning", text: "Old entry that was already removed", source: "auto", created: daysAgo(100) });
+entries.push({ id: nextId(), type: "tombstone", target_id: tombstoneTargetId, target_type: "learning", reason: "previously cleaned", created: daysAgo(50) });
+
 // ── Good learnings (5 — should survive untouched) ────────────────
 
 entries.push({ id: nextId(), type: "learning", text: "API rate limit is 100 requests per minute per key", source: "manual", created: daysAgo(7) });
@@ -114,13 +135,18 @@ fs.writeFileSync(outPath, lines.join("\n") + "\n");
 
 console.log(`Wrote ${entries.length} entries to ${outPath}`);
 console.log(`  Behaviors:    5 (should not be touched)`);
-console.log(`  Learnings:    ${entries.filter(e => e.type === "learning").length}`);
+console.log(`  Learnings:    ${entries.filter(e => e.type === "learning").length} (active after fold: ${entries.filter(e => e.type === "learning").length - 1})`);
 console.log(`    - 5 duplicates/near-dupes (should consolidate to 2-3)`);
 console.log(`    - 3 stale (should be removed)`);
 console.log(`    - 2 merge candidates (should become 1)`);
 console.log(`    - 2 vague (should be removed)`);
+console.log(`    - 2 textually similar but different (must NOT merge)`);
+console.log(`    - 2 scoped vs global (must NOT merge)`);
 console.log(`    - 5 keepers (must survive)`);
+console.log(`    - 1 pre-tombstoned (already gone)`);
 console.log(`  Preferences:  ${entries.filter(e => e.type === "preference").length}`);
 console.log(`    - 2 contradictory (old should go)`);
+console.log(`    - 2 same-text different-category (must keep both)`);
 console.log(`    - 4 keepers (must survive)`);
+console.log(`  Tombstones:   ${entries.filter(e => e.type === "tombstone").length} (pre-existing)`);
 console.log(`  Meta:         1`);
