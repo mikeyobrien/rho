@@ -112,7 +112,7 @@ Launch the Rho web server.
 
 The web server provides:
 - Chat interface with pi RPC integration
-- State file viewer/editor (RHO.md, SOUL.md, etc.)
+- Brain viewer/editor (brain.jsonl entries)
 - Tasks list view
 - Real-time updates via WebSocket
 

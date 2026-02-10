@@ -79,7 +79,7 @@ export const REGISTRY: Record<string, ModuleEntry> = {
     category: "skills",
     extensions: [],
     skills: ["skills/soul-update"],
-    description: "Mine sessions to learn about the user and evolve SOUL.md over time",
+    description: "Mine sessions to learn about the user and evolve identity/behavior entries in brain.jsonl",
   },
 
   subagents: {

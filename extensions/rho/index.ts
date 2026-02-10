@@ -19,6 +19,7 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { Text, visibleWidth, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+// tasks-core.ts kept for backward compat re-exports only
 import {
   addTask,
   buildHeartbeatSection,
@@ -73,14 +74,7 @@ const RESULTS_DIR = path.join(RHO_DIR, "results");
 const STATE_PATH = path.join(RHO_DIR, "rho-state.json");
 const CONFIG_PATH = path.join(RHO_DIR, "config.json");
 
-const LEGACY_BRAIN_DIR = path.join(HOME, ".pi", "brain");
 const LEGACY_STATE_PATH = path.join(HOME, ".pi", "agent", "rho-state.json");
-
-const CORE_FILE = path.join(BRAIN_DIR, "core.jsonl");
-const MEMORY_FILE = path.join(BRAIN_DIR, "memory.jsonl");
-const CONTEXT_FILE = path.join(BRAIN_DIR, "context.jsonl");
-const ARCHIVE_FILE = path.join(BRAIN_DIR, "archive.jsonl");
-const DAILY_MEMORY_DIR = path.join(BRAIN_DIR, "memory");
 
 // ── Memory count cache (for footer status) ──
 let cachedMemoryCount: number | null = null;
@@ -174,42 +168,10 @@ function nanoid(size = 8): string {
   return crypto.randomBytes(size).toString("base64url").slice(0, size);
 }
 
-function today(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
 function ensureRhoDir(): void {
   if (!fs.existsSync(RHO_DIR)) {
     fs.mkdirSync(RHO_DIR, { recursive: true });
   }
-}
-
-function readJsonl<T>(file: string): T[] {
-  if (!fs.existsSync(file)) return [];
-  const content = fs.readFileSync(file, "utf-8");
-  const entries: T[] = [];
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed) as T);
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return entries;
-}
-
-function appendJsonl<T>(file: string, entry: T): void {
-  ensureRhoDir();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, JSON.stringify(entry) + "\n");
-}
-
-function writeJsonl<T>(file: string, entries: T[]): void {
-  ensureRhoDir();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join("\n") + (entries.length ? "\n" : ""));
 }
 
 function shellEscape(value: string): string {
@@ -258,55 +220,6 @@ function setRhoHeader(ctx: ExtensionContext): void {
 //  BRAIN (Persistent Memory)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ─── Brain Types ──────────────────────────────────────────────────────────────
-
-interface BaseEntry {
-  id: string;
-  type: string;
-  created: string;
-}
-
-interface IdentityEntry extends BaseEntry {
-  type: "identity";
-  key: string;
-  value: string;
-}
-
-interface BehaviorEntry extends BaseEntry {
-  type: "behavior";
-  category: "do" | "dont" | "value";
-  text: string;
-}
-
-interface UserEntry extends BaseEntry {
-  type: "user";
-  key: string;
-  value: string;
-}
-
-interface LearningEntry extends BaseEntry {
-  type: "learning";
-  text: string;
-  used: number;
-  last_used: string;
-  source?: string;
-}
-
-interface PreferenceEntry extends BaseEntry {
-  type: "preference";
-  category: string;
-  text: string;
-}
-
-interface ContextEntry extends BaseEntry {
-  type: "context";
-  project: string;
-  path: string;
-  content: string;
-}
-
-type Entry = IdentityEntry | BehaviorEntry | UserEntry | LearningEntry | PreferenceEntry | ContextEntry;
-
 // ─── Brain Config ─────────────────────────────────────────────────────────────
 
 const AUTO_MEMORY_DEBUG = process.env.RHO_AUTO_MEMORY_DEBUG === "1" || process.env.RHO_AUTO_MEMORY_DEBUG === "true";
@@ -314,7 +227,6 @@ const AUTO_MEMORY_MAX_ITEMS = 3;
 const AUTO_MEMORY_MAX_TEXT = 200;
 const AUTO_MEMORY_DEFAULT_CATEGORY = "General";
 const AUTO_MEMORY_ALLOWED_CATEGORIES = new Set(["Communication", "Code", "Tools", "Workflow", "General"]);
-const DAILY_MEMORY_ENABLED = process.env.RHO_DAILY_MEMORY !== "0";
 const COMPACT_MEMORY_FLUSH_ENABLED = process.env.RHO_COMPACT_MEMORY_FLUSH !== "0";
 
 // ─── Brain: Model Resolution ─────────────────────────────────────────────────
@@ -343,20 +255,6 @@ async function resolveSmallModel(
   return { model: currentModel, apiKey: currentApiKey };
 }
 
-// ─── Brain: Daily Memory Log ──────────────────────────────────────────────────
-
-function appendDailyMemoryEntry(entry: LearningEntry | PreferenceEntry): void {
-  if (!DAILY_MEMORY_ENABLED) return;
-  fs.mkdirSync(DAILY_MEMORY_DIR, { recursive: true });
-  const date = entry.created || today();
-  const file = path.join(DAILY_MEMORY_DIR, `${date}.md`);
-  const needsHeader = !fs.existsSync(file);
-  const label =
-    entry.type === "learning" ? "Learning" : `Preference (${(entry as PreferenceEntry).category})`;
-  const header = needsHeader ? `# Memory ${date}\n\n` : "";
-  fs.appendFileSync(file, `${header}- **${label}:** ${entry.text}\n`);
-}
-
 // ─── Brain: Store Functions ───────────────────────────────────────────────────
 
 type StoreResult = { stored: boolean; id?: string; reason?: "empty" | "duplicate" | "too_long" };
@@ -373,23 +271,6 @@ function sanitizeCategory(category?: string): string {
     if (allowed.toLowerCase() === trimmed.toLowerCase()) return allowed;
   }
   return AUTO_MEMORY_DEFAULT_CATEGORY;
-}
-
-function isDuplicateLearning(existing: Entry[], text: string): boolean {
-  const normalized = normalizeMemoryText(text).toLowerCase();
-  return existing.some(
-    (e) => e.type === "learning" && normalizeMemoryText((e as LearningEntry).text).toLowerCase() === normalized
-  );
-}
-
-function isDuplicatePreference(existing: Entry[], text: string, category: string): boolean {
-  const normalized = normalizeMemoryText(text).toLowerCase();
-  return existing.some(
-    (e) =>
-      e.type === "preference" &&
-      normalizeMemoryText((e as PreferenceEntry).text).toLowerCase() === normalized &&
-      (e as PreferenceEntry).category === category
-  );
 }
 
 async function storeLearningEntry(text: string, options?: { source?: string; maxLength?: number }): Promise<StoreResult> {
@@ -456,8 +337,6 @@ async function storePreferenceEntry(
   return { stored: true, id: entry.id };
 }
 
-// buildBrainContext and MEMORY_INSTRUCTIONS removed — replaced by brain-store's buildBrainPrompt
-
 // ─── Brain: Auto-Memory Extraction ───────────────────────────────────────────
 
 type AutoMemoryResponse = {
@@ -465,12 +344,12 @@ type AutoMemoryResponse = {
   preferences?: Array<{ text?: string; category?: string }>;
 };
 
-function formatExistingMemories(entries: Entry[]): string {
-  const learnings = entries.filter((e): e is LearningEntry => e.type === "learning");
-  const preferences = entries.filter((e): e is PreferenceEntry => e.type === "preference");
+function formatExistingMemories(entries: Array<{ type: string; text?: string; category?: string }>): string {
+  const learnings = entries.filter((e) => e.type === "learning");
+  const preferences = entries.filter((e) => e.type === "preference");
   const lines: string[] = [];
-  for (const l of learnings) lines.push(`- ${l.text}`);
-  for (const p of preferences) lines.push(`- [${p.category}] ${p.text}`);
+  for (const l of learnings) lines.push(`- ${l.text ?? ""}`);
+  for (const p of preferences) lines.push(`- [${p.category ?? "General"}] ${p.text ?? ""}`);
   return lines.join("\n");
 }
 
@@ -550,9 +429,9 @@ async function runAutoMemoryExtraction(
 
   const { entries: brainEntries } = readBrain(BRAIN_PATH);
   const existingBrain = foldBrain(brainEntries);
-  const existingForPrompt: Entry[] = [
-    ...existingBrain.learnings.map(l => ({ ...l } as unknown as Entry)),
-    ...existingBrain.preferences.map(p => ({ ...p } as unknown as Entry)),
+  const existingForPrompt = [
+    ...existingBrain.learnings.map(l => ({ type: "learning" as const, text: l.text })),
+    ...existingBrain.preferences.map(p => ({ type: "preference" as const, text: p.text, category: p.category })),
   ];
   const existingText = existingForPrompt.length > 0 ? formatExistingMemories(existingForPrompt) : undefined;
   const prompt = buildAutoMemoryPrompt(conversationText, existingText);
@@ -667,32 +546,6 @@ async function runAutoMemoryExtraction(
   memoryCacheMs = 0;
 
   return { storedLearnings, storedPrefs };
-}
-
-// removeMemoryEntry removed — replaced by brain tool's remove action
-
-// archiveStaleMemories removed — replaced by brain tool's decay action
-
-// ─── Brain: Legacy Migration ──────────────────────────────────────────────────
-
-function migrateLegacyBrain(): void {
-  if (!fs.existsSync(LEGACY_BRAIN_DIR)) return;
-  if (fs.existsSync(BRAIN_DIR) && fs.readdirSync(BRAIN_DIR).length > 0) return;
-
-  fs.mkdirSync(BRAIN_DIR, { recursive: true });
-
-  for (const entry of fs.readdirSync(LEGACY_BRAIN_DIR, { withFileTypes: true })) {
-    const src = path.join(LEGACY_BRAIN_DIR, entry.name);
-    const dst = path.join(BRAIN_DIR, entry.name);
-    if (entry.isDirectory()) {
-      if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
-      for (const sub of fs.readdirSync(src)) {
-        fs.copyFileSync(path.join(src, sub), path.join(dst, sub));
-      }
-    } else {
-      fs.copyFileSync(src, dst);
-    }
-  }
 }
 
 function bootstrapBrainDefaults(extensionDir: string): void {
@@ -1357,28 +1210,6 @@ function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
   }
 }
 
-function readMarkdownFile(paths: string[]): string | null {
-  for (const filePath of paths) {
-    if (fs.existsSync(filePath)) {
-      try {
-        const content = fs.readFileSync(filePath, "utf-8").trim();
-        const hasContent = content
-          .split("\n")
-          .some((line) => {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith("#")) return false;
-            if (trimmed.startsWith("-")) return /^-\s*\[[ xX]\]/.test(trimmed);
-            return true;
-          });
-        return hasContent ? content : null;
-      } catch {
-        continue;
-      }
-    }
-  }
-  return null;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 //  EXTENSION ENTRY POINT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1398,7 +1229,6 @@ export default function (pi: ExtensionAPI) {
     footerTui?.requestRender?.();
   });
 
-  migrateLegacyBrain();
   bootstrapBrainDefaults(__dirname);
   ensureVaultDirs();
   createDefaultFiles();
@@ -2178,238 +2008,6 @@ Instructions:
     },
   });
 
-  // ── REMOVED: replaced by brain tool ────────────────────────────────────────
-  // The memory tool is superseded by the brain tool's add/update/remove/list/decay
-  // actions with type:"learning" and type:"preference". Kept commented for reference.
-  /*
-  pi.registerTool({
-    name: "memory",
-    label: "Memory",
-    description:
-      "Store learnings (corrections, patterns, conventions) or preferences (user likes/dislikes with category). " +
-      "Use after user corrections or when discovering something future sessions need. " +
-      "Actions: add_learning, add_preference, reinforce, remove (by ID), search, list, decay (archive stale entries).",
-    parameters: Type.Object({
-      action: StringEnum(["add_learning", "add_preference", "reinforce", "remove", "search", "list", "decay"] as const),
-      content: Type.Optional(Type.String({ description: "Concise, actionable text" })),
-      category: Type.Optional(Type.String({ description: "Category: Communication, Code, Tools, Workflow, General" })),
-      query: Type.Optional(Type.String({ description: "Search query" })),
-      id: Type.Optional(Type.String({ description: "Entry ID for reinforce" })),
-    }),
-
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      switch (params.action) {
-        case "add_learning": {
-          if (!params.content) return { content: [{ type: "text", text: "Error: content required" }], details: { error: true } };
-          const result = storeLearningEntry(params.content);
-          if (!result.stored) {
-            return { content: [{ type: "text", text: result.reason === "duplicate" ? "Already stored" : "Not stored" }], details: { duplicate: result.reason === "duplicate" } };
-          }
-          memoryCacheMs = 0;
-          return { content: [{ type: "text", text: `Stored: ${params.content}` }], details: { id: result.id } };
-        }
-
-        case "add_preference": {
-          if (!params.content) return { content: [{ type: "text", text: "Error: content required" }], details: { error: true } };
-          const category = sanitizeCategory(params.category);
-          const result = storePreferenceEntry(params.content, category);
-          if (!result.stored) {
-            return { content: [{ type: "text", text: result.reason === "duplicate" ? "Already stored" : "Not stored" }], details: { duplicate: result.reason === "duplicate" } };
-          }
-          memoryCacheMs = 0;
-          return { content: [{ type: "text", text: `Stored [${category}]: ${params.content}` }], details: { id: result.id } };
-        }
-
-        case "reinforce": {
-          if (!params.id) return { content: [{ type: "text", text: "Error: id required" }], details: { error: true } };
-          const entries = readJsonl<Entry>(MEMORY_FILE);
-          const idx = entries.findIndex((e) => e.id === params.id);
-          if (idx === -1) return { content: [{ type: "text", text: "Entry not found" }], details: { error: true } };
-          const entry = entries[idx];
-          if (entry.type === "learning") {
-            (entry as LearningEntry).used++;
-            (entry as LearningEntry).last_used = today();
-          }
-          writeJsonl(MEMORY_FILE, entries);
-          return { content: [{ type: "text", text: `Reinforced: ${(entry as LearningEntry).text}` }], details: { id: entry.id, used: (entry as LearningEntry).used } };
-        }
-
-        case "search": {
-          const queryWords = (params.query || "").toLowerCase().split(/\s+/).filter(Boolean);
-          if (queryWords.length === 0) {
-            return { content: [{ type: "text", text: "Error: query required" }], details: { count: 0 } };
-          }
-          const memory = readJsonl<Entry>(MEMORY_FILE);
-
-          const scored: Array<{ entry: Entry; score: number }> = [];
-          for (const e of memory) {
-            let text = "";
-            if (e.type === "learning") text = (e as LearningEntry).text.toLowerCase();
-            else if (e.type === "preference") text = (e as PreferenceEntry).text.toLowerCase();
-            else continue;
-
-            // All query words must appear
-            const allMatch = queryWords.every(w => text.includes(w));
-            if (!allMatch) continue;
-
-            // Score: word boundary matches count more
-            let score = 0;
-            for (const w of queryWords) {
-              const re = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-              score += re.test(text) ? 2 : 1;
-            }
-            // Boost by usage count for learnings
-            if (e.type === "learning") score += Math.min((e as LearningEntry).used, 3);
-
-            scored.push({ entry: e, score });
-          }
-
-          scored.sort((a, b) => b.score - a.score);
-          const matches = scored.map(s => s.entry);
-
-          return {
-            content: [{ type: "text", text: matches.length ? matches.map((m) => `[${m.id}] ${(m as LearningEntry | PreferenceEntry).text}`).join("\n") : "No matches" }],
-            details: { count: matches.length },
-          };
-        }
-
-        case "list": {
-          const memory = readJsonl<Entry>(MEMORY_FILE);
-          const ls = memory.filter((e) => e.type === "learning") as LearningEntry[];
-          const ps = memory.filter((e) => e.type === "preference") as PreferenceEntry[];
-          let text = `**Learnings (${ls.length}):**\n`;
-          text += ls.map((l) => `- ${l.text}`).join("\n") || "(none)";
-          text += `\n\n**Preferences (${ps.length}):**\n`;
-          text += ps.map((p) => `- [${p.category}] ${p.text}`).join("\n") || "(none)";
-          return { content: [{ type: "text", text }], details: { learnings: ls.length, preferences: ps.length } };
-        }
-
-        case "remove": {
-          if (!params.id) return { content: [{ type: "text", text: "Error: id required" }], details: { error: true } };
-          const result = removeMemoryEntry(params.id);
-          memoryCacheMs = 0;
-          return { content: [{ type: "text", text: result.message }], details: { ok: result.ok } };
-        }
-
-        case "decay": {
-          const result = archiveStaleMemories();
-          memoryCacheMs = 0;
-          return { content: [{ type: "text", text: result.archived > 0 ? `Archived ${result.archived} stale entries` : "No stale entries to archive" }], details: { archived: result.archived } };
-        }
-
-        default:
-          return { content: [{ type: "text", text: "Unknown action" }], details: { error: true } };
-      }
-    },
-  });
-  */
-
-  // ── REMOVED: replaced by brain tool ────────────────────────────────────────
-  // The tasks tool is superseded by the brain tool's add (type:"task"),
-  // task_done, task_clear, and list (type:"task") actions. Kept commented for reference.
-  /*
-  if (!IS_SUBAGENT) {
-    pi.registerTool({
-      name: "tasks",
-      label: "Tasks",
-      description:
-        "Lightweight task queue. Actions: add (create task), list (show tasks), done (complete task), remove (delete task), update (edit description/priority/due/tags), clear (remove all done tasks). " +
-        "Tasks persist across sessions and are surfaced during heartbeat check-ins.",
-      parameters: Type.Object({
-        action: StringEnum(["add", "list", "done", "remove", "update", "clear"] as const),
-        description: Type.Optional(Type.String({ description: "Task description (for add action)" })),
-        id: Type.Optional(Type.String({ description: "Task ID or prefix (for done/remove actions)" })),
-        priority: Type.Optional(Type.String({ description: "Priority: urgent, high, normal, low (default: normal)" })),
-        due: Type.Optional(Type.String({ description: "Due date in YYYY-MM-DD format" })),
-        tags: Type.Optional(Type.String({ description: "Comma-separated tags (e.g. 'code,rho')" })),
-        filter: Type.Optional(Type.String({ description: "Filter for list: 'pending' (default), 'all', 'done', or a tag name" })),
-      }),
-
-      async execute(_toolCallId, params) {
-        switch (params.action) {
-          case "add": {
-            const result = addTask({ description: params.description || "", priority: params.priority as TaskPriority | undefined, due: params.due, tags: params.tags });
-            return { content: [{ type: "text", text: result.message }], details: { action: "add", ok: result.ok, task: result.task } };
-          }
-          case "list": {
-            const result = listTasks(params.filter);
-            return { content: [{ type: "text", text: result.message }], details: { action: "list", ok: result.ok, count: result.count } };
-          }
-          case "done": {
-            const result = completeTask(params.id || "");
-            return { content: [{ type: "text", text: result.message }], details: { action: "done", ok: result.ok, task: result.task } };
-          }
-          case "remove": {
-            const result = removeTask(params.id || "");
-            return { content: [{ type: "text", text: result.message }], details: { action: "remove", ok: result.ok, task: result.task } };
-          }
-          case "update": {
-            if (!params.id?.trim()) return { content: [{ type: "text", text: "Error: task ID is required" }], details: { action: "update", ok: false } };
-            const tasks = loadTasks();
-            const task = findTaskById(tasks, params.id.trim());
-            if (!task) return { content: [{ type: "text", text: `Error: task '${params.id}' not found` }], details: { action: "update", ok: false } };
-
-            let changed = false;
-            if (params.description?.trim()) { task.description = params.description.trim(); changed = true; }
-            if (params.priority && ["urgent", "high", "normal", "low"].includes(params.priority)) { task.priority = params.priority as TaskPriority; changed = true; }
-            if (params.due !== undefined) {
-              if (params.due && !/^\d{4}-\d{2}-\d{2}$/.test(params.due)) {
-                return { content: [{ type: "text", text: `Error: invalid due date '${params.due}'` }], details: { action: "update", ok: false } };
-              }
-              task.due = params.due || null;
-              changed = true;
-            }
-            if (params.tags !== undefined) {
-              task.tags = params.tags ? params.tags.split(",").map(t => t.trim().toLowerCase()).filter(Boolean) : [];
-              changed = true;
-            }
-
-            if (!changed) return { content: [{ type: "text", text: "Nothing to update. Provide description, priority, due, or tags." }], details: { action: "update", ok: false } };
-
-            saveTasks(tasks);
-            return { content: [{ type: "text", text: `Updated: [${task.id}] ${task.description}` }], details: { action: "update", ok: true, task } };
-          }
-          case "clear": {
-            const result = clearDone();
-            return { content: [{ type: "text", text: result.message }], details: { action: "clear", ok: result.ok, count: result.count } };
-          }
-          default:
-            return { content: [{ type: "text", text: "Error: Unknown action. Use: add, list, done, remove, update, clear" }], details: { error: true } };
-        }
-      },
-
-      renderCall(args, theme) {
-        let text = theme.fg("toolTitle", theme.bold("tasks ")) + theme.fg("muted", args.action);
-        if (args.description) {
-          const desc = args.description.length > 50 ? args.description.slice(0, 47) + "..." : args.description;
-          text += " " + theme.fg("accent", desc);
-        }
-        if (args.id) text += " " + theme.fg("accent", args.id);
-        return new Text(text, 0, 0);
-      },
-
-      renderResult(result, _options, theme) {
-        const details = result.details as { action: string; ok: boolean; count?: number } | undefined;
-        if (!details) {
-          const text = result.content[0];
-          return new Text(text?.type === "text" ? text.text : "", 0, 0);
-        }
-        if (!details.ok) {
-          const text = result.content[0];
-          return new Text(theme.fg("error", text?.type === "text" ? text.text : "Error"), 0, 0);
-        }
-        if (details.action === "list") {
-          if (details.count === 0) return new Text(theme.fg("dim", "No pending tasks."), 0, 0);
-          const text = result.content[0];
-          return new Text(text?.type === "text" ? text.text : "", 0, 0);
-        }
-        const text = result.content[0];
-        return new Text(theme.fg("success", ">> ") + (text?.type === "text" ? text.text : ""), 0, 0);
-      },
-    });
-  }
-  */
-
   // ── Tool: vault ────────────────────────────────────────────────────────────
 
   pi.registerTool({
@@ -2840,31 +2438,34 @@ Instructions:
         switch (subcmd) {
           case "":
           case "list": {
-            const result = listTasks("pending");
-            ctx.ui.notify(result.count === 0 ? "No pending tasks." : result.message, "info");
+            const result = await handleBrainAction(BRAIN_PATH, { action: "list", type: "task", filter: "pending" });
+            ctx.ui.notify(result.message || "No pending tasks.", "info");
             break;
           }
           case "all": {
-            const result = listTasks("all");
-            ctx.ui.notify(result.count === 0 ? "No tasks." : result.message, "info");
+            const result = await handleBrainAction(BRAIN_PATH, { action: "list", type: "task" });
+            ctx.ui.notify(result.message || "No tasks.", "info");
             break;
           }
           case "add": {
             if (!rest.trim()) { ctx.ui.notify("Usage: /tasks add <description>", "warning"); return; }
-            const result = addTask({ description: rest });
+            const result = await handleBrainAction(BRAIN_PATH, { action: "add", type: "task", description: rest });
+            brainCache = null;
             ctx.ui.notify(result.message, result.ok ? "success" : "error");
             break;
           }
           case "done": {
             if (!rest.trim()) { ctx.ui.notify("Usage: /tasks done <id>", "warning"); return; }
-            const result = completeTask(rest.trim());
+            const result = await handleBrainAction(BRAIN_PATH, { action: "task_done", id: rest.trim() });
+            brainCache = null;
             ctx.ui.notify(result.message, result.ok ? "success" : "error");
             break;
           }
           case "remove":
           case "rm": {
             if (!rest.trim()) { ctx.ui.notify("Usage: /tasks remove <id>", "warning"); return; }
-            const result = removeTask(rest.trim());
+            const result = await handleBrainAction(BRAIN_PATH, { action: "remove", id: rest.trim(), type: "task", reason: "removed via /tasks" });
+            brainCache = null;
             ctx.ui.notify(result.message, result.ok ? "success" : "error");
             break;
           }
@@ -2872,16 +2473,14 @@ Instructions:
             const updateId = parts[1];
             const newDesc = parts.slice(2).join(" ");
             if (!updateId) { ctx.ui.notify("Usage: /tasks update <id> [new description]", "warning"); return; }
-            const tasks = loadTasks();
-            const task = findTaskById(tasks, updateId.trim());
-            if (!task) { ctx.ui.notify(`Task '${updateId}' not found`, "error"); return; }
-            if (newDesc.trim()) task.description = newDesc.trim();
-            saveTasks(tasks);
-            ctx.ui.notify(`Updated: [${task.id}] ${task.description}`, "success");
+            const result = await handleBrainAction(BRAIN_PATH, { action: "update", id: updateId.trim(), description: newDesc.trim() || undefined });
+            brainCache = null;
+            ctx.ui.notify(result.message, result.ok ? "success" : "error");
             break;
           }
           case "clear": {
-            const result = clearDone();
+            const result = await handleBrainAction(BRAIN_PATH, { action: "task_clear" });
+            brainCache = null;
             ctx.ui.notify(result.message, result.ok ? "success" : "error");
             break;
           }

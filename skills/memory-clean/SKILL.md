@@ -1,113 +1,80 @@
 ---
 name: memory-clean
-description: Consolidate agent memory by reading the raw JSONL file, deduplicating entries, merging related items, pruning stale information, relocating reference material to the vault, and writing a clean replacement. Use when memory has grown large or contains duplicates.
+description: Consolidate agent memory by decaying stale entries, removing duplicates, and relocating reference material to the vault. Use when memory has grown large or contains duplicates.
 ---
 
 # Memory Consolidation
 
 ## Overview
 
-Consolidate an agent's memory file by reading the raw JSONL, deduplicating entries, merging related items, pruning stale or obsolete information, relocating reference-quality entries to the vault, and writing a clean replacement file. The goal is fewer, higher-quality entries that load faster and waste less context window, with richer knowledge preserved in the connected vault graph.
+Consolidate the agent's brain by reviewing entries in `~/.rho/brain/brain.jsonl`, decaying stale learnings, removing duplicates, and relocating reference-quality entries to the vault. Uses the `brain` tool for all modifications — never edits brain.jsonl directly.
 
 ## Parameters
 
-- **memory_file** (required): Path to the memory JSONL file (e.g., `~/.rho/brain/memory.jsonl`)
-
-**Bundled resources:**
-- `validate-memory.sh` — Validates a memory JSONL file (JSON parsing, required fields, duplicate IDs, category checks, entry counts). Run relative to this skill's directory.
+- **brain_path** (default: `~/.rho/brain/brain.jsonl`): Path to the brain file
 
 **Constraints for parameter acquisition:**
-- You MUST verify the memory file exists and is valid JSONL before proceeding (use `validate-memory.sh`)
-- You MUST count the total entries and report the breakdown by type (learning, preference) and category
+- You MUST verify the brain file exists before proceeding
+- You MUST run `brain action=list` to get a full inventory of entries by type
 
 ## Steps
 
-### 1. Snapshot
+### 1. Inventory
 
-Back up the current memory file before making changes.
-
-**Constraints:**
-- You MUST copy the file to `{memory_file}.bak-consolidation-{unix_timestamp}`
-- You MUST verify the backup was written and has the same line count as the original
-- You MUST NOT proceed if the backup fails because a bad consolidation with no backup means permanent data loss
-
-### 2. Read and Categorize
-
-Read the entire memory file. Group entries by topic or domain.
+Run `brain action=list` for each type to get the full picture.
 
 **Constraints:**
-- You MUST read every line of the JSONL file
-- You MUST parse each entry and preserve all fields: `id`, `type`, `text`, `category`, `used`, `last_used`, `created`
-- You SHOULD group entries into logical clusters (e.g., "email system", "Termux/Android", "project naming", "X/Twitter posting")
-- You MUST identify and flag:
-  - **Exact or near-duplicates**: entries that say the same thing in slightly different words
-  - **Superseded entries**: older entries contradicted or replaced by newer ones on the same topic
-  - **Stale entries**: entries about things that no longer exist or no longer apply
-  - **Overly specific entries**: one-off details that would not help a future session
-  - **Merge candidates**: multiple entries about the same topic that could be combined into one tighter entry
-  - **Vault candidates**: entries that contain reference-quality knowledge better served as connected vault notes (see Step 3)
+- You MUST count entries by type: learnings, preferences, behaviors, identity, user, context, tasks, reminders
+- You MUST note the total entry count
 
-### 3. Consolidate
+### 2. Decay Stale Learnings
 
-Review all entries and produce a clean set.
+Run `brain action=decay` to automatically archive learnings that haven't been reinforced.
 
 **Constraints:**
-- For each cluster of related entries, you MUST decide one of:
-  - **Keep**: entry is unique, accurate, and useful as-is
-  - **Rewrite**: entry is useful but should be tightened, clarified, or merged with related entries
-  - **Drop**: entry is a duplicate, stale, superseded, or too specific to help future sessions
-  - **Relocate to vault**: entry contains reference knowledge that is too detailed for a memory one-liner but worth preserving in the vault's connected graph
-- When rewriting, you MUST preserve the `type` and `category` of the original entry
-- When merging multiple entries into one, you MUST use the earliest `created` date and the latest `last_used` date from the merged set
-- When merging, you MUST generate a new 8-character alphanumeric `id`
-- You MUST NOT drop a preference entry unless it directly contradicts a newer preference because preferences represent explicit user intent and are harder to recover than learnings
-- You MUST NOT invent new information during rewrites because consolidation reduces and clarifies, it does not add
+- This uses the configured `decay_after_days` (default 90) and `decay_min_score` (default 3)
+- Report how many entries were decayed
+
+### 3. Identify Duplicates and Merges
+
+Review learnings and preferences for:
+- **Exact or near-duplicates**: entries that say the same thing in slightly different words
+- **Superseded entries**: older entries contradicted or replaced by newer ones
+- **Stale entries**: entries about things that no longer exist or apply
+- **Merge candidates**: multiple entries about the same topic that could be combined
+- **Vault candidates**: entries with reference-quality knowledge better served as vault notes
+
+**Constraints:**
+- You MUST NOT remove a preference unless it directly contradicts a newer preference
+- You MUST NOT invent new information — consolidation reduces and clarifies, it does not add
 - You SHOULD prefer specific, actionable entries over vague general ones
-- You SHOULD keep entries that contain concrete values (URLs, paths, IDs, commands, thresholds) over entries that just describe concepts
 
-#### Vault relocation criteria
+### 4. Clean Up
 
-An entry is a vault candidate when it meets any of these:
-- **Architectural decisions**: design rationale, trade-off analysis, "we chose X because Y" entries that future sessions need context for, not just the fact
-- **Strategy and market intel**: competitive analysis, positioning notes, research findings with sources
-- **Multi-paragraph knowledge**: entries that are cramming too much into one line and would be clearer as a structured note
-- **Reference material with links**: entries pointing to docs, vault paths, or strategy files that would benefit from being a proper note with connections
-- **Project context**: detailed background on a project or feature that a new session would need to ramp up
-
-An entry should stay in memory (not vault) when:
-- It is a short, concrete fact (a path, an ID, a command, a credential location)
-- It is a preference or behavioral directive
-- It is a one-liner that works well as quick recall during a session
-- It would be an orphan in the vault with no natural connections
-
-### 4. Write Vault Notes
-
-For each entry flagged for vault relocation, write a vault note.
+For each entry to remove or replace:
+- Use `brain action=remove id=<id> reason="..."` to tombstone duplicates/stale entries
+- Use `brain action=add type=learning text="..."` to add merged replacements
+- Use `brain action=update id=<id> text="..."` to tighten wording on existing entries
 
 **Constraints:**
-- You MUST use the `vault write` tool to create each note
-- Each note MUST have a `## Connections` section with `[[wikilinks]]` to related vault notes
-- You MUST choose an appropriate note type: `concept`, `reference`, `pattern`, or `project`
-- You SHOULD check if a related vault note already exists (via `vault search` or `vault list`) and merge into it rather than creating a duplicate
-- If a relocated entry contains a concrete value that future sessions need quick access to (a path, URL, ID), you SHOULD leave a shorter replacement entry in memory pointing to the vault note (e.g., "Rho Cloud email architecture details in vault: email-architecture")
-- You MUST NOT relocate an entry without writing the vault note first because dropping from memory without writing to vault means data loss
+- When merging multiple entries into one, remove the originals and add a new combined entry
+- You MUST NOT remove entries without good reason — when uncertain, keep them
 
-### 5. Write Consolidated File
+### 5. Vault Relocation
 
-Write the new memory file.
+For entries flagged as vault candidates:
+
+**Vault relocation criteria:**
+- Architectural decisions and design rationale
+- Multi-paragraph knowledge crammed into one line
+- Reference material with links that would benefit from being a proper note
+- Detailed project context that a new session would need to ramp up
 
 **Constraints:**
-- You MUST write valid JSONL with one entry per line
-- You MUST preserve the exact field schema: `{"id","type","text","category","used","last_used","created"}`
-- Preferences MUST include the `category` field
-- You MUST write to the original `memory_file` path, replacing the existing file
-- You MUST run the bundled validation script to verify the output:
-  ```bash
-  ./validate-memory.sh {memory_file}
-  ```
-  This checks: every line parses as JSON, required fields present, preferences have categories, no duplicate IDs, and reports entry counts.
-- If validation fails, restore from the backup and report the errors
-- Do NOT use shell `read` loops to validate JSON -- embedded quotes get mangled. The script uses `node` for correct parsing.
+- You MUST use the `vault write` tool to create each note before removing the brain entry
+- Each vault note MUST have a `## Connections` section with `[[wikilinks]]`
+- If a relocated entry has a concrete value needed for quick recall, leave a shorter replacement in the brain pointing to the vault note
+- You MUST NOT remove a brain entry without writing the vault note first
 
 ### 6. Report
 
@@ -116,62 +83,37 @@ Summarize what changed.
 **Constraints:**
 - You MUST report:
   - Entry count before and after (total, by type)
-  - Number of entries dropped, merged, rewritten, kept unchanged, relocated to vault
+  - Number of entries decayed, removed, merged, kept unchanged, relocated to vault
   - Vault notes created or updated (with slugs)
-  - A brief list of the most significant merges or drops (up to 10)
-- You SHOULD report the file size reduction
-- You MUST NOT delete the backup file because the user may want to review or revert
+  - A brief list of the most significant changes (up to 10)
 
 ## Examples
 
-### Example Input
-```
-memory_file: "~/.rho/brain/memory.jsonl"
-```
-
 ### Example Output
 ```
-Backup: ~/.rho/brain/memory.jsonl.bak-consolidation-1738882903
-
 Before: 332 entries (245 learnings, 87 preferences)
 After:  189 entries (138 learnings, 51 preferences)
 
-Dropped: 89 entries
-  - 34 near-duplicates (e.g., 3 entries about npm org scope)
-  - 22 superseded (e.g., old domain references replaced by rhobot.dev)
-  - 18 overly specific (e.g., one-off debug findings)
-  - 15 stale (e.g., references to removed features)
+Decayed: 42 stale learnings (>90 days, score <3)
+Removed: 47 entries
+  - 34 near-duplicates
+  - 13 superseded or stale
 
-Merged: 45 entries into 18
-  - 5 Tasker entries -> 2 consolidated entries
-  - 4 video editing entries -> 1 entry
-  - 3 email tier/pricing entries -> 1 entry
+Merged: 12 groups into 5 entries
+Relocated to vault: 4 entries -> 2 notes
+  - [[rho-email-architecture]] (new)
+  - [[market-scan-2026-02]] (new)
 
-Relocated to vault: 9 entries -> 4 notes
-  - 3 email architecture entries -> [[rho-cloud-email-architecture]] (updated existing)
-  - 2 market scan entries -> [[2026-02-market-scan]] (new reference note)
-  - 2 Hats rename entries -> [[hats-rename-strategy]] (new project note)
-  - 2 Dark Factory entries -> merged into existing [[dark-factory-bdd-strategy]]
-
-Rewritten: 12 entries (tightened wording)
 Kept unchanged: 177 entries
-
-File size: 48KB -> 27KB
 ```
 
 ## Troubleshooting
 
-### Memory file is very large (500+ entries)
-Run consolidation more frequently. If the file exceeds what fits comfortably in context, split it in half, consolidate each half, then do a final merge pass.
-
-### Agent is uncertain whether to drop an entry
-Keep it. The cost of one extra entry is lower than the cost of losing useful context. Flag it for the user to review manually.
+### Agent is uncertain whether to remove an entry
+Keep it. The cost of one extra entry is lower than the cost of losing useful context.
 
 ### Contradictory entries found
-Keep the newer entry (by `created` date). If both have value, merge into one entry that captures the current state and notes the change.
-
-### Vault note already exists for a topic
-Use `vault read` to check the existing note. Merge the memory entry's content into the existing note rather than creating a duplicate. Update the `## Connections` section if new links are warranted.
+Keep the newer entry. If both have value, merge into one that captures the current state.
 
 ### Entry is borderline between memory and vault
-If the entry works as a one-liner, keep it in memory. The vault is for entries that need structure, connections, or more than a sentence to be useful. When in doubt, keep in memory.
+If it works as a one-liner, keep it in the brain. The vault is for entries that need structure or connections.

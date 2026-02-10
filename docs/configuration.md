@@ -75,7 +75,24 @@ interval = "30m"                    # "15m", "1h", "2h", etc.
 
 [settings.brave-search]
 # api_key_env = "BRAVE_API_KEY"    # Env var containing the API key
+
+[settings.memory]
+# prompt_budget = 2000             # Max tokens for brain prompt in system prompt
+# decay_after_days = 90            # Days before unused learnings are decayed
+# decay_min_score = 3              # Learnings with this score or higher are exempt from decay
+# auto_memory = true               # Auto-extract learnings/preferences from conversations
 ```
+
+#### Memory settings
+
+The `[settings.memory]` section controls brain.jsonl behavior:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `prompt_budget` | `2000` | Maximum tokens allocated for the brain prompt injected into the system prompt. Learnings are ranked and trimmed to fit. |
+| `decay_after_days` | `90` | Number of days a learning can go unreinforced before being automatically decayed (tombstoned). |
+| `decay_min_score` | `3` | Learnings with a reinforcement score at or above this threshold are exempt from decay regardless of age. |
+| `auto_memory` | `true` | Whether to automatically extract learnings and preferences from conversations. Can also be controlled via `RHO_AUTO_MEMORY` env var (env overrides config). |
 
 **Adding custom settings:** Add a `[settings.<name>]` section for any module in the registry. If `<name>` doesn't match a known module, `rho sync` warns you and ignores it. There's no freeform settings namespace — settings are always tied to a module.
 

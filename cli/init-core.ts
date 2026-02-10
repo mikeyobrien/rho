@@ -62,7 +62,7 @@ export interface PlanBootstrapInput {
   existingBrainFiles: Set<string>;
   /** Whether ~/.rho/tmux.conf already exists */
   tmuxConfigExists: boolean;
-  /** Force overwrite AGENTS.md */
+  /** Force overwrite template files */
   force: boolean;
 }
 

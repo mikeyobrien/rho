@@ -1,8 +1,7 @@
 /**
  * rho init — Initialize a new Rho configuration.
  *
- * Creates ~/.rho/ with init.toml, packages.toml, SOUL.md, and bootstraps
- * templates (AGENTS.md, RHO.md, HEARTBEAT.md), brain defaults, tmux config,
+ * Creates ~/.rho/ with init.toml, packages.toml, brain defaults, tmux config,
  * and platform-specific skills/extensions.
  *
  * Preserves existing files — only creates what's missing.
@@ -29,15 +28,14 @@ export async function run(args: string[]): Promise<void> {
 
 Initialize Rho in ~/.rho/.
 
-Creates config files (init.toml, packages.toml, SOUL.md), bootstraps
-templates (AGENTS.md, RHO.md, HEARTBEAT.md), brain defaults, tmux config,
-and platform-specific skills/extensions.
+Creates config files (init.toml, packages.toml), bootstraps brain defaults,
+tmux config, and platform-specific skills/extensions.
 
-Existing files are never overwritten (except AGENTS.md with --force).
+Existing files are never overwritten.
 
 Options:
   --name <name>  Agent name (default: "rho")
-  --force        Regenerate AGENTS.md even if it exists
+  --force        Force regeneration of template files
   --verbose      Show detailed output`);
     return;
   }
@@ -82,7 +80,7 @@ Options:
   const platform = detectPlatform();
   if (verbose) console.log(`Platform: ${platform}`);
 
-  // ── Phase 1: Config files (init.toml, packages.toml, SOUL.md) ──
+  // ── Phase 1: Config files (init.toml, packages.toml) ──
 
   const existingFiles = new Set<string>();
   if (fs.existsSync(RHO_DIR)) {
@@ -146,7 +144,7 @@ Options:
     force,
   });
 
-  // Write template files (AGENTS.md, RHO.md, HEARTBEAT.md)
+  // Write template files
   for (const [filename, content] of bootstrap.filesToCreate) {
     const fullPath = path.join(RHO_DIR, filename);
     fs.writeFileSync(fullPath, content);
@@ -219,7 +217,7 @@ Options:
   console.log(`\nNext steps:`);
   console.log(`  1. Run \`rho sync\` to apply configuration`);
   console.log(`  2. Edit ~/.rho/init.toml to configure modules`);
-  console.log(`  3. Edit ~/.rho/SOUL.md to define your agent's identity`);
+  console.log(`  3. Use the brain tool to define agent identity and behavior`);
 }
 
 /** Read agent name from existing init.toml, if present. */
