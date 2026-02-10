@@ -1053,6 +1053,20 @@ button { font: inherit; }
   align-items: end;
 }
 
+.chat-composer.streaming {
+  border-top-color: var(--green);
+}
+
+.chat-composer.streaming .chat-composer-input {
+  border-color: var(--green-dim);
+  animation: composer-pulse 2s ease-in-out infinite;
+}
+
+@keyframes composer-pulse {
+  0%, 100% { border-color: var(--green-dim); }
+  50% { border-color: var(--green); }
+}
+
 .chat-composer-actions {
   display: flex;
   flex-direction: column;

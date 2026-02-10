@@ -14,14 +14,14 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260210s" />
+    <link rel="stylesheet" href="/css/style.css?v=20260210t" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
-    <script src="/js/app.js?v=20260210s" defer></script>
-    <script src="/js/chat.js?v=20260210s" defer></script>
-    <script src="/js/files.js?v=20260210s" defer></script>
-    <script src="/js/tasks.js?v=20260210s" defer></script>
+    <script src="/js/app.js?v=20260210t" defer></script>
+    <script src="/js/chat.js?v=20260210t" defer></script>
+    <script src="/js/files.js?v=20260210t" defer></script>
+    <script src="/js/tasks.js?v=20260210t" defer></script>
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
   <body>
@@ -179,12 +179,7 @@
                     <span>Select a session from the sidebar to view messages.</span>
                   </div>
 
-                  <!-- Typing indicator during streaming -->
-                  <div class="chat-typing" x-show="isStreaming" x-cloak>
-                    <span class="typing-dot"></span>
-                    <span class="typing-dot"></span>
-                    <span class="typing-dot"></span>
-                  </div>
+                  <!-- Streaming indicator (dots removed — composer border pulses instead) -->
 
                   <template x-for="message in renderedMessages" :key="message.id">
                     <article class="chat-message" :class="message.role">
@@ -321,7 +316,7 @@
                   <button class="chat-widget-close" type="button" @click="extensionWidget = null">&times;</button>
                 </div>
 
-                <form class="chat-composer" @submit.prevent="handlePromptSubmit()" x-show="isForkActive()">
+                <form class="chat-composer" :class="{ streaming: isStreaming }" @submit.prevent="handlePromptSubmit()" x-show="isForkActive()">
                   <textarea
                     class="chat-composer-input"
                     x-ref="composerInput"
