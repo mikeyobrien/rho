@@ -1886,6 +1886,14 @@ button { font: inherit; }
   .files-panel .files-list {
     max-height: 35vh;
   }
+
+  .chat-session-id {
+    display: none;
+  }
+
+  .chat-session {
+    padding: 0.3rem 0.5rem;
+  }
 }
 
 /* Responsive: 360px mobile width (Termux) */
