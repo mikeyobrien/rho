@@ -647,6 +647,7 @@ document.addEventListener("alpine:init", () => {
       if (!this.chatMaximized) {
         this.chatMaximized = true;
         document.body.classList.add("chat-maximized");
+        localStorage.setItem("rho-maximized", "1");
       }
     },
 
@@ -654,6 +655,7 @@ document.addEventListener("alpine:init", () => {
       if (this.chatMaximized) {
         this.chatMaximized = false;
         document.body.classList.remove("chat-maximized");
+        localStorage.removeItem("rho-maximized");
       }
     },
 
@@ -689,9 +691,26 @@ document.addEventListener("alpine:init", () => {
         breaks: true,
       });
       this.connectWebSocket();
+      // Restore session from URL hash
+      const hashId = window.location.hash.replace("#", "").trim();
+      if (hashId) {
+        this.activeSessionId = hashId;
+      }
+      // Restore maximized state
+      if (localStorage.getItem("rho-maximized") === "1") {
+        this.chatMaximized = true;
+        document.body.classList.add("chat-maximized");
+      }
       await this.loadSessions();
       this.startPolling();
       this.setupKeyboardShortcuts();
+      // Sync hash on back/forward
+      window.addEventListener("hashchange", () => {
+        const id = window.location.hash.replace("#", "").trim();
+        if (id && id !== this.activeSessionId) {
+          this.selectSession(id);
+        }
+      });
     },
 
     setupKeyboardShortcuts() {
@@ -1479,7 +1498,10 @@ document.addEventListener("alpine:init", () => {
         this.sessionsLoaded = sessions.length;
         this.allSessionsLoaded = sessions.length >= total;
 
-        if (!this.activeSessionId && sessions.length > 0) {
+        if (this.activeSessionId) {
+          // Restore from URL hash — load the session
+          await this.selectSession(this.activeSessionId);
+        } else if (sessions.length > 0) {
           await this.selectSession(sessions[0].id);
         }
       } catch (error) {
@@ -1540,6 +1562,11 @@ document.addEventListener("alpine:init", () => {
       this.error = "";
       this.streamMessageId = "";
       this.toolCallPartById.clear();
+
+      // Persist in URL for refresh/back
+      if (window.location.hash !== `#${sessionId}`) {
+        history.replaceState(null, "", `#${sessionId}`);
+      }
 
       // Auto-collapse sessions panel on mobile after selection
       if (isMobileViewport()) {
