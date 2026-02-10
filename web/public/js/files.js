@@ -23,6 +23,10 @@ async function fetchFilesJson(url) {
   return response.json();
 }
 
+function isFilesMobileViewport() {
+  return window.innerWidth <= 720;
+}
+
 document.addEventListener("alpine:init", () => {
   Alpine.data("rhoFiles", () => ({
     files: [],
@@ -39,6 +43,9 @@ document.addEventListener("alpine:init", () => {
     conflict: null,
     ws: null,
     reconnectTimer: null,
+
+    // Mobile collapsible panel state
+    showFilesPanel: true,
 
     async init() {
       await this.loadFiles();
@@ -96,6 +103,10 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    toggleFilesPanel() {
+      this.showFilesPanel = !this.showFilesPanel;
+    },
+
     async selectFile(file) {
       if (!file || file.isDirectory) {
         return;
@@ -105,6 +116,12 @@ document.addEventListener("alpine:init", () => {
       }
       this.activeFilePath = file.path;
       this.activeFile = file;
+
+      // Auto-collapse files panel on mobile after selection
+      if (isFilesMobileViewport()) {
+        this.showFilesPanel = false;
+      }
+
       await this.loadFileContent(file);
     },
 

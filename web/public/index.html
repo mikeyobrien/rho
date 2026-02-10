@@ -71,7 +71,20 @@
           <div class="view-title">Session viewer</div>
           <div class="view-body" x-data="rhoChat()" x-init="init()">
             <div class="chat-layout">
-              <aside class="chat-sessions">
+              <!-- Mobile toggle for sessions -->
+              <button
+                class="mobile-panel-toggle"
+                type="button"
+                @click="toggleSessionsPanel()"
+                :aria-expanded="showSessionsPanel"
+              >
+                <span class="mobile-panel-toggle-label">
+                  <span x-text="activeSession ? (activeSession.name || 'Session') : 'Sessions'"></span>
+                  <span class="mobile-panel-toggle-count" x-text="sessions.length + ' session' + (sessions.length === 1 ? '' : 's')"></span>
+                </span>
+                <span class="mobile-panel-toggle-arrow">&#x25BC;</span>
+              </button>
+              <aside class="chat-sessions" :class="{ collapsed: !showSessionsPanel }">
                 <div class="chat-section-title">Sessions</div>
                 <div class="chat-section-meta chat-loading-inline" x-show="isLoadingSessions">
                   <span class="loading-spinner-sm"></span>
@@ -86,7 +99,7 @@
                       type="button"
                       @click="selectSession(session.id)"
                     >
-                      <div class="chat-session-title" x-text="session.name || session.id"></div>
+                      <div class="chat-session-title" x-text="session.name || session.id.substring(0, 8)"></div>
                       <div class="chat-session-meta">
                         <span x-text="formatTimestamp(session.timestamp)"></span>
                         <span x-text="messageCountLabel(session)"></span>
@@ -419,7 +432,20 @@
           <div class="view-title">State files</div>
           <div class="view-body" x-data="rhoFiles()" x-init="init()">
             <div class="files-layout">
-              <aside class="files-panel">
+              <!-- Mobile toggle for files -->
+              <button
+                class="mobile-panel-toggle"
+                type="button"
+                @click="toggleFilesPanel()"
+                :aria-expanded="showFilesPanel"
+              >
+                <span class="mobile-panel-toggle-label">
+                  <span x-text="activeFile ? activeFile.name : 'Files'"></span>
+                  <span class="mobile-panel-toggle-count" x-text="files.length + ' file' + (files.length === 1 ? '' : 's')"></span>
+                </span>
+                <span class="mobile-panel-toggle-arrow">&#x25BC;</span>
+              </button>
+              <aside class="files-panel" :class="{ collapsed: !showFilesPanel }">
                 <div class="files-panel-header">
                   <div class="files-section-title">Files</div>
                   <button class="btn btn-ghost" type="button" @click="loadFiles()">Refresh</button>

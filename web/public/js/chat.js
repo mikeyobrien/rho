@@ -527,6 +527,10 @@ const TOAST_LEVELS = {
 // Default toast duration
 const TOAST_DEFAULT_DURATION = 5000;
 
+function isMobileViewport() {
+  return window.innerWidth <= 720;
+}
+
 document.addEventListener("alpine:init", () => {
   Alpine.data("rhoChat", () => ({
     sessions: [],
@@ -547,6 +551,9 @@ document.addEventListener("alpine:init", () => {
     markdownRenderQueue: new Map(),
     markdownFrame: null,
     toolCallPartById: new Map(),
+
+    // Mobile collapsible panel state
+    showSessionsPanel: true,
 
     // Chat controls state
     availableModels: [],
@@ -1313,6 +1320,10 @@ document.addEventListener("alpine:init", () => {
       await this.selectSession(this.activeSessionId);
     },
 
+    toggleSessionsPanel() {
+      this.showSessionsPanel = !this.showSessionsPanel;
+    },
+
     async selectSession(sessionId) {
       if (!sessionId) {
         return;
@@ -1323,6 +1334,11 @@ document.addEventListener("alpine:init", () => {
       this.error = "";
       this.streamMessageId = "";
       this.toolCallPartById.clear();
+
+      // Auto-collapse sessions panel on mobile after selection
+      if (isMobileViewport()) {
+        this.showSessionsPanel = false;
+      }
 
       try {
         const session = await fetchJson(`/api/sessions/${sessionId}`);
@@ -1347,7 +1363,9 @@ document.addEventListener("alpine:init", () => {
       if (!session) {
         return "";
       }
-      const title = session.name ?? session.header?.id ?? session.id ?? "session";
+      // Show session name, or truncated ID (first 8 chars) if no name
+      const rawId = session.header?.id ?? session.id ?? "";
+      const title = session.name || (rawId ? rawId.substring(0, 8) : "session");
       const timestamp = formatTimestamp(session.header?.timestamp ?? session.timestamp);
       return `${title}${timestamp ? ` · ${timestamp}` : ""}`;
     },
