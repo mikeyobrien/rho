@@ -351,9 +351,11 @@ class MemoryViewerComponent {
 	}
 
 	private visibleLines(): number {
-		// Reserve lines for: top border, bottom border, optional search input
-		const extra = this.filterMode ? 1 : 0;
-		return Math.max(1, process.stdout.rows - 4 - extra);
+		// Overlay is capped at 70% of terminal height
+		const maxOverlay = Math.floor(process.stdout.rows * 0.7);
+		// Reserve: top border (1) + bottom border (1) + optional search input
+		const chrome = 2 + (this.filterMode ? 1 : 0);
+		return Math.max(1, maxOverlay - chrome);
 	}
 
 	render(width: number): string[] {
@@ -469,9 +471,9 @@ export default function (pi: ExtensionAPI) {
 					overlay: true,
 					overlayOptions: {
 						anchor: "center",
-						width: "90%",
-						minWidth: 60,
-						maxHeight: "95%",
+						width: "70%",
+						minWidth: 50,
+						maxHeight: "70%",
 					},
 				},
 			);
