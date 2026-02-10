@@ -38,6 +38,8 @@ export type {
 } from "./brain-store.ts";
 export {
   SCHEMA_REGISTRY,
+  BRAIN_DIR,
+  BRAIN_PATH,
   validateEntry,
   deterministicId,
   readBrain,
@@ -47,29 +49,5 @@ export {
   buildBrainPrompt,
 } from "./brain-store.ts";
 
-export type {
-  BrainEntry,
-  BehaviorEntry,
-  IdentityEntry,
-  UserEntry,
-  LearningEntry,
-  PreferenceEntry,
-  ContextEntry,
-  TaskEntry,
-  ReminderEntry,
-  TombstoneEntry,
-  MetaEntry,
-  MaterializedBrain,
-} from "./brain-store.ts";
-
-export {
-  SCHEMA_REGISTRY,
-  BRAIN_DIR,
-  BRAIN_PATH,
-  validateEntry,
-  deterministicId,
-  readBrain,
-  foldBrain,
-  appendBrainEntry,
-  appendBrainEntryWithDedup,
-} from "./brain-store.ts";
+export type { BrainActionResult } from "./brain-tool.ts";
+export { handleBrainAction } from "./brain-tool.ts";
