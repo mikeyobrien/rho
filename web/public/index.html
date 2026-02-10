@@ -14,14 +14,14 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260210d" />
+    <link rel="stylesheet" href="/css/style.css?v=20260210f" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
-    <script src="/js/app.js?v=20260210d" defer></script>
-    <script src="/js/chat.js?v=20260210d" defer></script>
-    <script src="/js/files.js?v=20260210d" defer></script>
-    <script src="/js/tasks.js?v=20260210d" defer></script>
+    <script src="/js/app.js?v=20260210f" defer></script>
+    <script src="/js/chat.js?v=20260210f" defer></script>
+    <script src="/js/files.js?v=20260210f" defer></script>
+    <script src="/js/tasks.js?v=20260210f" defer></script>
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
   <body>
@@ -74,6 +74,7 @@
               <!-- Mobile toggle for sessions -->
               <button
                 class="mobile-panel-toggle"
+               
                 type="button"
                 @click="toggleSessionsPanel()"
                 :aria-expanded="showSessionsPanel"
@@ -125,6 +126,10 @@
               </aside>
 
               <section class="chat-thread">
+                <!-- Maximize/minimize toggle -->
+                <button class="chat-maximize-btn" type="button" @click="toggleMaximized()" :title="chatMaximized ? 'Exit fullscreen' : 'Fullscreen chat'">
+                  <span x-text="chatMaximized ? '⊡' : '⊞'"></span>
+                </button>
                 <div class="chat-thread-header">
                   <div>
                     <div class="chat-thread-title" x-text="activeSession ? sessionLabel(activeSession) : 'Select a session'"></div>

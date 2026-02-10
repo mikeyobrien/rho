@@ -595,7 +595,7 @@ button { font: inherit; }
   border: 1px solid var(--border);
   background: var(--bg);
   padding: 1rem;
-
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -2167,4 +2167,74 @@ button { font: inherit; }
   .chat-block-body pre {
     font-size: 0.6rem;
   }
+}
+
+/* Maximized chat mode */
+.chat-maximize-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 20;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 1rem;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+}
+
+.chat-maximize-btn:hover {
+  opacity: 1;
+  border-color: var(--green);
+  color: var(--green);
+}
+
+body.chat-maximized .nav,
+body.chat-maximized .view-header,
+body.chat-maximized .view-title,
+body.chat-maximized .mobile-panel-toggle,
+body.chat-maximized .chat-sessions,
+body.chat-maximized .chat-thread-header,
+body.chat-maximized .footer {
+  display: none !important;
+}
+
+body.chat-maximized .main {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+body.chat-maximized .view {
+  padding: 0 !important;
+  border: none !important;
+}
+
+body.chat-maximized .chat-layout {
+  grid-template-columns: 1fr !important;
+  height: 100vh;
+}
+
+body.chat-maximized .chat-thread {
+  border: none;
+  height: 100vh;
+  max-height: 100vh;
+  padding: 0.5rem;
+  padding-top: 2rem;
+}
+
+body.chat-maximized .chat-thread-body {
+  max-height: none;
+  flex: 1;
+  overflow-y: auto;
+}
+
+body.chat-maximized .chat-maximize-btn {
+  position: fixed;
+  top: 0.25rem;
+  right: 0.25rem;
+  z-index: 110;
+  opacity: 0.6;
 }

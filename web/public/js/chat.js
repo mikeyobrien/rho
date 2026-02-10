@@ -635,6 +635,28 @@ document.addEventListener("alpine:init", () => {
     // Mobile collapsible panel state
     showSessionsPanel: true,
 
+    // Maximized chat mode
+    chatMaximized: false,
+
+    toggleMaximized() {
+      this.chatMaximized = !this.chatMaximized;
+      document.body.classList.toggle("chat-maximized", this.chatMaximized);
+    },
+
+    enterMaximized() {
+      if (!this.chatMaximized) {
+        this.chatMaximized = true;
+        document.body.classList.add("chat-maximized");
+      }
+    },
+
+    exitMaximized() {
+      if (this.chatMaximized) {
+        this.chatMaximized = false;
+        document.body.classList.remove("chat-maximized");
+      }
+    },
+
     // Auto-scroll state
     userScrolledUp: false,
 
@@ -1632,6 +1654,7 @@ document.addEventListener("alpine:init", () => {
         this.applySession(result.session);
         await this.loadSessions(false);
         this.startRpcSession(result.sessionFile);
+        this.enterMaximized();
       } catch (error) {
         this.error = error.message ?? "Failed to create session";
         this.isForking = false;
@@ -1666,6 +1689,7 @@ document.addEventListener("alpine:init", () => {
         this.applySession(forkResult.session);
         await this.loadSessions(false);
         this.startRpcSession(forkResult.sessionFile);
+        this.enterMaximized();
 
         // Auto-scroll to bottom after fork
         this.$nextTick(() => {
