@@ -14,14 +14,14 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260210g" />
+    <link rel="stylesheet" href="/css/style.css?v=20260210i" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
-    <script src="/js/app.js?v=20260210g" defer></script>
-    <script src="/js/chat.js?v=20260210g" defer></script>
-    <script src="/js/files.js?v=20260210g" defer></script>
-    <script src="/js/tasks.js?v=20260210g" defer></script>
+    <script src="/js/app.js?v=20260210h" defer></script>
+    <script src="/js/chat.js?v=20260210h" defer></script>
+    <script src="/js/files.js?v=20260210h" defer></script>
+    <script src="/js/tasks.js?v=20260210h" defer></script>
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
   <body>
@@ -95,7 +95,7 @@
                   <span>Loading...</span>
                 </div>
                 <div class="chat-section-meta chat-error" x-show="error" x-text="error"></div>
-                <div class="chat-list">
+                <div class="chat-list" @scroll="onSessionsScroll($event)">
                   <template x-for="session in sessions" :key="session.id">
                     <button
                       class="chat-session"
@@ -117,6 +117,10 @@
                       </div>
                     </button>
                   </template>
+                  <div class="chat-loading-more" x-show="isLoadingMore">
+                    <span class="loading-spinner-sm"></span> Loading...
+                  </div>
+                  <div class="chat-session-count" x-show="sessions.length > 0 && !allSessionsLoaded" x-text="`${sessions.length} of ${sessionsTotal}`"></div>
                   <div class="chat-empty-state" x-show="!isLoadingSessions && sessions.length === 0">
                     <span class="empty-icon">&#x1F4C1;</span>
                     <span>No sessions yet</span>

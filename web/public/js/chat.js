@@ -1458,6 +1458,12 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
+    sessionsTotal: 0,
+    sessionsLoaded: 0,
+    sessionsPageSize: 20,
+    isLoadingMore: false,
+    allSessionsLoaded: false,
+
     async loadSessions(showSpinner = true) {
       if (showSpinner) {
         this.isLoadingSessions = true;
@@ -1465,8 +1471,13 @@ document.addEventListener("alpine:init", () => {
       this.error = "";
 
       try {
-        const sessions = await fetchJson("/api/sessions");
+        const resp = await fetch(`/api/sessions?limit=${this.sessionsPageSize}&offset=0`);
+        const total = parseInt(resp.headers.get("X-Total-Count") ?? "0", 10);
+        const sessions = await resp.json();
         this.sessions = sessions;
+        this.sessionsTotal = total;
+        this.sessionsLoaded = sessions.length;
+        this.allSessionsLoaded = sessions.length >= total;
 
         if (!this.activeSessionId && sessions.length > 0) {
           await this.selectSession(sessions[0].id);
@@ -1475,6 +1486,36 @@ document.addEventListener("alpine:init", () => {
         this.error = error.message ?? "Failed to load sessions";
       } finally {
         this.isLoadingSessions = false;
+      }
+    },
+
+    async loadMoreSessions() {
+      if (this.isLoadingMore || this.allSessionsLoaded) return;
+      this.isLoadingMore = true;
+      try {
+        const resp = await fetch(`/api/sessions?limit=${this.sessionsPageSize}&offset=${this.sessionsLoaded}`);
+        const more = await resp.json();
+        if (more.length === 0) {
+          this.allSessionsLoaded = true;
+        } else {
+          // Deduplicate by ID
+          const existingIds = new Set(this.sessions.map(s => s.id));
+          const newSessions = more.filter(s => !existingIds.has(s.id));
+          this.sessions = [...this.sessions, ...newSessions];
+          this.sessionsLoaded += more.length;
+          this.allSessionsLoaded = this.sessionsLoaded >= this.sessionsTotal;
+        }
+      } catch (error) {
+        // Silent fail on load-more
+      } finally {
+        this.isLoadingMore = false;
+      }
+    },
+
+    onSessionsScroll(event) {
+      const el = event.target;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
+        this.loadMoreSessions();
       }
     },
 

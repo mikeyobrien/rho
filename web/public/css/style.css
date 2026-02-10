@@ -49,6 +49,17 @@
 
 html { font-size: 15px; }
 
+/* Terminal-style text selection */
+::selection {
+  background: var(--green);
+  color: var(--bg);
+}
+
+::-moz-selection {
+  background: var(--green);
+  color: var(--bg);
+}
+
 body {
   font-family: var(--mono);
   background: var(--bg);
@@ -58,6 +69,11 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 20px 20px;
+  background-position: -1px -1px;
 }
 
 a { color: var(--green); text-decoration: none; }
@@ -221,6 +237,11 @@ button { font: inherit; }
   color: var(--green);
 }
 
+.btn:focus-visible {
+  outline: 1px solid var(--green);
+  outline-offset: 1px;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -248,6 +269,14 @@ button { font: inherit; }
   gap: 0.75rem;
   min-width: 0;
   overflow: hidden;
+}
+
+.chat-loading-more,
+.chat-session-count {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 0.3rem 0;
 }
 
 .chat-section-header {
@@ -575,6 +604,12 @@ button { font: inherit; }
   font-family: var(--mono);
   font-size: 0.8rem;
   line-height: 1.5;
+  caret-color: var(--green);
+}
+
+.files-textarea:focus {
+  border-color: var(--green-dim);
+  outline: none;
 }
 
 .files-textarea:read-only {
@@ -666,24 +701,24 @@ button { font: inherit; }
   border: 1px solid var(--border);
   background: var(--bg-alt);
   padding: 0.75rem 1rem;
-  border-left: 3px solid var(--border-bright);
+  border-right: 3px solid var(--border-bright);
 }
 
 .chat-message.user {
-  border-left-color: var(--green);
+  border-right-color: var(--green);
 }
 
 .chat-message.assistant {
-  border-left-color: var(--cyan);
+  border-right-color: var(--cyan);
 }
 
 .chat-message.summary {
-  border-left-color: var(--yellow);
+  border-right-color: var(--yellow);
 }
 
 .chat-message.custom,
 .chat-message.error {
-  border-left-color: var(--red);
+  border-right-color: var(--red);
 }
 
 .chat-message-meta {
@@ -1037,6 +1072,12 @@ button { font: inherit; }
   font-size: 0.8rem;
   line-height: 1.45;
   padding: 0.55rem 0.65rem;
+  caret-color: var(--green);
+}
+
+.chat-composer-input:focus {
+  border-color: var(--green-dim);
+  outline: none;
 }
 
 .chat-composer-input:disabled {
