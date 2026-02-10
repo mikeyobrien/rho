@@ -2503,6 +2503,15 @@ button { font: inherit; }
   font-size: 0.55rem;
 }
 
+.memory-error {
+  color: var(--red);
+  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--red);
+  background: rgba(239, 68, 68, 0.1);
+  margin-bottom: 0.75rem;
+}
+
 .memory-empty {
   display: flex;
   flex-direction: column;

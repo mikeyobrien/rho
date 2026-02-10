@@ -1,6 +1,7 @@
 document.addEventListener("alpine:init", () => {
   Alpine.data("rhoMemory", () => ({
     entries: [],
+    displayEntries: [],
     stats: { total: 0, learnings: 0, preferences: 0, categories: [] },
     typeFilter: "all",
     categoryFilter: "",
@@ -16,6 +17,23 @@ document.addEventListener("alpine:init", () => {
     setType(type) {
       this.typeFilter = type;
       this.load();
+    },
+
+    updateDisplay() {
+      const sorted = [...this.entries].sort((a, b) => {
+        switch (this.sortBy) {
+          case "used":
+            return (b.used || 0) - (a.used || 0);
+          case "alpha":
+            return a.text.localeCompare(b.text);
+          case "last_used":
+            return (b.last_used || "").localeCompare(a.last_used || "");
+          case "created":
+          default:
+            return (b.created || "").localeCompare(a.created || "");
+        }
+      });
+      this.displayEntries = sorted;
     },
 
     async load() {
@@ -40,6 +58,7 @@ document.addEventListener("alpine:init", () => {
           preferences: data.preferences,
           categories: data.categories,
         };
+        this.updateDisplay();
       } catch (err) {
         this.error = err.message || "Failed to load memory";
       } finally {
@@ -47,20 +66,8 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    sorted() {
-      return [...this.entries].sort((a, b) => {
-        switch (this.sortBy) {
-          case "used":
-            return (b.used || 0) - (a.used || 0);
-          case "alpha":
-            return a.text.localeCompare(b.text);
-          case "last_used":
-            return (b.last_used || "").localeCompare(a.last_used || "");
-          case "created":
-          default:
-            return (b.created || "").localeCompare(a.created || "");
-        }
-      });
+    changeSort() {
+      this.updateDisplay();
     },
 
     isStale(entry) {

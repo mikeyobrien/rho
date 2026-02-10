@@ -14,15 +14,15 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260210t" />
+    <link rel="stylesheet" href="/css/style.css?v=20260210v" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
-    <script src="/js/app.js?v=20260210t" defer></script>
-    <script src="/js/chat.js?v=20260210t" defer></script>
-    <script src="/js/files.js?v=20260210t" defer></script>
-    <script src="/js/memory.js?v=20260210t" defer></script>
-    <script src="/js/tasks.js?v=20260210t" defer></script>
+    <script src="/js/app.js?v=20260210v" defer></script>
+    <script src="/js/chat.js?v=20260210v" defer></script>
+    <script src="/js/files.js?v=20260210v" defer></script>
+    <script src="/js/memory.js?v=20260210v" defer></script>
+    <script src="/js/tasks.js?v=20260210v" defer></script>
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
   <body>
@@ -576,7 +576,7 @@
                     <option :value="cat" x-text="cat"></option>
                   </template>
                 </select>
-                <select class="memory-sort-select" x-model="sortBy" @change="">
+                <select class="memory-sort-select" x-model="sortBy" @change="changeSort()">
                   <option value="created">newest</option>
                   <option value="last_used">last used</option>
                   <option value="used">most used</option>
@@ -593,16 +593,18 @@
                 x-model="searchQuery"
                 @input.debounce.300ms="load()"
               />
-              <span class="memory-result-count" x-show="!isLoading" x-text="sorted().length + ' entries'"></span>
+              <span class="memory-result-count" x-show="!isLoading" x-text="displayEntries.length + ' entries'"></span>
             </div>
+
+            <div class="memory-error" x-show="error" x-text="error"></div>
 
             <div class="memory-loading" x-show="isLoading">
               <span class="loading-spinner"></span>
               <span>Loading memory...</span>
             </div>
 
-            <div class="memory-list" x-show="!isLoading">
-              <template x-for="entry in sorted()" :key="entry.id">
+            <div class="memory-list" x-show="!isLoading && entries.length > 0">
+              <template x-for="entry in displayEntries" :key="entry.id">
                 <div class="memory-card" :class="[entry.type, isStale(entry) ? 'stale' : '']">
                   <div class="memory-card-header">
                     <div class="memory-card-badges">
@@ -626,10 +628,14 @@
                   </div>
                 </div>
               </template>
-              <div class="memory-empty" x-show="sorted().length === 0 && !isLoading">
+              <div class="memory-empty" x-show="entries.length === 0 && !isLoading">
                 <span class="empty-icon">&#x1F9E0;</span>
                 <span>No matching entries</span>
               </div>
+            </div>
+            <div class="memory-empty" x-show="!isLoading && entries.length === 0 && !error">
+              <span class="empty-icon">&#x1F9E0;</span>
+              <span>No matching entries</span>
             </div>
           </div>
         </section>
