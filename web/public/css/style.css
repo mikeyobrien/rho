@@ -332,7 +332,7 @@ button { font: inherit; }
   border: 1px solid var(--border);
   background: var(--bg-alt);
   color: var(--text);
-  padding: 0.6rem 0.75rem;
+  padding: 0.4rem 0.6rem;
   text-align: left;
   cursor: pointer;
   transition: border-color 0.2s ease, color 0.2s ease;
@@ -342,6 +342,7 @@ button { font: inherit; }
   flex-direction: column;
   box-sizing: border-box;
   align-self: stretch;
+  gap: 0.1rem;
 }
 
 .chat-session:hover {
@@ -355,18 +356,16 @@ button { font: inherit; }
 
 .chat-session-title {
   font-size: 0.8rem;
-  margin-bottom: 0.25rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .chat-session-id {
-  font-size: 0.6rem;
+  font-size: 0.55rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  opacity: 0.5;
-  margin-bottom: 0.15rem;
+  opacity: 0.4;
 }
 
 .chat-session-meta {

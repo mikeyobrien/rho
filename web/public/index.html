@@ -14,14 +14,14 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260210j" />
+    <link rel="stylesheet" href="/css/style.css?v=20260210k" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
-    <script src="/js/app.js?v=20260210j" defer></script>
-    <script src="/js/chat.js?v=20260210j" defer></script>
-    <script src="/js/files.js?v=20260210j" defer></script>
-    <script src="/js/tasks.js?v=20260210j" defer></script>
+    <script src="/js/app.js?v=20260210k" defer></script>
+    <script src="/js/chat.js?v=20260210k" defer></script>
+    <script src="/js/files.js?v=20260210k" defer></script>
+    <script src="/js/tasks.js?v=20260210k" defer></script>
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
   <body>
@@ -103,8 +103,8 @@
                       type="button"
                       @click="selectSession(session.id)"
                     >
-                      <div class="chat-session-title" x-text="session.name || session.firstPrompt || session.id.substring(0, 8)"></div>
-                      <div class="chat-session-id" x-text="session.id.substring(0, 8)"></div>
+                      <div class="chat-session-title" x-text="session.name || session.firstPrompt || (session.messageCount > 0 ? session.id.substring(0, 8) : 'New session')"></div>
+                      <div class="chat-session-id" x-show="session.firstPrompt || session.name" x-text="session.id.substring(0, 8)"></div>
                       <div class="chat-session-meta">
                         <span x-text="formatTimestampShort(session.timestamp)"></span>
                         <span x-text="messageCountLabel(session)"></span>
