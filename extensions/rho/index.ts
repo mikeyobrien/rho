@@ -1613,15 +1613,15 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (ctx.model) {
-      const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
-      if (apiKey) return `--provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)} --thinking off`;
-    }
-
     try {
       const resolved = await resolveHeartbeatModel(ctx);
       if (resolved) return `--provider ${shellEscape(resolved.provider)} --model ${shellEscape(resolved.model)} --thinking off`;
     } catch { /* ignore */ }
+
+    if (ctx.model) {
+      const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
+      if (apiKey) return `--provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)} --thinking off`;
+    }
 
     return "";
   };
