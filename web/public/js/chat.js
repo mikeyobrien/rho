@@ -1642,12 +1642,14 @@ document.addEventListener("alpine:init", () => {
         const session = await fetchJson(`/api/sessions/${sessionId}`);
         this.applySession(session);
 
-        // Auto-start RPC for empty sessions so they're immediately usable
-        const messageCount = session.stats?.messageCount ?? session.messageCount ?? 0;
+        // Auto-start RPC so the session is immediately usable (not read-only)
         const sessionFile = this.getSessionFile(sessionId);
-        if (messageCount === 0 && sessionFile) {
+        if (sessionFile) {
           this.startRpcSession(sessionFile);
-          this.enterMaximized();
+          const messageCount = session.stats?.messageCount ?? session.messageCount ?? 0;
+          if (messageCount === 0) {
+            this.enterMaximized();
+          }
         }
       } catch (error) {
         this.error = error.message ?? "Failed to load session";
