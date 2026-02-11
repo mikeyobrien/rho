@@ -35,6 +35,7 @@ interface SessionState {
   idleTimer: NodeJS.Timeout;
   shutdownTimer: NodeJS.Timeout | null;
   stopping: boolean;
+  exited: boolean;
 }
 
 const CONNECTION_TIMEOUT_MS = 60_000;
@@ -94,6 +95,7 @@ export class RPCManager {
       }, IDLE_TIMEOUT_MS),
       shutdownTimer: null,
       stopping: false,
+      exited: false,
     };
 
     state.connectionTimer.unref?.();
@@ -137,6 +139,7 @@ export class RPCManager {
     });
 
     child.once("exit", (code, signal) => {
+      state.exited = true;
       this.clearTimers(state);
       const expected = state.stopping;
       this.emit(id, {
@@ -202,11 +205,11 @@ export class RPCManager {
     state.stopping = true;
     this.clearTimers(state);
 
-    if (!state.process.killed) {
+    if (!state.exited) {
       state.process.kill("SIGTERM");
       state.shutdownTimer = setTimeout(() => {
-        if (!state.process.killed) {
-          state.process.kill("SIGKILL");
+        if (!state.exited) {
+          try { state.process.kill("SIGKILL"); } catch {}
         }
       }, KILL_TIMEOUT_MS);
       state.shutdownTimer.unref?.();
@@ -221,6 +224,20 @@ export class RPCManager {
       lastActivityAt: state.lastActivityAt.toISOString(),
       pid: state.process.pid ?? null,
     }));
+  }
+
+  findSessionByFile(sessionFile: string): string | null {
+    for (const [id, state] of this.sessions) {
+      if (state.sessionFile === sessionFile && !state.stopping) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  hasSubscribers(sessionId: string): boolean {
+    const state = this.sessions.get(sessionId);
+    return !!state && state.handlers.size > 0;
   }
 
   dispose(): void {
