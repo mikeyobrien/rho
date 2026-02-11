@@ -190,6 +190,15 @@ install_rho_dev() {
   info "Installing Node dependencies..."
   (cd "$REPO_DIR" && npm install)
 
+  # Install extension-level dependencies
+  for ext_pkg in "$REPO_DIR"/extensions/*/package.json; do
+    [ -f "$ext_pkg" ] || continue
+    local ext_dir
+    ext_dir="$(dirname "$ext_pkg")"
+    info "Installing deps for extension: $(basename "$ext_dir")"
+    (cd "$ext_dir" && npm install)
+  done
+
   # Clean up old-style symlinks from previous installs
   local pi_dir="$HOME/.pi/agent"
   if [ -L "$pi_dir/extensions" ]; then
