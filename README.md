@@ -14,24 +14,13 @@ Built on [pi coding agent](https://github.com/badlogic/pi-mono).
 
 ### Install with your agent
 
-If you already have a coding agent running, let it install rho. The [`SKILL.md`](SKILL.md) in this repo is a portable runbook any agent can follow.
+If you already have a coding agent running, give it the [`SKILL.md`](SKILL.md) install runbook:
 
-**Claude Code:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mikeyobrien/rho/main/SKILL.md -o /tmp/install-rho.md && claude "Read /tmp/install-rho.md and follow the steps to install Rho on this machine"
+curl -fsSL https://raw.githubusercontent.com/mikeyobrien/rho/main/SKILL.md -o /tmp/install-rho.md
 ```
 
-**Codex:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/mikeyobrien/rho/main/SKILL.md -o /tmp/install-rho.md && codex "Read /tmp/install-rho.md and follow the steps to install Rho on this machine"
-```
-
-**pi:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/mikeyobrien/rho/main/SKILL.md -o /tmp/install-rho.md && pi --skill /tmp/install-rho.md "Install Rho on this machine"
-```
-
-The agent handles platform detection, dependency installation, and config bootstrapping interactively.
+Then ask your agent to read it and follow the steps. Works with Claude Code, Codex, pi, or any agent that can run shell commands.
 
 ### npm
 
