@@ -1,0 +1,9 @@
+{
+  "name": "@pi/review-extension",
+  "private": true,
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.48",
+    "glob": "^11.0.0",
+    "ws": "^8.18.0"
+  }
+}
