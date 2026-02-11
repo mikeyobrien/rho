@@ -100,6 +100,9 @@ function subscribeToRpcSession(ws: WSContext<WebSocket>, sessionId: string): voi
       if (wsSubscriptions && wsSubscriptions.size === 0) {
         rpcSessionSubscribers.delete(ws);
       }
+      if (!rpcManager.hasSubscribers(sessionId)) {
+        rpcManager.stopSession(sessionId);
+      }
     }
   });
 
@@ -112,10 +115,18 @@ function clearRpcSubscriptions(ws: WSContext<WebSocket>): void {
     return;
   }
 
+  const sessionIds = [...subscriptions.keys()];
   for (const unsubscribe of subscriptions.values()) {
     unsubscribe();
   }
   rpcSessionSubscribers.delete(ws);
+
+  // Stop sessions that have no remaining subscribers
+  for (const sessionId of sessionIds) {
+    if (!rpcManager.hasSubscribers(sessionId)) {
+      rpcManager.stopSession(sessionId);
+    }
+  }
 }
 
 function extractSessionFile(payload: WSIncomingMessage): string | null {
@@ -868,7 +879,6 @@ app.get(
       }
 
       let sessionId = typeof payload.sessionId === "string" ? payload.sessionId.trim() : "";
-      let sessionStarted = false;
 
       if (!sessionId) {
         const sessionFile = extractSessionFile(payload);
@@ -880,13 +890,26 @@ app.get(
           return;
         }
 
-        try {
-          sessionId = rpcManager.startSession(sessionFile);
-          subscribeToRpcSession(ws, sessionId);
-          sessionStarted = true;
-          sendWsMessage(ws, { type: "session_started", sessionId, sessionFile });
-        } catch (error) {
-          sendWsMessage(ws, { type: "error", message: (error as Error).message ?? "Failed to start RPC session" });
+        // Reuse existing RPC process for the same session file
+        const existingId = rpcManager.findSessionByFile(sessionFile);
+        if (existingId) {
+          sessionId = existingId;
+        } else {
+          try {
+            sessionId = rpcManager.startSession(sessionFile);
+          } catch (error) {
+            sendWsMessage(ws, { type: "error", message: (error as Error).message ?? "Failed to start RPC session" });
+            return;
+          }
+        }
+        subscribeToRpcSession(ws, sessionId);
+        sendWsMessage(ws, { type: "session_started", sessionId, sessionFile });
+        if (existingId) {
+          rpcManager.sendCommand(sessionId, { type: "get_state" });
+        }
+        // Skip the switch_session command — either startSession() already
+        // sent it, or we're reusing a session already on the right file
+        if (command.type === "switch_session") {
           return;
         }
       } else {
@@ -896,11 +919,6 @@ app.get(
           sendWsMessage(ws, createSessionNotFoundError(sessionId));
           return;
         }
-      }
-
-      const isBootstrapSwitch = sessionStarted && command.type === "switch_session";
-      if (isBootstrapSwitch) {
-        return;
       }
 
       try {
