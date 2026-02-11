@@ -163,10 +163,13 @@ app.get("/api/sessions", async (c) => {
   const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10) || 20, 100);
   const offset = parseInt(c.req.query("offset") ?? "0", 10) || 0;
   try {
-    const allSessions = await listSessions(cwd ?? undefined);
-    const paginated = allSessions.slice(offset, offset + limit);
-    c.header("X-Total-Count", String(allSessions.length));
-    return c.json(paginated);
+    const { total, sessions } = await listSessions({
+      cwd: cwd ?? undefined,
+      offset,
+      limit,
+    });
+    c.header("X-Total-Count", String(total));
+    return c.json(sessions);
   } catch (error) {
     return c.json({ error: (error as Error).message ?? "Failed to list sessions" }, 500);
   }

@@ -1,5 +1,6 @@
-import { readFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { createReadStream, existsSync } from "node:fs";
+import { createInterface } from "node:readline";
 import path from "node:path";
 import os from "node:os";
 
@@ -104,17 +105,67 @@ interface LabelEntry extends SessionEntryBase {
   label?: string;
 }
 
-export async function listSessions(cwd?: string, sessionDir = DEFAULT_SESSION_DIR): Promise<SessionSummary[]> {
-  const files = await listSessionFiles(sessionDir);
-  const summaries: SessionSummary[] = [];
+type SessionInfo = {
+  id: string;
+  cwd: string;
+  timestamp: string;
+  parentSession?: string;
+  name?: string;
+  firstPrompt?: string;
+  messageCount: number;
+  lastMessage?: string;
+};
 
-  for (const file of files) {
-    try {
-      const info = await getSessionInfo(file);
-      if (cwd && info.cwd !== cwd) {
+const SESSION_INFO_CACHE = new Map<string, { mtimeMs: number; info: SessionInfo }>();
+
+export async function listSessions(options: {
+  cwd?: string;
+  sessionDir?: string;
+  offset?: number;
+  limit?: number;
+} = {}): Promise<{ total: number; sessions: SessionSummary[] }> {
+  const {
+    cwd,
+    sessionDir = DEFAULT_SESSION_DIR,
+    offset = 0,
+    limit = 20,
+  } = options;
+
+  const files = await listSessionFiles(sessionDir);
+
+  const sorted = files
+    .map((file) => {
+      const baseName = path.basename(file, ".jsonl");
+      const [timestampPart] = baseName.split("_");
+      const timestamp = parseTimestampFromFilename(timestampPart) ?? "";
+      return { file, timestamp };
+    })
+    .filter((item) => Boolean(item.timestamp))
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  const matchingFiles: string[] = [];
+  for (const item of sorted) {
+    if (cwd) {
+      try {
+        const header = normalizeHeader(await readSessionHeader(item.file), item.file);
+        if ((header.cwd ?? "") !== cwd) {
+          continue;
+        }
+      } catch {
         continue;
       }
-      summaries.push({
+    }
+    matchingFiles.push(item.file);
+  }
+
+  const total = matchingFiles.length;
+  const pageFiles = matchingFiles.slice(offset, offset + limit);
+
+  const sessions: SessionSummary[] = [];
+  for (const file of pageFiles) {
+    try {
+      const info = await getSessionInfo(file);
+      sessions.push({
         id: info.id,
         file,
         name: info.name,
@@ -131,8 +182,7 @@ export async function listSessions(cwd?: string, sessionDir = DEFAULT_SESSION_DI
     }
   }
 
-  summaries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  return summaries;
+  return { total, sessions };
 }
 
 export async function readSession(sessionFile: string): Promise<ParsedSession> {
@@ -150,31 +200,117 @@ export async function readSession(sessionFile: string): Promise<ParsedSession> {
   };
 }
 
-export async function getSessionInfo(sessionFile: string): Promise<{
-  id: string;
-  cwd: string;
-  timestamp: string;
-  parentSession?: string;
-  name?: string;
-  messageCount: number;
-  lastMessage?: string;
-}> {
-  const entries = await loadSessionEntries(sessionFile);
-  const header = normalizeHeader(entries.header, sessionFile);
-  const parsed = buildSessionContext(entries.entries, entries.entryMap);
+export async function getSessionInfo(sessionFile: string): Promise<SessionInfo> {
+  let mtimeMs = 0;
+  try {
+    const info = await stat(sessionFile);
+    mtimeMs = info.mtimeMs;
+    const cached = SESSION_INFO_CACHE.get(sessionFile);
+    if (cached && cached.mtimeMs === mtimeMs) {
+      return cached.info;
+    }
+  } catch {
+    // File might not exist or be unreadable — fall through.
+  }
 
-  const lastMessage = parsed.messages.at(-1);
-  const firstUserMessage = parsed.messages.find((m: { role?: string }) => m.role === "user");
-  const firstPrompt = firstUserMessage ? extractPreview(firstUserMessage.content) : undefined;
+  const parsed = await computeSessionInfo(sessionFile);
+  if (mtimeMs) {
+    SESSION_INFO_CACHE.set(sessionFile, { mtimeMs, info: parsed });
+  }
+  return parsed;
+}
+
+async function computeSessionInfo(sessionFile: string): Promise<SessionInfo> {
+  let header: SessionHeader | null = null;
+  let name: string | undefined;
+  let firstPrompt: string | undefined;
+  let messageCount = 0;
+  let lastMessageLine: string | null = null;
+
+  const stream = createReadStream(sessionFile, { encoding: "utf8" });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      if (!header) {
+        try {
+          const parsedHeader = JSON.parse(trimmed);
+          if (parsedHeader?.type === "session") {
+            header = parsedHeader as SessionHeader;
+            continue;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!name && trimmed.startsWith("{\"type\":\"session_info\"") && trimmed.includes("\"name\"")) {
+        try {
+          const parsedInfo = JSON.parse(trimmed) as SessionInfoEntry;
+          if (parsedInfo.type === "session_info" && parsedInfo.name) {
+            name = parsedInfo.name;
+          }
+        } catch {
+          // ignore
+        }
+        continue;
+      }
+
+      if (trimmed.startsWith("{\"type\":\"message\"")) {
+        messageCount += 1;
+        lastMessageLine = trimmed;
+
+        if (!firstPrompt && trimmed.includes("\"role\":\"user\"")) {
+          try {
+            const parsedMessage = JSON.parse(trimmed) as MessageEntry;
+            if (parsedMessage.type === "message" && parsedMessage.message?.role === "user") {
+              const preview = extractPreview(parsedMessage.message.content);
+              if (preview) {
+                firstPrompt = preview;
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  const normalized = normalizeHeader(header, sessionFile);
+
+  let lastMessage: string | undefined;
+  if (lastMessageLine) {
+    try {
+      const parsedMessage = JSON.parse(lastMessageLine) as MessageEntry;
+      if (parsedMessage.type === "message") {
+        const preview = extractPreview(parsedMessage.message?.content);
+        if (preview) {
+          lastMessage = preview;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return {
-    id: header.id,
-    cwd: header.cwd ?? "",
-    timestamp: header.timestamp ?? "",
-    parentSession: header.parentSession,
-    name: entries.name,
+    id: normalized.id,
+    cwd: normalized.cwd ?? "",
+    timestamp: normalized.timestamp ?? "",
+    parentSession: normalized.parentSession,
+    name,
     firstPrompt,
-    messageCount: parsed.messages.length,
-    lastMessage: lastMessage ? extractPreview(lastMessage.content) : undefined,
+    messageCount,
+    lastMessage,
   };
 }
 
@@ -208,6 +344,8 @@ export async function findSessionFileById(sessionId: string, sessionDir = DEFAUL
   return null;
 }
 
+const SKIP_SESSION_DIR_NAMES = new Set(["subagent-artifacts", ".git", "node_modules"]);
+
 async function listSessionFiles(dir: string): Promise<string[]> {
   const files: string[] = [];
   if (!existsSync(dir)) {
@@ -217,12 +355,28 @@ async function listSessionFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
+
     if (entry.isDirectory()) {
+      if (SKIP_SESSION_DIR_NAMES.has(entry.name)) {
+        continue;
+      }
       const nested = await listSessionFiles(fullPath);
       files.push(...nested);
-    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      files.push(fullPath);
+      continue;
     }
+
+    if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
+      continue;
+    }
+
+    // Only include actual session logs (timestamp-prefixed filenames) and skip subagent artifacts.
+    const baseName = path.basename(entry.name, ".jsonl");
+    const [timestampPart] = baseName.split("_");
+    if (!parseTimestampFromFilename(timestampPart)) {
+      continue;
+    }
+
+    files.push(fullPath);
   }
 
   return files;
@@ -271,9 +425,27 @@ async function loadSessionEntries(sessionFile: string): Promise<{
   return { header, entries, entryMap, name };
 }
 
+async function readFirstNonEmptyLine(filePath: string): Promise<string | null> {
+  const stream = createReadStream(filePath, { encoding: "utf8" });
+  const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+  try {
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  return null;
+}
+
 async function readSessionHeader(sessionFile: string): Promise<SessionHeader | null> {
-  const content = await readFile(sessionFile, "utf-8");
-  const line = content.split("\n").find((entry) => entry.trim().length > 0);
+  const line = await readFirstNonEmptyLine(sessionFile);
   if (!line) {
     return null;
   }
@@ -283,7 +455,7 @@ async function readSessionHeader(sessionFile: string): Promise<SessionHeader | n
       return parsed as SessionHeader;
     }
   } catch {
-    return null;
+    // ignore
   }
   return null;
 }
@@ -530,7 +702,7 @@ function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
 }
 
 function parseTimestampFromFilename(value: string): string | undefined {
-  const match = value.match(/^(\\d{4}-\\d{2}-\\d{2})T(\\d{2})-(\\d{2})-(\\d{2})-(\\d{3})Z$/);
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/);
   if (!match) {
     return undefined;
   }
