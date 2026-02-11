@@ -79,7 +79,6 @@ update-pi = true
 
 [modules.ui]
 usage-bars = true
-moltbook = false
 
 [modules.skills]
 
@@ -96,7 +95,6 @@ handle = "tau"
   assertEq(cfg.modules.knowledge.vault, true, "knowledge.vault is true");
   assertEq(cfg.modules.tools["brave-search"], true, "tools.brave-search is true");
   assertEq(cfg.modules.tools["x-search"], false, "tools.x-search is false");
-  assertEq(cfg.modules.ui.moltbook, false, "ui.moltbook is false");
   assertEq(cfg.settings.heartbeat.interval, "30m", "settings.heartbeat.interval");
   assertEq(cfg.settings.email.handle, "tau", "settings.email.handle");
 }

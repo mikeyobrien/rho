@@ -1,0 +1,46 @@
+# Rho E2E Test — npm install route in a clean container.
+# Validates: npm install -g → rho init → sync → doctor → daemon lifecycle.
+# No LLM keys needed.
+#
+# Build & run:
+#   cd <repo-root>
+#   npm pack
+#   docker build -t rho-e2e-npm -f tests/e2e/Dockerfile.npm .
+#   docker run --rm rho-e2e-npm
+#
+# Or use the wrapper:
+#   ./tests/e2e/run.sh --npm
+
+FROM docker.io/library/node:22-bookworm
+
+# System deps (tmux + git required by rho)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux \
+    git \
+    procps \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pi globally (rho peer dep)
+RUN npm install -g @mariozechner/pi-coding-agent
+
+# Create non-root user (rho expects a real HOME)
+RUN useradd -m -s /bin/bash tester
+USER tester
+WORKDIR /home/tester
+
+# npm global prefix in user-writable dir
+RUN mkdir -p /home/tester/.npm-global \
+    && npm config set prefix /home/tester/.npm-global
+
+ENV PATH="/home/tester/.local/bin:/home/tester/.npm-global/bin:${PATH}"
+ENV HOME="/home/tester"
+ENV NODE_NO_WARNINGS=1
+
+# Copy the tarball (built by run.sh before docker build)
+COPY --chown=tester:tester rhobot-dev-rho-*.tgz /tmp/rho.tgz
+
+# Copy the test script
+COPY --chown=tester:tester tests/e2e/test-npm-install.sh /home/tester/test-npm-install.sh
+
+CMD ["bash", "/home/tester/test-npm-install.sh"]

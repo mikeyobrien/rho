@@ -29,7 +29,7 @@ Build a `buildMetaPrompt()` function that dynamically generates runtime context 
 
 ## Capabilities
 
-- **Extensions**: rho, brave-search, vault-search, x-search, email, agent-sop, review, usage-bars, memory-viewer, moltbook-viewer
+- **Extensions**: rho, brave-search, vault-search, x-search, email, agent-sop, review, usage-bars, memory-viewer
 - **Skills**: memory-clean, session-search, update-pi, vault-clean, soul-update, rho-cloud-email, rho-cloud-onboard
 - **Heartbeat**: enabled, 30m interval, leader (PID 12345), next check in 14m
 - **Tools**: brain, vault, vault_search, rho_control, rho_subagent, email, review, web_search, x_search

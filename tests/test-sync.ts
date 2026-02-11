@@ -75,7 +75,7 @@ function makeConfig(overrides?: {
     knowledge: { vault: true },
     tools: { "brave-search": true, "x-search": true, email: true },
     skills: { "session-search": true, "update-pi": true },
-    ui: { "usage-bars": true, moltbook: true },
+    ui: { "usage-bars": true },
   };
   if (overrides?.modules) {
     for (const [cat, mods] of Object.entries(overrides.modules)) {
@@ -142,7 +142,6 @@ console.log("\n-- buildRhoPackageEntry: multiple modules disabled --");
   const config = makeConfig({
     modules: {
       tools: { "x-search": false, email: false },
-      ui: { moltbook: false },
       knowledge: { vault: false },
     },
   });
@@ -153,7 +152,6 @@ console.log("\n-- buildRhoPackageEntry: multiple modules disabled --");
   assertIncludes(entry.extensions!, "extensions/**/*.ts", "includes extension entrypoints");
   assertIncludes(entry.extensions!, "!extensions/x-search/**", "excludes x-search");
   assertIncludes(entry.extensions!, "!extensions/email/**", "excludes email");
-  assertIncludes(entry.extensions!, "!extensions/moltbook-viewer/**", "excludes moltbook-viewer");
   assertIncludes(entry.extensions!, "!extensions/vault-search/**", "excludes vault-search");
 
   // Skills
@@ -204,7 +202,7 @@ console.log("\n-- buildRhoPackageEntry: all non-core modules disabled --");
       knowledge: { vault: false },
       tools: { "brave-search": false, "x-search": false, email: false, "agent-sop": false },
       skills: { "session-search": false, "update-pi": false },
-      ui: { "usage-bars": false, moltbook: false },
+      ui: { "usage-bars": false },
     },
   });
   const entry = buildRhoPackageEntry(config, RHO_ROOT);
@@ -213,9 +211,9 @@ console.log("\n-- buildRhoPackageEntry: all non-core modules disabled --");
   assert(entry.extensions !== undefined, "extensions array present");
   assertIncludes(entry.extensions!, "extensions/**/*.ts", "includes extension entrypoints");
 
-  // Count: vault-search, brave-search, x-search, email, agent-sop, usage-bars, moltbook-viewer = 7 exclusions
+  // Count: vault-search, brave-search, x-search, email, agent-sop, usage-bars = 6 exclusions
   const extExclusions = entry.extensions!.filter((p) => p.startsWith("!"));
-  assertEq(extExclusions.length, 7, "7 extension exclusions");
+  assertEq(extExclusions.length, 6, "6 extension exclusions");
 
   assert(entry.skills !== undefined, "skills array present");
   // Count: vault-clean, rho-cloud-email, rho-cloud-onboard, session-search, update-pi = 5 exclusions
@@ -541,7 +539,7 @@ console.log("\n-- planSync: rho entry at same index when updating --");
       "../../projects/pi-ralph",
     ],
   };
-  const config = makeConfig({ modules: { ui: { moltbook: false } } });
+  const config = makeConfig({ modules: { ui: { "usage-bars": false } } });
   const plan = planSync({
     config,
     pkgConfig: makeEmptyPackages(),

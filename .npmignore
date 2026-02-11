@@ -22,9 +22,6 @@ docs/*.png
 # ── Tasker XML (users generate via skill) ─────────────────
 tasker/
 
-# ── Personal extension ────────────────────────────────────
-extensions/moltbook-viewer/
-
 # ── Review extension test files ───────────────────────────
 extensions/review/*.test.ts
 extensions/review/package.json
@@ -34,5 +31,5 @@ extensions/review/package-lock.json
 skills/**/.ralph/
 
 # ── Root-level project skill (not a pi skill) ────────────
-SKILL.md
-AGENTS.md
+/SKILL.md
+/AGENTS.md

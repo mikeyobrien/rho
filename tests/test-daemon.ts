@@ -72,7 +72,6 @@ function makeConfig(overrides?: Partial<{
       },
       ui: overrides?.ui ?? {
         "usage-bars": true,
-        moltbook: true,
       },
     },
     settings: {},
@@ -205,7 +204,7 @@ console.log("\n=== countModules ===\n");
 {
   const config = makeConfig({
     tools: { "brave-search": true, "x-search": false, email: true },
-    ui: { "usage-bars": true, moltbook: false },
+    ui: { "usage-bars": true },
   });
   const counts = countModules(config);
   assertEq(counts.enabled, 8, "8 enabled");
@@ -218,7 +217,7 @@ console.log("\n=== countModules ===\n");
     knowledge: { vault: false },
     tools: { "brave-search": false, "x-search": false, email: false },
     skills: { "session-search": false, "update-pi": false },
-    ui: { "usage-bars": false, moltbook: false },
+    ui: { "usage-bars": false },
   });
   const counts = countModules(config);
   assertEq(counts.enabled, 2, "only core enabled");
@@ -352,7 +351,7 @@ console.log("\n=== formatStatus ===\n");
   // With disabled modules
   const config = makeConfig({
     tools: { "brave-search": true, "x-search": false, email: true },
-    ui: { "usage-bars": true, moltbook: false },
+    ui: { "usage-bars": true },
   });
   const info: StatusInfo = {
     state: makeState({ tmuxRunning: true }),
@@ -467,7 +466,7 @@ console.log("\n=== Edge cases ===\n");
     knowledge: { vault: false },
     tools: { "brave-search": false, "x-search": false, email: false },
     skills: { "session-search": false, "update-pi": false },
-    ui: { "usage-bars": false, moltbook: false },
+    ui: { "usage-bars": false },
   });
   const info: StatusInfo = {
     state: makeState({ tmuxRunning: true }),

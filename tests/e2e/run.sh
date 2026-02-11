@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Build and run the Rho E2E test in a container.
+# Build and run Rho E2E tests in a container.
 # Supports both Docker and Podman (auto-detects).
-# Usage: ./tests/e2e/run.sh [--no-cache]
+#
+# Usage:
+#   ./tests/e2e/run.sh              # git clone route (default)
+#   ./tests/e2e/run.sh --npm        # npm install route
+#   ./tests/e2e/run.sh --all        # both routes
+#   ./tests/e2e/run.sh --no-cache   # rebuild from scratch
 set -e
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-IMAGE="rho-e2e"
 
 # Auto-detect container runtime
 if command -v docker &>/dev/null; then
@@ -17,15 +21,55 @@ else
   exit 1
 fi
 
-build_args=""
-if [[ "$1" == "--no-cache" ]]; then
-  build_args="--no-cache"
-fi
+# Parse args
+MODE="clone"
+BUILD_ARGS=""
+for arg in "$@"; do
+  case "$arg" in
+    --npm)      MODE="npm" ;;
+    --all)      MODE="all" ;;
+    --no-cache) BUILD_ARGS="--no-cache" ;;
+  esac
+done
 
-echo "Using $RUNTIME"
-echo "Building $IMAGE..."
-$RUNTIME build $build_args -t "$IMAGE" -f "$REPO_DIR/tests/e2e/Dockerfile" "$REPO_DIR"
+run_clone() {
+  local IMAGE="rho-e2e-clone"
+  echo "━━━ E2E: git clone route ━━━"
+  echo "Building $IMAGE..."
+  $RUNTIME build $BUILD_ARGS -t "$IMAGE" -f "$REPO_DIR/tests/e2e/Dockerfile" "$REPO_DIR"
+  echo ""
+  echo "Running..."
+  $RUNTIME run --rm "$IMAGE"
+}
 
-echo ""
-echo "Running E2E tests..."
-$RUNTIME run --rm "$IMAGE"
+run_npm() {
+  local IMAGE="rho-e2e-npm"
+  echo "━━━ E2E: npm install route ━━━"
+
+  # Pack the tarball
+  echo "Packing tarball..."
+  cd "$REPO_DIR"
+  npm pack --quiet 2>&1 | tail -1
+  echo ""
+
+  echo "Building $IMAGE..."
+  $RUNTIME build $BUILD_ARGS -t "$IMAGE" -f "$REPO_DIR/tests/e2e/Dockerfile.npm" "$REPO_DIR"
+  echo ""
+
+  # Clean up tarball
+  rm -f "$REPO_DIR"/rhobot-dev-rho-*.tgz
+
+  echo "Running..."
+  $RUNTIME run --rm "$IMAGE"
+}
+
+case "$MODE" in
+  clone) run_clone ;;
+  npm)   run_npm ;;
+  all)
+    run_clone
+    echo ""
+    echo ""
+    run_npm
+    ;;
+esac

@@ -43,7 +43,6 @@ update-pi = true      # Update pi to latest version
 
 [modules.ui]
 usage-bars = true     # Token/cost usage display
-moltbook = true       # Moltbook viewer
 ```
 
 **Core modules are always on.** Setting `heartbeat = false` or `memory = false` has no effect — they're forced enabled. You'll get a warning from `rho sync` if you try.

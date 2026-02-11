@@ -156,7 +156,7 @@ Or use the `/email` command once registered:
 | `x-search/` | All | X (Twitter) search via xAI Grok (`x_search`) |
 | `memory-viewer/` | All | Browse and search memories |
 | `usage-bars/` | All | Token/cost usage display |
-| `moltbook-viewer/` | All | Moltbook post viewer |
+
 | `email/` | All | Agent inbox at name@rhobot.dev |
 | `vault-search/` | All | Full-text search over the vault (FTS + ripgrep fallback) |
 | `tasker.ts` | Android | UI automation via Tasker |
@@ -253,7 +253,6 @@ rho/
 │   ├── brave-search/
 │   ├── email/
 │   ├── memory-viewer/
-│   ├── moltbook-viewer/
 │   ├── rho/
 │   ├── usage-bars/
 │   ├── vault-search/

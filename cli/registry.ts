@@ -99,10 +99,5 @@ export const REGISTRY: Record<string, ModuleEntry> = {
     skills: [],
     description: "Token usage display bars",
   },
-  moltbook: {
-    category: "ui",
-    extensions: ["extensions/moltbook-viewer"],
-    skills: [],
-    description: "Moltbook viewer",
-  },
+
 };
