@@ -182,9 +182,11 @@ function removeNotification(): void {
 function ensureTmuxSession(): void {
   if (tmuxSessionExists()) return;
 
+  // Resolve full path to pi so tmux can find it without nvm in PATH
+  const piPath = path.join(path.dirname(process.execPath), "pi");
   const r = spawnSync(
     "tmux",
-    [...tmuxBaseArgs(), "new-session", "-d", "-s", SESSION_NAME, "-c", RHO_DIR, "pi -c"],
+    [...tmuxBaseArgs(), "new-session", "-d", "-s", SESSION_NAME, "-c", RHO_DIR, `${piPath} -c`],
     { stdio: "ignore" },
   );
   if (r.status !== 0) {

@@ -65,12 +65,14 @@ Options:
 }
 
 function gatherDoctorInput(): DoctorInput {
+  // Try PATH first, fall back to node's bin directory (nvm support)
+  const piInfo = getBinaryInfo("pi");
   return {
     nodeVersion: getVersion("node", "--version"),
     binaries: {
       tmux: getBinaryInfo("tmux"),
       git: getBinaryInfo("git"),
-      pi: getBinaryInfo("pi"),
+      pi: piInfo.exists ? piInfo : getBinaryInfo(path.join(path.dirname(process.execPath), "pi")),
     },
     configFiles: getConfigFileStatus(),
     moduleFiles: getModuleFileStatus(),
