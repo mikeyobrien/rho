@@ -1200,55 +1200,17 @@ function buildMetaPrompt(opts: MetaPromptOptions): string {
   // ── Brain Tool Usage ──
   sections.push(`## Brain Tool
 
-The \`brain\` tool manages persistent memory across sessions. All data lives in brain.jsonl.
+Persistent memory in brain.jsonl. Actions: add, update, remove, list, decay, task_done, task_clear, reminder_run.
 
-### Entry Types
+Types: behavior (category:do/dont/value, text), learning (text), preference (text, category), identity (key, value), user (key, value), context (project, path, content), task (description), reminder (text, cadence, enabled).
 
-| Type | Required Fields | Purpose |
-|------|----------------|---------|
-| behavior | category (do/dont/value), text | Agent behavioral rules |
-| learning | text | Discovered facts, corrections, patterns |
-| preference | text, category | User preferences by domain |
-| identity | key, value | Agent identity facts (name, handle, etc.) |
-| user | key, value | User facts (name, location, etc.) |
-| context | project, path, content | Project-specific context loaded by cwd |
-| task | description | Tracked work items |
-| reminder | text, cadence, enabled | Recurring scheduled actions |
+Add: \`brain action=add type=<type> <fields>\`
+List: \`brain action=list type=<type> filter=<pending|done|all|active|disabled> query="..."\`
+Update: \`brain action=update id=<id> <fields>\`
+Remove: \`brain action=remove id=<id> reason="..."\`
 
-### Key Actions
-
-**Add entries:**
-\`brain action=add type=learning text="discovered pattern"\`
-\`brain action=add type=reminder text="Check inbox" cadence={"kind":"interval","every":"30m"} enabled=true\`
-\`brain action=add type=task description="Fix the bug" priority=high\`
-
-**List/search:**
-\`brain action=list type=reminder filter=active\`
-\`brain action=list type=task filter=pending\`
-\`brain action=list query="search term"\`
-
-**Update/remove:**
-\`brain action=update id=<id> text="updated text"\`
-\`brain action=remove id=<id> reason="no longer needed"\`
-
-### Reminder Lifecycle
-
-Reminders fire on a cadence. When processing a reminder during heartbeat:
-1. List active reminders: \`brain action=list type=reminder filter=active\`
-2. Execute the reminder's task
-3. Report result: \`brain action=reminder_run id=<id> result=ok\`
-   - Results: \`ok\` (success), \`error\` (failed), \`skipped\` (not applicable)
-   - On error: \`brain action=reminder_run id=<id> result=error error="what went wrong"\`
-
-Cadence types:
-- Interval: \`{"kind":"interval","every":"30m"}\` (supports m, h, d)
-- Daily: \`{"kind":"daily","at":"08:00"}\` (24h local time)
-
-### Task Lifecycle
-
-\`brain action=add type=task description="..." priority=normal\`
-\`brain action=task_done id=<id>\`
-\`brain action=task_clear\` (removes all done tasks)`);
+Reminders: cadence is \`{"kind":"interval","every":"30m"}\` or \`{"kind":"daily","at":"08:00"}\`. Process with: \`brain action=reminder_run id=<id> result=ok|error|skipped\`. On error add: \`error="msg"\`.
+Tasks: \`brain action=task_done id=<id>\`, \`brain action=task_clear\` (removes done).`);
 
   return sections.join("\n\n");
 }
