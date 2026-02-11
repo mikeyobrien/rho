@@ -110,7 +110,7 @@ function normalizeContentItem(item) {
   const itemType = item.type;
 
   if (itemType === "thinking" || itemType === "reasoning" || itemType === "analysis") {
-    return [{ type: "thinking", text: item.text ?? item.content ?? item.thought ?? "" }];
+    return [{ type: "thinking", text: item.thinking ?? item.text ?? item.content ?? item.thought ?? "" }];
   }
 
   if (itemType === "toolCall") {
