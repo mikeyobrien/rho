@@ -1114,6 +1114,148 @@ function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  META PROMPT (Runtime Environment Context)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function readAgentName(): string {
+  try {
+    const initToml = path.join(RHO_DIR, "init.toml");
+    if (fs.existsSync(initToml)) {
+      const content = fs.readFileSync(initToml, "utf-8");
+      const match = content.match(/^\s*name\s*=\s*"([^"]+)"/m);
+      if (match) return match[1];
+    }
+  } catch { /* ignore */ }
+  return "rho";
+}
+
+function detectPlatform(): string {
+  const platform = os.platform();
+  const release = os.release();
+
+  // Detect Termux
+  if (process.env.PREFIX?.includes("com.termux")) {
+    const termuxVersion = process.env.TERMUX_VERSION || "unknown";
+    return `Android / Termux ${termuxVersion}`;
+  }
+
+  switch (platform) {
+    case "darwin": return `macOS ${release}`;
+    case "linux": return `Linux ${release}`;
+    case "win32": return `Windows ${release}`;
+    default: return `${platform} ${release}`;
+  }
+}
+
+interface MetaPromptOptions {
+  agentName?: string;
+  hbState: RhoState;
+  hbIsLeader: boolean;
+  vaultNoteCount: number;
+  ctx: ExtensionContext;
+  isSubagent: boolean;
+}
+
+function buildMetaPrompt(opts: MetaPromptOptions): string {
+  const { agentName, hbState, hbIsLeader, vaultNoteCount, ctx, isSubagent } = opts;
+
+  const sections: string[] = [];
+
+  // ── Runtime Environment ──
+  const name = agentName || "rho";
+  const platform = detectPlatform();
+  const arch = os.arch();
+  const shell = process.env.SHELL ? path.basename(process.env.SHELL) : "bash";
+  const modelId = ctx.model?.id ?? "unknown";
+  const mode = isSubagent ? "subagent" : "interactive";
+
+  const runtimeLines = [
+    `## Runtime`,
+    `- **Agent**: ${name}`,
+    `- **OS**: ${platform}`,
+    `- **Arch**: ${arch}`,
+    `- **Shell**: ${shell}`,
+    `- **Home**: ${HOME}`,
+    `- **Brain**: ~/.rho/brain/brain.jsonl`,
+    `- **Vault**: ~/.rho/vault (${vaultNoteCount} notes)`,
+    `- **Model**: ${modelId}`,
+    `- **Mode**: ${mode}`,
+  ];
+
+  // Heartbeat status
+  if (!isSubagent) {
+    if (!hbState.enabled || hbState.intervalMs === 0) {
+      runtimeLines.push(`- **Heartbeat**: disabled`);
+    } else if (!hbIsLeader) {
+      runtimeLines.push(`- **Heartbeat**: follower (another process leads)`);
+    } else if (hbState.nextCheckAt) {
+      const remaining = Math.max(0, hbState.nextCheckAt - Date.now());
+      const mins = Math.ceil(remaining / 60000);
+      runtimeLines.push(`- **Heartbeat**: ${formatInterval(hbState.intervalMs)} interval, next in ${mins}m`);
+    } else {
+      runtimeLines.push(`- **Heartbeat**: ${formatInterval(hbState.intervalMs)} interval`);
+    }
+  }
+
+  sections.push(runtimeLines.join("\n"));
+
+  // ── Brain Tool Usage ──
+  sections.push(`## Brain Tool
+
+The \`brain\` tool manages persistent memory across sessions. All data lives in brain.jsonl.
+
+### Entry Types
+
+| Type | Required Fields | Purpose |
+|------|----------------|---------|
+| behavior | category (do/dont/value), text | Agent behavioral rules |
+| learning | text | Discovered facts, corrections, patterns |
+| preference | text, category | User preferences by domain |
+| identity | key, value | Agent identity facts (name, handle, etc.) |
+| user | key, value | User facts (name, location, etc.) |
+| context | project, path, content | Project-specific context loaded by cwd |
+| task | description | Tracked work items |
+| reminder | text, cadence, enabled | Recurring scheduled actions |
+
+### Key Actions
+
+**Add entries:**
+\`brain action=add type=learning text="discovered pattern"\`
+\`brain action=add type=reminder text="Check inbox" cadence={"kind":"interval","every":"30m"} enabled=true\`
+\`brain action=add type=task description="Fix the bug" priority=high\`
+
+**List/search:**
+\`brain action=list type=reminder filter=active\`
+\`brain action=list type=task filter=pending\`
+\`brain action=list query="search term"\`
+
+**Update/remove:**
+\`brain action=update id=<id> text="updated text"\`
+\`brain action=remove id=<id> reason="no longer needed"\`
+
+### Reminder Lifecycle
+
+Reminders fire on a cadence. When processing a reminder during heartbeat:
+1. List active reminders: \`brain action=list type=reminder filter=active\`
+2. Execute the reminder's task
+3. Report result: \`brain action=reminder_run id=<id> result=ok\`
+   - Results: \`ok\` (success), \`error\` (failed), \`skipped\` (not applicable)
+   - On error: \`brain action=reminder_run id=<id> result=error error="what went wrong"\`
+
+Cadence types:
+- Interval: \`{"kind":"interval","every":"30m"}\` (supports m, h, d)
+- Daily: \`{"kind":"daily","at":"08:00"}\` (24h local time)
+
+### Task Lifecycle
+
+\`brain action=add type=task description="..." priority=normal\`
+\`brain action=task_done id=<id>\`
+\`brain action=task_clear\` (removes all done tasks)`);
+
+  return sections.join("\n\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  EXTENSION ENTRY POINT
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1810,14 +1952,25 @@ Instructions:
     }
   });
 
-  pi.on("before_agent_start", async (event, _ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     // Rebuild brain cache if the file changed (e.g. another session wrote to it)
     if (isBrainCacheStale()) {
       rebuildBrainCache(currentCwd);
     }
 
-    if (cachedBrainPrompt) {
-      return { systemPrompt: event.systemPrompt + cachedBrainPrompt };
+    // Build meta prompt (runtime environment + tool usage instructions)
+    const metaPrompt = buildMetaPrompt({
+      agentName: readAgentName(),
+      hbState,
+      hbIsLeader,
+      vaultNoteCount: vaultGraph.size,
+      ctx,
+      isSubagent: IS_SUBAGENT,
+    });
+
+    const sections = [metaPrompt, cachedBrainPrompt].filter(Boolean);
+    if (sections.length > 0) {
+      return { systemPrompt: event.systemPrompt + "\n\n" + sections.join("\n\n") };
     }
   });
 
