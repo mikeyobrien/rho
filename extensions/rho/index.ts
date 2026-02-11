@@ -1095,7 +1095,7 @@ function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
   const target = `${sessionName}:${HEARTBEAT_WINDOW_NAME}`;
   const promptArg = `@${HEARTBEAT_PROMPT_FILE}`;
   const flags = modelFlags ? ` ${modelFlags}` : "";
-  const command = `clear; RHO_SUBAGENT=1 pi --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
+  const command = `clear; RHO_SUBAGENT=1 pi -p --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}; exit`;
 
   try {
     if (!heartbeatWindowExists(sessionName)) {
