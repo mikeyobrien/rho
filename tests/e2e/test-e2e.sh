@@ -343,7 +343,7 @@ echo "-- Unit Tests (from repo) --"
 cd "$REPO_DIR"
 
 # Run the pure-logic unit tests that don't need tmux or LLM keys
-for test in test-config test-sync test-init test-doctor test-cli test-registry test-daemon test-templates; do
+for test in test-config test-sync test-init test-doctor test-cli test-registry test-daemon test-templates test-regressions; do
   if [ -f "tests/${test}.ts" ]; then
     if node --experimental-strip-types "tests/${test}.ts" >/dev/null 2>&1; then
       pass "unit: $test"

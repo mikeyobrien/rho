@@ -1046,6 +1046,19 @@ function heartbeatWindowExists(sessionName: string): boolean {
 }
 
 /**
+ * Check if the heartbeat pane is dead (process exited, remain-on-exit kept it visible).
+ */
+function heartbeatPaneDead(sessionName: string): boolean {
+  const target = `${sessionName}:${HEARTBEAT_WINDOW_NAME}`;
+  try {
+    const dead = execSync(`tmux list-panes -t ${shellEscape(target)} -F "#{pane_dead}"`, { encoding: "utf-8" }).trim();
+    return dead === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check if the heartbeat pane is running a shell (idle) or something else (busy).
  * Returns true if the pane has a non-shell process (e.g., pi) still running.
  */
@@ -1095,13 +1108,17 @@ function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
   const target = `${sessionName}:${HEARTBEAT_WINDOW_NAME}`;
   const promptArg = `@${HEARTBEAT_PROMPT_FILE}`;
   const flags = modelFlags ? ` ${modelFlags}` : "";
-  const command = `clear; RHO_SUBAGENT=1 pi --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
+  // -p: pi exits after the prompt completes (no lingering interactive session).
+  // remain-on-exit (set below) keeps the output visible in tmux until the next heartbeat.
+  const command = `clear; RHO_SUBAGENT=1 pi -p --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
 
   try {
     if (!heartbeatWindowExists(sessionName)) {
       execSync(`tmux new-window -d -t ${shellEscape(sessionName)} -n ${shellEscape(HEARTBEAT_WINDOW_NAME)}`, { stdio: "ignore" });
-    } else if (heartbeatPaneBusy(sessionName)) {
-      // Previous heartbeat still running — kill it and respawn a fresh shell
+      // Keep output visible after pi exits so users can inspect heartbeat results.
+      execSync(`tmux set-option -t ${shellEscape(target)} remain-on-exit on`, { stdio: "ignore" });
+    } else if (heartbeatPaneDead(sessionName) || heartbeatPaneBusy(sessionName)) {
+      // Previous heartbeat finished (dead pane) or still running — respawn a fresh shell
       execSync(`tmux respawn-pane -k -t ${shellEscape(target)}`, { stdio: "ignore" });
       // Small delay for the shell to initialize
       execSync("sleep 0.3", { stdio: "ignore" });
@@ -1728,6 +1745,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   const buildModelFlags = async (ctx: ExtensionContext): Promise<string> => {
+    // 1. Pinned model (explicit user override via rho_control model)
     if (hbState.heartbeatModel) {
       const parts = hbState.heartbeatModel.split("/");
       if (parts.length === 2) {
@@ -1739,15 +1757,17 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (ctx.model) {
-      const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
-      if (apiKey) return `--provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)} --thinking off`;
-    }
-
+    // 2. Auto-resolve cheapest available model (heartbeats don't need frontier)
     try {
       const resolved = await resolveHeartbeatModel(ctx);
       if (resolved) return `--provider ${shellEscape(resolved.provider)} --model ${shellEscape(resolved.model)} --thinking off`;
     } catch { /* ignore */ }
+
+    // 3. Fall back to session model (last resort — expensive but works)
+    if (ctx.model) {
+      const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
+      if (apiKey) return `--provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)} --thinking off`;
+    }
 
     return "";
   };
@@ -2331,11 +2351,18 @@ Instructions:
               hbModelText = `${hbState.heartbeatModel} (pinned)`;
               const parts = hbState.heartbeatModel.split("/");
               if (parts.length === 2) { const m = ctx.modelRegistry.find(parts[0], parts[1]); if (m) hbModelCost = m.cost.output; }
-            } else if (ctx.model) {
-              hbModelText = `${ctx.model.provider}/${ctx.model.id} (session)`;
-              hbModelCost = ctx.model.cost.output;
             } else {
-              hbModelText = "auto";
+              // Show what auto-resolve would actually pick
+              const autoResolved = await resolveHeartbeatModel(ctx);
+              if (autoResolved) {
+                hbModelText = `${autoResolved.provider}/${autoResolved.model} (auto)`;
+                hbModelCost = autoResolved.cost;
+              } else if (ctx.model) {
+                hbModelText = `${ctx.model.provider}/${ctx.model.id} (session fallback)`;
+                hbModelCost = ctx.model.cost.output;
+              } else {
+                hbModelText = "auto (no model available)";
+              }
             }
 
             let text = `Rho status:\n`;

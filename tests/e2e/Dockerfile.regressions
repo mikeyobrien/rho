@@ -1,0 +1,43 @@
+# Regression tests for GitHub issues #7, #8, #9.
+#
+# Simulates an nvm-like environment where pi is installed in a non-standard
+# directory. Validates that rho resolves pi's full path rather than relying
+# on the tmux session shell's PATH.
+#
+# Build & run:
+#   docker build --network=host -t rho-regressions -f tests/e2e/Dockerfile.regressions .
+#   docker run --rm rho-regressions
+
+FROM docker.io/library/node:22-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux \
+    git \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -s /bin/bash tester
+
+# ── Simulate nvm-like install ──────────────────────────
+# Install pi into a non-standard prefix (like ~/.nvm/versions/node/v22/bin/).
+# Do NOT put it on the default system PATH.
+USER tester
+WORKDIR /home/tester
+
+# Set npm global prefix to user-writable dir (matches nvm behavior)
+RUN mkdir -p /home/tester/.npm-global \
+    && npm config set prefix /home/tester/.npm-global
+
+# Install pi into a fake nvm directory (non-standard location)
+RUN mkdir -p /home/tester/.fake-nvm/{bin,lib}
+RUN npm install --prefix /home/tester/.fake-nvm -g @mariozechner/pi-coding-agent
+
+ENV NODE_NO_WARNINGS=1
+ENV HOME=/home/tester
+
+# Copy repo
+USER root
+COPY --chown=tester:tester . /home/tester/rho
+USER tester
+
+CMD ["bash", "/home/tester/rho/tests/e2e/test-regressions.sh"]

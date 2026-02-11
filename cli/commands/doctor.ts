@@ -103,10 +103,27 @@ const VERSION_FLAGS: Record<string, string> = {
   tmux: "-V",
 };
 
+function resolveBinary(name: string): string | null {
+  // Search the current process's PATH directly — works for nvm/fnm/volta
+  // where the bin dir is only in the interactive shell's PATH.
+  const pathDirs = (process.env.PATH || "").split(path.delimiter);
+  for (const dir of pathDirs) {
+    const candidate = path.join(dir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 function getBinaryInfo(name: string): { version: string | null; exists: boolean } {
+  const resolved = resolveBinary(name);
+  if (!resolved) return { version: null, exists: false };
+
   const versionFlag = VERSION_FLAGS[name] ?? "--version";
-  const version = getVersion(name, versionFlag);
-  if (version === null) return { version: null, exists: false };
+  const version = getVersion(resolved, versionFlag);
+  if (version === null) {
+    // Binary exists on disk but version check failed — still report as found.
+    return { version: null, exists: true };
+  }
   const match = version.match(/(\d+[\d.]*\d+)/);
   return { version: match ? match[1] : version, exists: true };
 }

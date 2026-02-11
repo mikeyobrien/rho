@@ -131,6 +131,16 @@ function getInterval(): string {
 }
 
 function getCommandPath(cmd: string): string | null {
+  // First: search the current process's PATH directly (works even when
+  // nvm/fnm/volta only modify the interactive shell, because rho inherits
+  // that PATH when launched from the user's terminal).
+  const pathDirs = (process.env.PATH || "").split(path.delimiter);
+  for (const dir of pathDirs) {
+    const candidate = path.join(dir, cmd);
+    if (existsSync(candidate)) return candidate;
+  }
+
+  // Fallback: login shell (may pick up /etc/profile.d/ but not .bashrc/.zshrc).
   const r = spawnSync("sh", ["-lc", `command -v ${cmd}`], { encoding: "utf-8" });
   if (r.status !== 0) return null;
   const out = (r.stdout || "").trim();
@@ -182,9 +192,19 @@ function removeNotification(): void {
 function ensureTmuxSession(): void {
   if (tmuxSessionExists()) return;
 
+  // Resolve pi's absolute path so tmux doesn't depend on the session shell's
+  // PATH (which won't include nvm/fnm/volta managed directories).
+  const piBin = getCommandPath("pi") || "pi";
+
+  // Propagate the current PATH into the tmux server environment so that pi's
+  // child processes (node, npx, etc.) are also reachable.
+  if (process.env.PATH) {
+    spawnSync("tmux", [...tmuxBaseArgs(), "set-environment", "-g", "PATH", process.env.PATH], { stdio: "ignore" });
+  }
+
   const r = spawnSync(
     "tmux",
-    [...tmuxBaseArgs(), "new-session", "-d", "-s", SESSION_NAME, "-c", RHO_DIR, "pi -c"],
+    [...tmuxBaseArgs(), "new-session", "-d", "-s", SESSION_NAME, "-c", RHO_DIR, `${piBin} -c`],
     { stdio: "ignore" },
   );
   if (r.status !== 0) {
