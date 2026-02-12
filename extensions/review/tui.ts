@@ -18,6 +18,20 @@ export async function startTUIReview(
 
   return ctx.ui.custom<ReviewResult>(
     (tui: any, theme: any, _keybindings: any, done: (result: ReviewResult) => void) => {
+      // Wrap done() to force a full-screen clear before closing.
+      // The review TUI renders many lines of colored output. Without this,
+      // restoreEditor() triggers a differential render that writes a huge burst
+      // of ANSI cursor-move + line-clear sequences. In terminal multiplexer
+      // stacks (tmux, Zellij), this output burst can cause pty buffer contention
+      // that splits subsequent stdin escape sequences (e.g. arrow keys arrive as
+      // \x1b then [A with >10ms gap), breaking key input after the review closes.
+      // Forcing a full render resets the diff state so the next render clears the
+      // screen first — much less output, no pty contention.
+      const closeDone = (result: ReviewResult) => {
+        tui.requestRender(true); // reset diff state → next render does full clear
+        done(result);
+      };
+
       // -- State --
       let activeFileIndex = 0;
       let cursorLine = 1;
@@ -602,10 +616,10 @@ export async function startTUIReview(
               allComments.push(...fileComments);
             }
             if (allComments.length === 0) return;
-            done({ comments: allComments, cancelled: false });
+            closeDone({ comments: allComments, cancelled: false });
             return;
           } else if (matchesKey(data, Key.escape)) {
-            done({ comments: [], cancelled: true });
+            closeDone({ comments: [], cancelled: true });
             return;
           } else if (matchesKey(data, "?")) {
             showHelp = true;
