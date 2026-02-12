@@ -171,6 +171,43 @@ Extensions are TypeScript that runs inside pi's process. They register new tools
 
 If the agent can already do it and just needs to know how, write a skill. If you need code running to make it possible, write an extension.
 
+## Web UI
+
+A browser-based interface for chatting, browsing memory, managing tasks, and editing config. Useful for phones, tablets, or any device on your network.
+
+```bash
+rho web                  # Start on default port (3141)
+rho web --port 4000      # Custom port
+rho web --open           # Start and open browser
+```
+
+Then visit `http://localhost:3141` (or your machine's IP for remote access — the server binds `0.0.0.0` by default).
+
+### Views
+
+| View | Description |
+|------|-------------|
+| **Chat** | Browse sessions, fork from any message, start new conversations. Model and thinking level selectable per session. |
+| **Memory** | Filter, search, create, edit, and delete brain entries (learnings, preferences, behaviors, etc.) |
+| **Tasks** | View and manage tasks from brain.jsonl |
+| **Config** | Edit `~/.rho/init.toml` directly in the browser |
+
+The Chat view connects to pi over RPC and WebSocket — responses stream in real-time. Forking creates a branch from any user message in a session's history.
+
+### Code Review
+
+Extensions can open files for line-level review in the browser. The review UI supports multi-line selection, inline commenting, and submitting or cancelling. Access active reviews at `/review`.
+
+### Configuration
+
+Add to `~/.rho/init.toml` to configure the web server:
+
+```toml
+[settings.web]
+port = 3141       # Server port (default: 3141)
+enabled = false   # Auto-start with `rho start`
+```
+
 ## Customize
 
 ### Brain
@@ -278,6 +315,11 @@ rho/
 │   └── linux/
 │       ├── skills/          # notification, clipboard, open-url, tts
 │       └── setup.sh
+├── web/                     # Web UI server and frontend
+│   ├── server.ts            # Hono server (REST + WebSocket + RPC bridge)
+│   ├── rpc-manager.ts       # pi RPC process manager
+│   ├── config.ts            # Web config helpers
+│   └── public/              # Static assets (HTML, CSS, JS)
 ├── configs/                 # Configuration files
 │   └── tmux-rho.conf        # SSH-friendly tmux config (used by rho's tmux socket)
 ├── brain/                   # Default brain.jsonl with core behaviors
