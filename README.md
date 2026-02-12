@@ -173,6 +173,9 @@ If the agent can already do it and just needs to know how, write a skill. If you
 
 ## Web UI
 
+<img width="1816" height="1530" alt="image" src="https://github.com/user-attachments/assets/83f73af7-9016-4a8a-887e-e736d779deaa" />
+
+
 A browser-based interface for chatting, browsing memory, managing tasks, and editing config. Useful for phones, tablets, or any device on your network.
 
 ```bash
