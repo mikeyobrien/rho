@@ -6,7 +6,9 @@ import * as path from "node:path";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline/promises";
 
+import { TelegramClient } from "../../extensions/telegram/api.ts";
 import {
   loadRuntimeState,
   readTelegramSettings,
@@ -14,12 +16,40 @@ import {
   TELEGRAM_DIR,
   TELEGRAM_WORKER_LOCK_PATH,
 } from "../../extensions/telegram/lib.ts";
+import { loadOperatorConfig, saveOperatorConfig } from "../../extensions/telegram/operator-config.ts";
+import {
+  approvePendingByPin,
+  listPendingApprovals,
+  rejectPendingByPin,
+} from "../../extensions/telegram/pending-approvals.ts";
 import { readTelegramWorkerLockOwner } from "../../extensions/telegram/worker-lock.ts";
 import { getTelegramCheckTriggerState, requestTelegramCheckTrigger } from "../../extensions/telegram/check-trigger.ts";
 import { renderTelegramStatusText } from "../../extensions/telegram/status.ts";
 import { isLeaseStale, readLeaseMeta } from "../../extensions/lib/lease-lock.ts";
 
 const DEFAULT_WORKER_LOCK_STALE_MS = 90_000;
+
+interface OnboardOptions {
+  token?: string;
+  chatId?: number;
+  userId?: number;
+  timeoutSeconds: number;
+  allowlist: boolean;
+  help: boolean;
+}
+
+interface TelegramGetMeResult {
+  id: number;
+  username?: string;
+  first_name?: string;
+}
+
+interface HandshakeUpdate {
+  chatId: number;
+  userId: number | null;
+  fromName: string;
+  updateId: number;
+}
 
 function parsePositiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -68,6 +98,9 @@ function allowedText(values: number[]): string {
 
 function buildStatusText(): string {
   const settings = readTelegramSettings();
+  const operator = loadOperatorConfig();
+  const runtimeAllowedChatIds = operator?.allowedChatIds ?? settings.allowedChatIds;
+  const runtimeAllowedUserIds = operator?.allowedUserIds ?? settings.allowedUserIds;
   const runtime = loadRuntimeState();
   const trigger = getTelegramCheckTriggerState(TELEGRAM_CHECK_TRIGGER_PATH, 0);
   const { owner, stale } = getWorkerStatus();
@@ -83,9 +116,10 @@ function buildStatusText(): string {
     triggerPending: trigger.pending,
     triggerRequesterPid: trigger.requesterPid ?? null,
     triggerRequestedAt: trigger.requestedAt ?? null,
-    lastCheckRequestAt: trigger.requestedAt ?? null,
-    lastCheckConsumeAt: null,
-    lastCheckOutcome: null,
+    lastCheckRequestAt: runtime.last_check_request_at ?? trigger.requestedAt ?? null,
+    lastCheckConsumeAt: runtime.last_check_consume_at ?? null,
+    lastCheckOutcome: runtime.last_check_outcome ?? null,
+    lastCheckRequesterPid: runtime.last_check_requester_pid ?? null,
     tokenEnv: settings.botTokenEnv,
     lastUpdateId: runtime.last_update_id,
     lastPollAt: runtime.last_poll_at,
@@ -93,8 +127,8 @@ function buildStatusText(): string {
     sendFailures: 0,
     pendingInbound: 0,
     pendingOutbound: 0,
-    allowedChatsText: allowedText(settings.allowedChatIds),
-    allowedUsersText: allowedText(settings.allowedUserIds),
+    allowedChatsText: allowedText(runtimeAllowedChatIds),
+    allowedUsersText: allowedText(runtimeAllowedUserIds),
   });
 }
 
@@ -119,6 +153,36 @@ function parseLogsArgs(args: string[]): { lines: number; follow: boolean; help: 
   return { lines, follow, help };
 }
 
+function parseOnboardArgs(args: string[]): OnboardOptions {
+  const out: OnboardOptions = {
+    timeoutSeconds: 120,
+    allowlist: true,
+    help: false,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--help" || a === "-h") {
+      out.help = true;
+    } else if (a === "--token") {
+      out.token = args[++i];
+    } else if (a === "--chat-id") {
+      const n = parseInt(args[++i] ?? "", 10);
+      if (Number.isFinite(n)) out.chatId = n;
+    } else if (a === "--user-id") {
+      const n = parseInt(args[++i] ?? "", 10);
+      if (Number.isFinite(n)) out.userId = n;
+    } else if (a === "--timeout") {
+      const n = parseInt(args[++i] ?? "", 10);
+      if (Number.isFinite(n) && n > 0) out.timeoutSeconds = n;
+    } else if (a === "--no-allowlist") {
+      out.allowlist = false;
+    }
+  }
+
+  return out;
+}
+
 function readLogLines(logPath: string): string[] {
   if (!existsSync(logPath)) return [];
   const raw = readFileSync(logPath, "utf-8");
@@ -128,6 +192,72 @@ function readLogLines(logPath: string): string[] {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function promptForToken(tokenEnv: string): Promise<string | null> {
+  if (!process.stdin.isTTY) return null;
+  console.log("Step 1: Create a Telegram bot");
+  console.log("  1. Open Telegram and message @BotFather");
+  console.log("  2. Send /newbot and follow the prompts");
+  console.log("  3. Copy the bot token");
+  console.log(`  4. Or set env var: ${tokenEnv}`);
+  console.log("");
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const token = (await rl.question("Paste bot token: ")).trim();
+    return token.length > 0 ? token : null;
+  } finally {
+    rl.close();
+  }
+}
+
+async function telegramGetMe(token: string): Promise<TelegramGetMeResult> {
+  const response = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  const json = await response.json().catch(() => null) as { ok?: boolean; result?: TelegramGetMeResult; description?: string } | null;
+  if (!response.ok || !json?.ok || !json.result) {
+    const msg = json?.description || `HTTP ${response.status}`;
+    throw new Error(msg);
+  }
+  return json.result;
+}
+
+async function waitForHandshakeUpdate(client: TelegramClient, timeoutSeconds: number, offset?: number): Promise<HandshakeUpdate> {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let nextOffset = typeof offset === "number" ? offset : undefined;
+
+  while (Date.now() < deadline) {
+    const remainingSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
+    const updates = await client.getUpdates({
+      offset: nextOffset,
+      timeout: Math.min(10, remainingSeconds),
+      allowed_updates: ["message", "edited_message"],
+    });
+
+    if (updates.length > 0) {
+      nextOffset = Math.max(...updates.map((u) => u.update_id)) + 1;
+      for (const update of updates) {
+        const msg = update.message ?? update.edited_message;
+        if (!msg || typeof msg.chat?.id !== "number") continue;
+        const fromFirst = msg.from?.first_name || "";
+        const fromLast = msg.from?.last_name || "";
+        const fromName = `${fromFirst} ${fromLast}`.trim() || msg.from?.username || "unknown";
+        return {
+          chatId: msg.chat.id,
+          userId: typeof msg.from?.id === "number" ? msg.from.id : null,
+          fromName,
+          updateId: update.update_id,
+        };
+      }
+    }
+  }
+
+  throw new Error(`timed out after ${timeoutSeconds}s`);
 }
 
 async function showLogs(args: string[]): Promise<void> {
@@ -220,7 +350,10 @@ async function startWorker(): Promise<void> {
   const child = spawn(process.execPath, childArgs, {
     detached: true,
     stdio: "ignore",
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      RHO_TELEGRAM_DISABLE: "0",
+    },
   });
   child.unref();
 
@@ -303,6 +436,211 @@ async function requestCheck(): Promise<void> {
   console.log(buildStatusText());
 }
 
+async function onboard(args: string[]): Promise<void> {
+  const opts = parseOnboardArgs(args);
+  if (opts.help) {
+    console.log(`rho telegram onboard
+
+Onboard Telegram with an OpenClaw-style guided flow.
+
+Usage:
+  rho telegram onboard [--token TOKEN] [--chat-id ID] [--user-id ID] [--timeout SEC] [--no-allowlist]
+
+Options:
+  --token TOKEN       Bot token (otherwise reads env, then prompts in TTY)
+  --chat-id ID        Skip detection and use this chat id
+  --user-id ID        Optional explicit user id to allow
+  --timeout SEC       Wait timeout for first message (default: 120)
+  --no-allowlist      Do not update allowed_chat_ids/allowed_user_ids override
+  -h, --help          Show this help`);
+    return;
+  }
+
+  const settings = readTelegramSettings();
+  if (!settings.enabled) {
+    console.error("Telegram is disabled in init.toml. Enable [settings.telegram].");
+    process.exitCode = 1;
+    return;
+  }
+  if (settings.mode !== "polling") {
+    console.error("Telegram onboarding currently supports polling mode only.");
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log("\nTelegram Onboarding\n===================\n");
+
+  const envToken = (process.env[settings.botTokenEnv] || "").trim();
+  const promptedToken = opts.token?.trim() ? null : await promptForToken(settings.botTokenEnv);
+  const token = (opts.token?.trim() || envToken || promptedToken || "").trim();
+
+  if (!token) {
+    console.error(`Missing token. Pass --token or set ${settings.botTokenEnv}.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log("Step 2: Validate token");
+  const me = await telegramGetMe(token).catch((error) => {
+    console.error(`  Token validation failed: ${(error as Error)?.message || String(error)}`);
+    process.exitCode = 1;
+    return null;
+  });
+  if (!me) return;
+  const username = me.username || `bot-${me.id}`;
+  console.log(`  Token valid for @${username}`);
+
+  const client = new TelegramClient(token);
+  const runtime = loadRuntimeState();
+
+  let chatId = opts.chatId ?? null;
+  let userId = opts.userId ?? null;
+
+  if (chatId === null || userId === null) {
+    console.log("\nStep 3: Detect chat/user from first message");
+    console.log(`  Send any message to: https://t.me/${username}`);
+    console.log(`  Waiting up to ${opts.timeoutSeconds}s...`);
+
+    const detected = await waitForHandshakeUpdate(client, opts.timeoutSeconds, runtime.last_update_id)
+      .catch((error) => {
+        console.error(`  Detection failed: ${(error as Error)?.message || String(error)}`);
+        process.exitCode = 1;
+        return null;
+      });
+    if (!detected) return;
+
+    chatId = chatId ?? detected.chatId;
+    userId = userId ?? detected.userId;
+
+    console.log(`  Got message from ${detected.fromName}`);
+    console.log(`  chat_id=${chatId}${userId !== null ? ` user_id=${userId}` : ""}`);
+  }
+
+  if (chatId === null) {
+    console.error("No chat_id available. Provide --chat-id.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (opts.allowlist) {
+    console.log("\nStep 4: Lock down allowlist");
+    const existing = loadOperatorConfig() ?? {
+      allowedChatIds: settings.allowedChatIds,
+      allowedUserIds: settings.allowedUserIds,
+    };
+
+    const nextChats = new Set(existing.allowedChatIds);
+    nextChats.add(chatId);
+
+    const nextUsers = new Set(existing.allowedUserIds);
+    if (userId !== null) nextUsers.add(userId);
+
+    saveOperatorConfig({
+      allowedChatIds: [...nextChats],
+      allowedUserIds: [...nextUsers],
+    });
+
+    console.log(`  Allowed chats: ${[...nextChats].join(",")}`);
+    console.log(`  Allowed users: ${[...nextUsers].length === 0 ? "all" : [...nextUsers].join(",")}`);
+  } else {
+    console.log("\nStep 4: Skipped allowlist update (--no-allowlist)");
+  }
+
+  console.log("\nStep 5: Send verification message");
+  const verifyText = "✅ rho Telegram onboarding complete. You are authorized.";
+  await client.sendMessage({ chat_id: chatId, text: verifyText }).catch((error) => {
+    console.error(`  Failed to send verification message: ${(error as Error)?.message || String(error)}`);
+    process.exitCode = 1;
+  });
+
+  if (process.exitCode && process.exitCode !== 0) return;
+
+  console.log("  Verification sent.");
+  console.log("\nOnboarding complete.");
+  console.log("Next: rho telegram start");
+}
+
+function parseApprovalPin(args: string[]): string {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--pin") {
+      return (args[++i] || "").trim();
+    }
+  }
+  return "";
+}
+
+function showPendingApprovals(): void {
+  const pending = listPendingApprovals();
+  if (pending.length === 0) {
+    console.log("No pending approvals.");
+    return;
+  }
+
+  console.log("Pending approvals:");
+  for (const req of pending) {
+    const ageSec = Math.max(0, Math.floor((Date.now() - req.firstSeenAt) / 1000));
+    const preview = req.textPreview ? ` text=\"${req.textPreview.replace(/\"/g, "'")}\"` : "";
+    console.log(
+      `  pin=${req.pin} chat=${req.chatId} user=${req.userId ?? "unknown"} age=${ageSec}s${preview}`,
+    );
+  }
+}
+
+async function approvePending(args: string[]): Promise<void> {
+  const pin = parseApprovalPin(args);
+  if (!/^\d{6}$/.test(pin)) {
+    console.error("Usage: rho telegram approve --pin 123456");
+    process.exitCode = 1;
+    return;
+  }
+
+  const req = approvePendingByPin(pin);
+  if (!req) {
+    console.error("No matching pending request.");
+    process.exitCode = 1;
+    return;
+  }
+
+  const settings = readTelegramSettings();
+  const operator = loadOperatorConfig() ?? {
+    allowedChatIds: settings.allowedChatIds,
+    allowedUserIds: settings.allowedUserIds,
+  };
+
+  const nextChats = new Set(operator.allowedChatIds);
+  nextChats.add(req.chatId);
+
+  const nextUsers = new Set(operator.allowedUserIds);
+  if (req.userId !== null) nextUsers.add(req.userId);
+
+  saveOperatorConfig({
+    allowedChatIds: [...nextChats],
+    allowedUserIds: [...nextUsers],
+  });
+
+  console.log(`Approved chat=${req.chatId} user=${req.userId ?? "unknown"} (pin=${req.pin}).`);
+  console.log(buildStatusText());
+}
+
+async function rejectPending(args: string[]): Promise<void> {
+  const pin = parseApprovalPin(args);
+  if (!/^\d{6}$/.test(pin)) {
+    console.error("Usage: rho telegram reject --pin 123456");
+    process.exitCode = 1;
+    return;
+  }
+
+  const req = rejectPendingByPin(pin);
+  if (!req) {
+    console.error("No matching pending request.");
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Rejected chat=${req.chatId} user=${req.userId ?? "unknown"} (pin=${req.pin}).`);
+}
+
 export async function run(args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   const command = (sub || "status").toLowerCase();
@@ -318,6 +656,10 @@ Usage:
   rho telegram status
   rho telegram logs [--lines N] [--follow]
   rho telegram check
+  rho telegram onboard [--token TOKEN] [--chat-id ID] [--user-id ID] [--timeout SEC]
+  rho telegram pending
+  rho telegram approve --pin 123456
+  rho telegram reject --pin 123456
 
 Options:
   -h, --help   Show this help`);
@@ -346,6 +688,26 @@ Options:
 
   if (command === "check") {
     await requestCheck();
+    return;
+  }
+
+  if (command === "onboard") {
+    await onboard(rest);
+    return;
+  }
+
+  if (command === "pending") {
+    showPendingApprovals();
+    return;
+  }
+
+  if (command === "approve") {
+    await approvePending(rest);
+    return;
+  }
+
+  if (command === "reject") {
+    await rejectPending(rest);
     return;
   }
 

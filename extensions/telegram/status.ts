@@ -11,6 +11,7 @@ export interface TelegramStatusSnapshot {
   lastCheckRequestAt: number | null;
   lastCheckConsumeAt: number | null;
   lastCheckOutcome: "ok" | "error" | null;
+  lastCheckRequesterPid: number | null;
   tokenEnv: string;
   lastUpdateId: number;
   lastPollAt: string | null;
@@ -63,6 +64,7 @@ export function renderTelegramStatusText(snapshot: TelegramStatusSnapshot): stri
     `Last check request at: ${formatTsMs(snapshot.lastCheckRequestAt)}`,
     `Last check consume at: ${formatTsMs(snapshot.lastCheckConsumeAt)}`,
     `Last check outcome: ${snapshot.lastCheckOutcome ?? "unknown"}`,
+    `Last check requester pid: ${snapshot.lastCheckRequesterPid ?? "none"}`,
     `Token env: ${snapshot.tokenEnv}`,
     `Last update id: ${snapshot.lastUpdateId}`,
     `Last poll: ${snapshot.lastPollAt ?? "never"}`,

@@ -27,6 +27,10 @@ export interface TelegramRuntimeState {
   last_poll_at: string | null;
   consecutive_failures: number;
   mode: "polling" | "webhook";
+  last_check_request_at: number | null;
+  last_check_consume_at: number | null;
+  last_check_outcome: "ok" | "error" | null;
+  last_check_requester_pid: number | null;
 }
 
 export const DEFAULT_SETTINGS: TelegramSettings = {
@@ -44,6 +48,10 @@ export const DEFAULT_STATE: TelegramRuntimeState = {
   last_poll_at: null,
   consecutive_failures: 0,
   mode: "polling",
+  last_check_request_at: null,
+  last_check_consume_at: null,
+  last_check_outcome: null,
+  last_check_requester_pid: null,
 };
 
 function toNumberArray(value: unknown): number[] {
@@ -97,6 +105,10 @@ export function loadRuntimeState(statePath: string = TELEGRAM_STATE_PATH): Teleg
       last_poll_at: typeof parsed.last_poll_at === "string" || parsed.last_poll_at === null ? parsed.last_poll_at : null,
       consecutive_failures: typeof parsed.consecutive_failures === "number" ? parsed.consecutive_failures : 0,
       mode: parsed.mode === "webhook" ? "webhook" : "polling",
+      last_check_request_at: typeof parsed.last_check_request_at === "number" ? parsed.last_check_request_at : null,
+      last_check_consume_at: typeof parsed.last_check_consume_at === "number" ? parsed.last_check_consume_at : null,
+      last_check_outcome: parsed.last_check_outcome === "ok" || parsed.last_check_outcome === "error" ? parsed.last_check_outcome : null,
+      last_check_requester_pid: typeof parsed.last_check_requester_pid === "number" ? parsed.last_check_requester_pid : null,
     };
   } catch {
     return { ...DEFAULT_STATE };

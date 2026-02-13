@@ -30,8 +30,8 @@ export function normalizeInboundUpdate(update: TelegramUpdate): TelegramInboundE
   };
 }
 
-function isAllowedId(id: number | null, allowed: number[]): boolean {
-  if (allowed.length === 0) return true;
+function isAllowedId(id: number | null, allowed: number[], strictAllowlist: boolean): boolean {
+  if (allowed.length === 0) return !strictAllowlist;
   if (id === null) return false;
   return allowed.includes(id);
 }
@@ -52,11 +52,12 @@ export function authorizeInbound(
   envelope: TelegramInboundEnvelope,
   settings: TelegramSettings,
   botUsername?: string,
+  strictAllowlist = false,
 ): { ok: boolean; reason?: string } {
-  if (!isAllowedId(envelope.chatId, settings.allowedChatIds)) {
+  if (!isAllowedId(envelope.chatId, settings.allowedChatIds, strictAllowlist)) {
     return { ok: false, reason: "chat_not_allowed" };
   }
-  if (!isAllowedId(envelope.userId, settings.allowedUserIds)) {
+  if (!isAllowedId(envelope.userId, settings.allowedUserIds, strictAllowlist)) {
     return { ok: false, reason: "user_not_allowed" };
   }
   if (!groupActivated(envelope, settings, botUsername)) {

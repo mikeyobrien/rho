@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
 import { TelegramApiError, isTelegramParseModeError, type GetUpdatesParams, type SendChatActionParams, type SendMessageParams, type TelegramUpdate } from "./api.ts";
 import {
   advanceUpdateOffset,
@@ -6,6 +9,7 @@ import {
   markPollSuccess,
   saveRuntimeState,
   TELEGRAM_CHECK_TRIGGER_PATH,
+  TELEGRAM_STATE_PATH,
   type TelegramRuntimeState,
   type TelegramSettings,
 } from "./lib.ts";
@@ -79,27 +83,99 @@ type TelegramLogContext = {
   sessionFile?: string;
 };
 
+type PendingInboundItem = TelegramInboundEnvelope & {
+  sessionKey: string;
+  sessionFile: string;
+};
+
+type PendingOutboundItem = {
+  chatId: number;
+  replyToMessageId?: number;
+  text: string;
+  attempts: number;
+  notBeforeMs: number;
+};
+
+function ensureJsonFile(path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  if (!existsSync(path)) {
+    writeFileSync(path, "[]");
+  }
+}
+
+function loadInboundQueue(path: string): PendingInboundItem[] {
+  ensureJsonFile(path);
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter((item): item is PendingInboundItem => {
+      if (!item || typeof item !== "object") return false;
+      const candidate = item as Record<string, unknown>;
+      return typeof candidate.updateId === "number"
+        && typeof candidate.chatId === "number"
+        && (candidate.chatType === "private" || candidate.chatType === "group" || candidate.chatType === "supergroup" || candidate.chatType === "channel")
+        && (typeof candidate.userId === "number" || candidate.userId === null)
+        && typeof candidate.messageId === "number"
+        && typeof candidate.text === "string"
+        && typeof candidate.isReplyToBot === "boolean"
+        && typeof candidate.sessionKey === "string"
+        && typeof candidate.sessionFile === "string";
+    });
+  } catch {
+    return [];
+  }
+}
+
+function loadOutboundQueue(path: string): PendingOutboundItem[] {
+  ensureJsonFile(path);
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter((item): item is PendingOutboundItem => {
+      if (!item || typeof item !== "object") return false;
+      const candidate = item as Record<string, unknown>;
+      const hasReplyTo = typeof candidate.replyToMessageId === "number" || candidate.replyToMessageId === undefined;
+      return typeof candidate.chatId === "number"
+        && typeof candidate.text === "string"
+        && typeof candidate.attempts === "number"
+        && typeof candidate.notBeforeMs === "number"
+        && hasReplyTo;
+    });
+  } catch {
+    return [];
+  }
+}
+
+function saveInboundQueue(path: string, queue: PendingInboundItem[]): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(queue, null, 2));
+}
+
+function saveOutboundQueue(path: string, queue: PendingOutboundItem[]): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(queue, null, 2));
+}
+
 export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOptions): TelegramWorkerRuntime {
   const settings = options.settings;
   const client = options.client;
   const rpcRunner = options.rpcRunner ?? new TelegramRpcRunner();
   const botUsername = (options.botUsername || "").replace(/^@/, "").trim();
-  const statePath = options.statePath;
+  const statePath = options.statePath ?? TELEGRAM_STATE_PATH;
   const mapPath = options.mapPath;
   const sessionDir = options.sessionDir;
+  const telegramDir = dirname(statePath);
+  const inboundQueuePath = join(telegramDir, "inbound.queue.json");
+  const outboundQueuePath = join(telegramDir, "outbound.queue.json");
   const checkTriggerPath = options.checkTriggerPath ?? TELEGRAM_CHECK_TRIGGER_PATH;
   const logPath = options.logPath;
   const strictAllowlist = true;
 
   let runtimeState: TelegramRuntimeState = loadRuntimeState(statePath);
-  let pendingInbound: Array<TelegramInboundEnvelope & { sessionKey: string; sessionFile: string }> = [];
-  let pendingOutbound: Array<{
-    chatId: number;
-    replyToMessageId?: number;
-    text: string;
-    attempts: number;
-    notBeforeMs: number;
-  }> = [];
+  let pendingInbound: PendingInboundItem[] = loadInboundQueue(inboundQueuePath);
+  let pendingOutbound: PendingOutboundItem[] = loadOutboundQueue(outboundQueuePath);
   let drainingInbound = false;
   let pollInFlight = false;
   let consecutiveSendFailures = 0;
@@ -137,8 +213,16 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     };
   };
 
-  const persist = () => {
+  const persistRuntimeState = () => {
     saveRuntimeState(runtimeState, statePath);
+  };
+
+  const persistInboundQueue = () => {
+    saveInboundQueue(inboundQueuePath, pendingInbound);
+  };
+
+  const persistOutboundQueue = () => {
+    saveOutboundQueue(outboundQueuePath, pendingOutbound);
   };
 
   const withTypingIndicator = async <T>(chatId: number, work: () => Promise<T>): Promise<T> => {
@@ -168,7 +252,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     drainingInbound = true;
     try {
       while (pendingInbound.length > 0) {
-        const item = pendingInbound.shift()!;
+        const item = pendingInbound[0]!;
         try {
           const response = await withTypingIndicator(item.chatId, () => rpcRunner.runPrompt(item.sessionFile, item.text));
           pendingOutbound.push({
@@ -212,6 +296,10 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             { error: msg },
           );
         }
+
+        pendingInbound.shift();
+        persistInboundQueue();
+        persistOutboundQueue();
       }
     } finally {
       drainingInbound = false;
@@ -220,17 +308,18 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
   const flushOutboundQueue = async () => {
     if (!client) return;
-    const deferred: typeof pendingOutbound = [];
 
-    while (pendingOutbound.length > 0) {
-      const item = pendingOutbound.shift()!;
+    let index = 0;
+    while (index < pendingOutbound.length) {
+      const item = pendingOutbound[index]!;
       if (item.notBeforeMs > Date.now()) {
-        deferred.push(item);
+        index += 1;
         continue;
       }
 
       const chunks = renderTelegramOutboundChunks(item.text);
       let failed = false;
+      let retryScheduled = false;
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -303,11 +392,13 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
           if (shouldRetryTelegramError(error, item.attempts)) {
             const delay = retryDelayMs(error, item.attempts);
-            deferred.push({
+            pendingOutbound[index] = {
               ...item,
               attempts: item.attempts + 1,
               notBeforeMs: Date.now() + delay,
-            });
+            };
+            persistOutboundQueue();
+            retryScheduled = true;
             logEvent(
               "outbound_retry_scheduled",
               { chatId: item.chatId },
@@ -316,18 +407,24 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
                 retry_in_ms: delay,
               },
             );
+          } else {
+            pendingOutbound.splice(index, 1);
+            persistOutboundQueue();
           }
+
           break;
         }
       }
 
       if (!failed) {
-        // no-op
+        pendingOutbound.splice(index, 1);
+        persistOutboundQueue();
+        continue;
       }
-    }
 
-    if (deferred.length > 0) {
-      pendingOutbound = [...pendingOutbound, ...deferred];
+      if (retryScheduled) {
+        index += 1;
+      }
     }
   };
 
@@ -427,7 +524,8 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
       const updateIds = updates.map((u) => u.update_id);
       runtimeState.last_update_id = advanceUpdateOffset(runtimeState.last_update_id, updateIds);
       runtimeState = markPollSuccess(runtimeState);
-      persist();
+      persistRuntimeState();
+      persistInboundQueue();
 
       await drainInboundQueue();
       await flushOutboundQueue();
@@ -448,7 +546,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
       return { ok: true, updates: updates.length, accepted, blocked };
     } catch (error) {
       runtimeState = markPollFailure(runtimeState);
-      persist();
+      persistRuntimeState();
       const msg = error instanceof TelegramApiError ? error.message : (error as Error)?.message || String(error);
       logEvent("poll_error", {}, {
         error: msg,
@@ -508,12 +606,12 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
       });
       lastCheckOutcome = result.ok ? "ok" : "error";
       runtimeState.last_check_outcome = lastCheckOutcome;
-      persist();
+      persistRuntimeState();
       return { triggered: true, result, request: consumed.request };
     } catch (error) {
       lastCheckOutcome = "error";
       runtimeState.last_check_outcome = lastCheckOutcome;
-      persist();
+      persistRuntimeState();
       throw error;
     }
   };
