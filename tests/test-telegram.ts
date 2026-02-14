@@ -371,6 +371,121 @@ try {
     assert(slashAck.includes("/telegram"), "slash prompt resolves from prompt response without waiting for agent_end");
     slashSuccessRunner.dispose();
 
+    const slashAgentStartOnlySpawn = ((_cmd: string, _args: string[]) => {
+      const child = new EventEmitter() as any;
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const stdin: any = {
+        destroyed: false,
+        writable: true,
+        write: (line: string) => {
+          const payload = JSON.parse(String(line).trim());
+          if (payload.type === "get_commands") {
+            setTimeout(() => {
+              stdout.write(JSON.stringify({
+                type: "response",
+                id: payload.id,
+                command: "get_commands",
+                success: true,
+                data: { commands: [{ name: "telegram", source: "extension" }] },
+              }) + "\n");
+            }, 5);
+            return true;
+          }
+
+          if (payload.type === "prompt") {
+            setTimeout(() => {
+              stdout.write(JSON.stringify({
+                type: "response",
+                id: payload.id,
+                command: "prompt",
+                success: true,
+              }) + "\n");
+              stdout.write(JSON.stringify({ type: "agent_start" }) + "\n");
+            }, 5);
+          }
+          return true;
+        },
+      };
+      child.stdin = stdin;
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.kill = () => {
+        child.emit("exit", 0, null);
+        return true;
+      };
+      return child;
+    }) as any;
+
+    const slashAgentStartOnlyRunner = new TelegramRpcRunner(slashAgentStartOnlySpawn);
+    const slashAgentStartOnlyBegin = Date.now();
+    const slashAgentStartOnlyAck = await slashAgentStartOnlyRunner.runPrompt("/tmp/fake-slash-start-only-session.jsonl", "/telegram check", 900);
+    const slashAgentStartOnlyElapsed = Date.now() - slashAgentStartOnlyBegin;
+    assert(slashAgentStartOnlyAck.includes("/telegram"), "slash prompt resolves when only agent_start is emitted after prompt response");
+    assert(slashAgentStartOnlyElapsed < 600, "slash prompt does not wait for full timeout when only agent_start is emitted");
+    slashAgentStartOnlyRunner.dispose();
+
+    const slashMessageWithoutAgentEndSpawn = ((_cmd: string, _args: string[]) => {
+      const child = new EventEmitter() as any;
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const stdin: any = {
+        destroyed: false,
+        writable: true,
+        write: (line: string) => {
+          const payload = JSON.parse(String(line).trim());
+          if (payload.type === "get_commands") {
+            setTimeout(() => {
+              stdout.write(JSON.stringify({
+                type: "response",
+                id: payload.id,
+                command: "get_commands",
+                success: true,
+                data: { commands: [{ name: "telegram", source: "extension" }] },
+              }) + "\n");
+            }, 5);
+            return true;
+          }
+
+          if (payload.type === "prompt") {
+            setTimeout(() => {
+              stdout.write(JSON.stringify({
+                type: "response",
+                id: payload.id,
+                command: "prompt",
+                success: true,
+              }) + "\n");
+              stdout.write(JSON.stringify({ type: "agent_start" }) + "\n");
+              stdout.write(JSON.stringify({
+                type: "message_end",
+                message: {
+                  role: "assistant",
+                  content: [{ type: "text", text: "slash response without agent_end" }],
+                },
+              }) + "\n");
+            }, 5);
+          }
+          return true;
+        },
+      };
+      child.stdin = stdin;
+      child.stdout = stdout;
+      child.stderr = stderr;
+      child.kill = () => {
+        child.emit("exit", 0, null);
+        return true;
+      };
+      return child;
+    }) as any;
+
+    const slashMessageWithoutAgentEndRunner = new TelegramRpcRunner(slashMessageWithoutAgentEndSpawn);
+    const slashMessageWithoutAgentEndBegin = Date.now();
+    const slashMessageWithoutAgentEndResult = await slashMessageWithoutAgentEndRunner.runPrompt("/tmp/fake-slash-message-no-end-session.jsonl", "/telegram status", 900);
+    const slashMessageWithoutAgentEndElapsed = Date.now() - slashMessageWithoutAgentEndBegin;
+    assert(slashMessageWithoutAgentEndResult === "slash response without agent_end", "slash prompt returns assistant text even when agent_end is missing");
+    assert(slashMessageWithoutAgentEndElapsed < 600, "slash prompt returns assistant text without waiting for full timeout when agent_end is missing");
+    slashMessageWithoutAgentEndRunner.dispose();
+
     const slashUnsupportedSpawn = ((_cmd: string, _args: string[]) => {
       const child = new EventEmitter() as any;
       const stdout = new PassThrough();

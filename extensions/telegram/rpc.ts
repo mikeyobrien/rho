@@ -13,6 +13,7 @@ import {
 } from "./slash-contract.ts";
 
 const SLASH_RESPONSE_FALLBACK_MS = 250;
+const SLASH_AGENT_START_GRACE_MS = 400;
 const SLASH_COMMAND_DISCOVERY_TIMEOUT_MS = 1_000;
 
 interface PendingPrompt {
@@ -250,7 +251,7 @@ export class TelegramRpcRunner {
     pending.reject(new Error(`${message}${formatStderrSuffix(pending.stderrLines)}`));
   }
 
-  private scheduleSlashFallback(session: RpcSessionState, pending: PendingPrompt): void {
+  private scheduleSlashFallback(session: RpcSessionState, pending: PendingPrompt, delayMs = SLASH_RESPONSE_FALLBACK_MS): void {
     if (pending.fallbackTimer) {
       clearTimeout(pending.fallbackTimer);
       pending.fallbackTimer = null;
@@ -258,9 +259,10 @@ export class TelegramRpcRunner {
 
     pending.fallbackTimer = setTimeout(() => {
       if (session.pending !== pending) return;
-      if (pending.sawAgentStart || pending.sawAgentEnd || pending.lastAssistantText) return;
+      if (!pending.sawPromptResponse) return;
+      if (pending.sawAgentEnd || pending.lastAssistantText) return;
       this.resolvePending(session, this.resolvePromptText(pending));
-    }, SLASH_RESPONSE_FALLBACK_MS);
+    }, delayMs);
   }
 
   private resolveCommandsRequest(session: RpcSessionState, commands: Map<string, SlashCommandEntry> | null): void {
@@ -398,7 +400,7 @@ export class TelegramRpcRunner {
       }
 
       pending.sawPromptResponse = true;
-      if (pending.isSlashCommand && !pending.sawAgentStart && !pending.sawAgentEnd && !pending.lastAssistantText) {
+      if (pending.isSlashCommand && !pending.sawAgentEnd && !pending.lastAssistantText) {
         this.scheduleSlashFallback(session, pending);
       }
       return;
@@ -408,10 +410,14 @@ export class TelegramRpcRunner {
       const pending = session.pending;
       if (!pending) return;
       pending.sawAgentStart = true;
-      if (pending.fallbackTimer) {
+
+      if (pending.isSlashCommand && pending.sawPromptResponse && !pending.sawAgentEnd && !pending.lastAssistantText) {
+        this.scheduleSlashFallback(session, pending, SLASH_AGENT_START_GRACE_MS);
+      } else if (pending.fallbackTimer) {
         clearTimeout(pending.fallbackTimer);
         pending.fallbackTimer = null;
       }
+
       return;
     }
 
@@ -422,7 +428,7 @@ export class TelegramRpcRunner {
       const maybeText = extractAssistantText(event.message);
       if (maybeText) {
         pending.lastAssistantText = maybeText;
-        if (pending.isSlashCommand && pending.sawPromptResponse && !pending.sawAgentStart) {
+        if (pending.isSlashCommand && pending.sawPromptResponse) {
           this.resolvePending(session, pending.lastAssistantText);
         }
       }
