@@ -1,7 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { TelegramApiError, isTelegramParseModeError, type GetUpdatesParams, type SendChatActionParams, type SendMessageParams, type TelegramUpdate } from "./api.ts";
+import {
+  TelegramApiError,
+  isTelegramParseModeError,
+  type GetFileParams,
+  type GetUpdatesParams,
+  type SendAudioParams,
+  type SendChatActionParams,
+  type SendMessageParams,
+  type SendVoiceParams,
+  type TelegramFile,
+  type TelegramUpdate,
+} from "./api.ts";
 import {
   advanceUpdateOffset,
   loadRuntimeState,
@@ -28,6 +39,10 @@ export interface TelegramClientLike {
   getUpdates(params: GetUpdatesParams): Promise<TelegramUpdate[]>;
   sendMessage(params: SendMessageParams): Promise<unknown>;
   sendChatAction(params: SendChatActionParams): Promise<unknown>;
+  sendVoice?(params: SendVoiceParams): Promise<unknown>;
+  sendAudio?(params: SendAudioParams): Promise<unknown>;
+  getFile?(params: GetFileParams): Promise<TelegramFile>;
+  downloadFile?(filePath: string): Promise<Uint8Array>;
 }
 
 export interface TelegramRpcRunnerLike {
@@ -111,11 +126,36 @@ type PendingBackgroundItem = {
   startedAtMs: number | null;
 };
 
+const DEFAULT_ELEVENLABS_TTS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
+const DEFAULT_ELEVENLABS_TTS_MODEL_ID = "eleven_multilingual_v2";
+
+const waitMs = async (ms: number) => {
+  await new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, ms)));
+};
+
 function ensureJsonFile(path: string): void {
   mkdirSync(dirname(path), { recursive: true });
   if (!existsSync(path)) {
     writeFileSync(path, "[]");
   }
+}
+
+function isInboundMediaEnvelope(value: unknown): value is NonNullable<TelegramInboundEnvelope["media"]> {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind !== "voice" && candidate.kind !== "audio" && candidate.kind !== "document_audio") {
+    return false;
+  }
+  if (typeof candidate.fileId !== "string" || candidate.fileId.trim().length === 0) return false;
+  if (candidate.mimeType !== undefined && typeof candidate.mimeType !== "string") return false;
+  if (candidate.fileName !== undefined && typeof candidate.fileName !== "string") return false;
+  if (candidate.durationSeconds !== undefined && (typeof candidate.durationSeconds !== "number" || !Number.isFinite(candidate.durationSeconds))) {
+    return false;
+  }
+  if (candidate.fileSize !== undefined && (typeof candidate.fileSize !== "number" || !Number.isFinite(candidate.fileSize))) {
+    return false;
+  }
+  return true;
 }
 
 function loadInboundQueue(path: string): PendingInboundItem[] {
@@ -127,12 +167,18 @@ function loadInboundQueue(path: string): PendingInboundItem[] {
     return parsed.filter((item): item is PendingInboundItem => {
       if (!item || typeof item !== "object") return false;
       const candidate = item as Record<string, unknown>;
+      const hasReplyTo = typeof candidate.replyToMessageId === "number" || candidate.replyToMessageId === undefined;
+      const hasMedia = candidate.media === undefined || isInboundMediaEnvelope(candidate.media);
+      const hasPayload = (typeof candidate.text === "string" && candidate.text.length > 0) || candidate.media !== undefined;
       return typeof candidate.updateId === "number"
         && typeof candidate.chatId === "number"
         && (candidate.chatType === "private" || candidate.chatType === "group" || candidate.chatType === "supergroup" || candidate.chatType === "channel")
         && (typeof candidate.userId === "number" || candidate.userId === null)
         && typeof candidate.messageId === "number"
         && typeof candidate.text === "string"
+        && hasMedia
+        && hasReplyTo
+        && hasPayload
         && typeof candidate.isReplyToBot === "boolean"
         && typeof candidate.sessionKey === "string"
         && typeof candidate.sessionFile === "string";
@@ -290,26 +336,305 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     saveBackgroundQueue(backgroundQueuePath, pendingBackground);
   };
 
-  const withTypingIndicator = async <T>(chatId: number, work: () => Promise<T>): Promise<T> => {
+  const withChatAction = async <T>(
+    chatId: number,
+    action: SendChatActionParams["action"],
+    work: () => Promise<T>,
+  ): Promise<T> => {
     if (!client) return await work();
 
     let timer: NodeJS.Timeout | null = null;
-    const sendTyping = async () => {
+    const emitAction = async () => {
       try {
-        await client.sendChatAction({ chat_id: chatId, action: "typing" });
+        await client.sendChatAction({ chat_id: chatId, action });
       } catch {
-        // Ignore typing indicator failures; they are non-critical.
+        // Ignore chat action failures; they are non-critical.
       }
     };
 
-    void sendTyping();
-    timer = setInterval(() => { void sendTyping(); }, 4000);
+    void emitAction();
+    timer = setInterval(() => { void emitAction(); }, 4000);
 
     try {
       return await work();
     } finally {
       if (timer) clearInterval(timer);
     }
+  };
+
+  const withTypingIndicator = async <T>(chatId: number, work: () => Promise<T>): Promise<T> => {
+    return await withChatAction(chatId, "typing", work);
+  };
+
+  const extractTranscriptText = (payload: unknown): string => {
+    if (!payload || typeof payload !== "object") return "";
+    const candidate = payload as Record<string, unknown>;
+
+    const directText = typeof candidate.text === "string" ? candidate.text.trim() : "";
+    if (directText) return directText;
+
+    const directTranscript = typeof candidate.transcript === "string" ? candidate.transcript.trim() : "";
+    if (directTranscript) return directTranscript;
+
+    const nestedResult = candidate.result;
+    if (nestedResult && typeof nestedResult === "object") {
+      const resultText = typeof (nestedResult as Record<string, unknown>).text === "string"
+        ? ((nestedResult as Record<string, unknown>).text as string).trim()
+        : "";
+      if (resultText) return resultText;
+    }
+
+    const nestedData = candidate.data;
+    if (nestedData && typeof nestedData === "object") {
+      const dataText = typeof (nestedData as Record<string, unknown>).text === "string"
+        ? ((nestedData as Record<string, unknown>).text as string).trim()
+        : "";
+      if (dataText) return dataText;
+    }
+
+    return "";
+  };
+
+  const transcribeInboundMedia = async (item: PendingInboundItem): Promise<string> => {
+    if (!item.media) {
+      throw new Error("No media payload available for transcription");
+    }
+    if (!client?.getFile || !client?.downloadFile) {
+      throw new Error("Telegram media download support is unavailable in this worker build");
+    }
+
+    const apiKey = (process.env.ELEVENLABS_API_KEY || "").trim();
+    if (!apiKey) {
+      throw new Error("ELEVENLABS_API_KEY is not set");
+    }
+
+    const file = await client.getFile({ file_id: item.media.fileId });
+    const filePath = String(file.file_path || "").trim();
+    if (!filePath) {
+      throw new Error("Telegram file metadata missing file_path");
+    }
+
+    const mediaBytes = await client.downloadFile(filePath);
+    const mimeType = item.media.mimeType || "application/octet-stream";
+    const extension = mimeType.includes("/") ? mimeType.split("/")[1] : "bin";
+    const inferredName = item.media.fileName || `${item.media.kind}.${extension}`;
+
+    const form = new FormData();
+    form.append("model_id", "scribe_v1");
+    form.append("file", new Blob([mediaBytes], { type: mimeType }), inferredName);
+
+    const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+      },
+      body: form,
+    });
+
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const body = await response.text();
+        detail = body.trim();
+      } catch {
+        // ignore response body parse errors
+      }
+      const suffix = detail ? `: ${detail.slice(0, 240)}` : "";
+      throw new Error(`ElevenLabs STT request failed (${response.status})${suffix}`);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error("ElevenLabs STT response was not valid JSON");
+    }
+
+    const transcript = extractTranscriptText(payload);
+    if (!transcript) {
+      throw new Error("ElevenLabs STT response did not include transcript text");
+    }
+
+    return transcript;
+  };
+
+  const formatTranscriptionFailureText = (rawMessage: string): string => {
+    const message = String(rawMessage || "Voice transcription failed").trim() || "Voice transcription failed";
+
+    if (/ELEVENLABS_API_KEY is not set/i.test(message)) {
+      return "⚠️ Voice transcription is unavailable. Set ELEVENLABS_API_KEY for the Telegram worker and try again.";
+    }
+
+    return `⚠️ Voice transcription failed: ${message}`;
+  };
+
+  const parseTtsCommandInput = (text: string): { matched: boolean; payload: string } => {
+    const trimmed = String(text || "").trim();
+    const match = trimmed.match(/^\/tts(?:\s+([\s\S]+))?$/i);
+    if (!match) {
+      return { matched: false, payload: "" };
+    }
+
+    return { matched: true, payload: String(match[1] || "").trim() };
+  };
+
+  const synthesizeTtsAudio = async (text: string): Promise<{ bytes: Uint8Array; mimeType: string; fileName: string }> => {
+    const apiKey = (process.env.ELEVENLABS_API_KEY || "").trim();
+    if (!apiKey) {
+      throw new Error("ELEVENLABS_API_KEY is not set");
+    }
+
+    const voiceId = (process.env.ELEVENLABS_TTS_VOICE_ID || process.env.ELEVENLABS_VOICE_ID || DEFAULT_ELEVENLABS_TTS_VOICE_ID).trim();
+    const endpoint = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: DEFAULT_ELEVENLABS_TTS_MODEL_ID,
+        output_format: "mp3_44100_128",
+      }),
+    });
+
+    if (!response.ok) {
+      let detail = "";
+      try {
+        detail = (await response.text()).trim();
+      } catch {
+        // ignore response parse errors
+      }
+      const suffix = detail ? `: ${detail.slice(0, 240)}` : "";
+      throw new Error(`ElevenLabs TTS request failed (${response.status})${suffix}`);
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length === 0) {
+      throw new Error("ElevenLabs TTS response did not include audio bytes");
+    }
+
+    return {
+      bytes,
+      mimeType: "audio/mpeg",
+      fileName: "tts.mp3",
+    };
+  };
+
+  const sendTtsVoiceReply = async (
+    item: PendingInboundItem,
+    audio: { bytes: Uint8Array; mimeType: string; fileName: string },
+  ): Promise<void> => {
+    if (!client?.sendVoice && !client?.sendAudio) {
+      throw new Error("Telegram voice delivery is unavailable in this worker build");
+    }
+
+    let attempt = 0;
+    while (true) {
+      try {
+        await withChatAction(item.chatId, "upload_voice", async () => {
+          if (client.sendVoice) {
+            await client.sendVoice({
+              chat_id: item.chatId,
+              voice: audio.bytes,
+              filename: audio.fileName,
+              mimeType: audio.mimeType,
+              reply_to_message_id: item.messageId,
+            });
+            return;
+          }
+
+          if (client.sendAudio) {
+            await client.sendAudio({
+              chat_id: item.chatId,
+              audio: audio.bytes,
+              filename: audio.fileName,
+              mimeType: audio.mimeType,
+              title: "rho /tts",
+              reply_to_message_id: item.messageId,
+            });
+            return;
+          }
+        });
+
+        logEvent(
+          "outbound_media_sent",
+          {
+            updateId: item.updateId,
+            chatId: item.chatId,
+            userId: item.userId,
+            messageId: item.messageId,
+            sessionKey: item.sessionKey,
+            sessionFile: item.sessionFile,
+          },
+          {
+            attempts: attempt,
+            bytes: audio.bytes.length,
+            mime_type: audio.mimeType,
+          },
+        );
+        return;
+      } catch (error) {
+        const msg = (error as Error)?.message || String(error);
+
+        logEvent(
+          "outbound_media_error",
+          {
+            updateId: item.updateId,
+            chatId: item.chatId,
+            userId: item.userId,
+            messageId: item.messageId,
+            sessionKey: item.sessionKey,
+            sessionFile: item.sessionFile,
+          },
+          {
+            attempts: attempt,
+            error: msg,
+          },
+        );
+
+        if (!shouldRetryTelegramError(error, attempt)) {
+          throw error;
+        }
+
+        const delay = retryDelayMs(error, attempt);
+        logEvent(
+          "outbound_media_retry_scheduled",
+          {
+            updateId: item.updateId,
+            chatId: item.chatId,
+            userId: item.userId,
+            messageId: item.messageId,
+            sessionKey: item.sessionKey,
+            sessionFile: item.sessionFile,
+          },
+          {
+            attempts: attempt + 1,
+            retry_in_ms: delay,
+          },
+        );
+
+        attempt += 1;
+        await waitMs(delay);
+      }
+    }
+  };
+
+  const formatTtsFailureText = (rawMessage: string): string => {
+    const message = String(rawMessage || "/tts failed").trim() || "/tts failed";
+
+    if (/ELEVENLABS_API_KEY is not set/i.test(message)) {
+      return "⚠️ /tts is unavailable. Set ELEVENLABS_API_KEY for the Telegram worker and try again.";
+    }
+
+    if (/usage: \/tts/i.test(message)) {
+      return message;
+    }
+
+    return `⚠️ /tts failed: ${message}`;
   };
 
   const formatPromptFailureText = (inputText: string, rawMessage: string): string => {
@@ -499,7 +824,125 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           continue;
         }
 
+        if (item.media) {
+          try {
+            const transcript = await withTypingIndicator(item.chatId, () => transcribeInboundMedia(item));
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              text: `📝 Transcript:\n${transcript}`,
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "inbound_media_transcribed",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                media_kind: item.media.kind,
+                transcript_length: transcript.length,
+              },
+            );
+          } catch (error) {
+            const msg = (error as Error)?.message || String(error);
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              text: formatTranscriptionFailureText(msg),
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "inbound_media_transcription_error",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                media_kind: item.media.kind,
+                error: msg,
+              },
+            );
+          }
+
+          persistOutboundQueue();
+          continue;
+        }
+
         const promptText = normalizeSlashMention(item.text);
+        const ttsCommand = parseTtsCommandInput(promptText);
+
+        if (ttsCommand.matched) {
+          if (!ttsCommand.payload) {
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              text: "⚠️ Usage: /tts <text>",
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            persistOutboundQueue();
+            continue;
+          }
+
+          try {
+            const audio = await withChatAction(item.chatId, "record_voice", () => synthesizeTtsAudio(ttsCommand.payload));
+            await sendTtsVoiceReply(item, audio);
+
+            logEvent(
+              "tts_ok",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                text_length: ttsCommand.payload.length,
+                audio_bytes: audio.bytes.length,
+              },
+            );
+          } catch (error) {
+            const msg = (error as Error)?.message || String(error);
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              text: formatTtsFailureText(msg),
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "tts_error",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                text_length: ttsCommand.payload.length,
+                error: msg,
+              },
+            );
+            persistOutboundQueue();
+          }
+
+          continue;
+        }
 
         try {
           const response = await withTypingIndicator(

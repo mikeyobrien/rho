@@ -201,6 +201,131 @@ try {
     }
   }
 
+  console.log("\n-- TelegramClient media helpers --");
+  {
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init: any }> = [];
+    try {
+      globalThis.fetch = (async (url: string, init?: any) => {
+        const requestUrl = String(url);
+        calls.push({ url: requestUrl, init });
+
+        if (requestUrl.endsWith("/getFile")) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                ok: true,
+                result: {
+                  file_id: "voice-file-1",
+                  file_path: "voice/path.oga",
+                  file_size: 3,
+                },
+              };
+            },
+          } as any;
+        }
+
+        if (requestUrl.endsWith("/file/bottest-token/voice/path.oga")) {
+          return {
+            ok: true,
+            status: 200,
+            async arrayBuffer() {
+              return new Uint8Array([1, 2, 3]).buffer;
+            },
+          } as any;
+        }
+
+        if (requestUrl.endsWith("/sendVoice")) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                ok: true,
+                result: {
+                  message_id: 101,
+                  chat: { id: 1, type: "private" as const },
+                  date: 1,
+                },
+              };
+            },
+          } as any;
+        }
+
+        if (requestUrl.endsWith("/sendAudio")) {
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                ok: true,
+                result: {
+                  message_id: 102,
+                  chat: { id: 1, type: "private" as const },
+                  date: 1,
+                },
+              };
+            },
+          } as any;
+        }
+
+        return {
+          ok: false,
+          status: 500,
+          async json() {
+            return { ok: false, description: "unexpected request" };
+          },
+        } as any;
+      }) as any;
+
+      const client = new TelegramClient("test-token", "https://example.test/");
+
+      const file = await client.getFile({ file_id: "voice-file-1" });
+      assert(file.file_path === "voice/path.oga", "getFile returns Telegram file metadata");
+
+      const bytes = await client.downloadFile(file.file_path || "");
+      assert(bytes.length === 3 && bytes[0] === 1 && bytes[2] === 3, "downloadFile returns binary file bytes");
+
+      const sentVoice = await client.sendVoice({
+        chat_id: 1,
+        voice: new Uint8Array([7, 8, 9]),
+        caption: "voice caption",
+        reply_to_message_id: 88,
+      });
+      assert(sentVoice.message_id === 101, "sendVoice returns Telegram message payload");
+
+      const sentAudio = await client.sendAudio({
+        chat_id: 1,
+        audio: "existing-audio-file-id",
+        title: "sample title",
+      });
+      assert(sentAudio.message_id === 102, "sendAudio returns Telegram message payload");
+
+      const getFileCall = calls.find((call) => call.url.endsWith("/getFile"));
+      assert(getFileCall?.url === "https://example.test/bottest-token/getFile", "getFile targets bot API endpoint");
+
+      const downloadCall = calls.find((call) => call.url.endsWith("/file/bottest-token/voice/path.oga"));
+      assert(!!downloadCall, "downloadFile targets Telegram file endpoint");
+
+      const sendVoiceCall = calls.find((call) => call.url.endsWith("/sendVoice"));
+      assert(sendVoiceCall?.init?.body instanceof FormData, "sendVoice uses multipart form payload");
+      const sendVoiceForm = sendVoiceCall?.init?.body as FormData;
+      assert(sendVoiceForm.get("chat_id") === "1", "sendVoice form includes chat_id");
+      assert(sendVoiceForm.get("voice") instanceof Blob, "sendVoice binary payload is appended as Blob");
+      assert(sendVoiceForm.get("caption") === "voice caption", "sendVoice form includes caption");
+
+      const sendAudioCall = calls.find((call) => call.url.endsWith("/sendAudio"));
+      assert(sendAudioCall?.init?.body instanceof FormData, "sendAudio uses multipart form payload");
+      const sendAudioForm = sendAudioCall?.init?.body as FormData;
+      assert(sendAudioForm.get("audio") === "existing-audio-file-id", "sendAudio supports string file_id payload");
+      assert(sendAudioForm.get("title") === "sample title", "sendAudio form includes title");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
   console.log("\n-- normalize + authz gates --");
   {
     const update = {
@@ -218,6 +343,83 @@ try {
     assert(normalized !== null, "normalizes message update");
     assert(normalized?.chatId === 777, "normalized chat id");
     assert(normalized?.userId === 42, "normalized user id");
+    assert(normalized?.media === undefined, "text-only messages do not include media envelope");
+
+    const voiceNormalized = normalizeInboundUpdate({
+      update_id: 1231,
+      message: {
+        message_id: 11,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        voice: {
+          file_id: "voice-file-1",
+          duration: 7,
+          mime_type: "audio/ogg",
+          file_size: 1234,
+        },
+      },
+    });
+
+    assert(voiceNormalized !== null, "normalizes voice-only update without text");
+    assert(voiceNormalized?.text === "", "voice-only update keeps empty text payload");
+    assert(voiceNormalized?.media?.kind === "voice", "voice envelope marks media kind");
+    assert(voiceNormalized?.media?.fileId === "voice-file-1", "voice envelope captures file id");
+
+    const audioNormalized = normalizeInboundUpdate({
+      update_id: 1232,
+      message: {
+        message_id: 12,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        audio: {
+          file_id: "audio-file-1",
+          duration: 11,
+          mime_type: "audio/mpeg",
+          file_name: "sample.mp3",
+        },
+      },
+    });
+
+    assert(audioNormalized !== null, "normalizes audio-only update without text");
+    assert(audioNormalized?.media?.kind === "audio", "audio envelope marks media kind");
+    assert(audioNormalized?.media?.fileName === "sample.mp3", "audio envelope captures file name");
+
+    const documentAudioNormalized = normalizeInboundUpdate({
+      update_id: 1233,
+      message: {
+        message_id: 13,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        document: {
+          file_id: "doc-audio-1",
+          file_name: "note.ogg",
+          mime_type: "audio/ogg",
+        },
+      },
+    });
+
+    assert(documentAudioNormalized !== null, "normalizes audio document update without text");
+    assert(documentAudioNormalized?.media?.kind === "document_audio", "audio documents are tagged as document_audio media");
+
+    const nonAudioDocument = normalizeInboundUpdate({
+      update_id: 1234,
+      message: {
+        message_id: 14,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        document: {
+          file_id: "doc-non-audio-1",
+          file_name: "notes.txt",
+          mime_type: "text/plain",
+        },
+      },
+    });
+
+    assert(nonAudioDocument === null, "non-audio documents without text are ignored");
 
     const settings: TelegramSettings = {
       enabled: true,

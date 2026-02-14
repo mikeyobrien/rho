@@ -595,6 +595,607 @@ try {
   assert(Array.isArray(drainedInboundQueue) && drainedInboundQueue.length === 0, "resumed inbound scenario drains persisted inbound queue file");
 
   resumedInboundRuntime.dispose();
+
+  console.log("\n-- inbound queue schema preserves voice/audio envelope fields --");
+  const mediaInboundDir = join(tmp, "telegram-durable-inbound-media");
+  const mediaInboundStatePath = join(mediaInboundDir, "state.json");
+  const mediaInboundMapPath = join(mediaInboundDir, "session-map.json");
+  const mediaInboundSessionDir = join(tmp, "sessions-durable-inbound-media");
+  const mediaInboundQueuePath = join(mediaInboundDir, "inbound.queue.json");
+
+  loadRuntimeState(mediaInboundStatePath);
+  writeFileSync(
+    mediaInboundQueuePath,
+    JSON.stringify([
+      {
+        updateId: 1001,
+        chatId: 1111,
+        chatType: "private",
+        userId: 2222,
+        messageId: 444,
+        text: "",
+        isReplyToBot: false,
+        media: {
+          kind: "voice",
+          fileId: "voice-file-queue-1",
+          mimeType: "audio/ogg",
+          durationSeconds: 6,
+          fileSize: 2048,
+        },
+        sessionKey: "chat-1111-user-2222",
+        sessionFile: join(mediaInboundSessionDir, "chat-1111-user-2222.jsonl"),
+      },
+      {
+        updateId: 1002,
+        chatId: 1111,
+        chatType: "private",
+        userId: 2222,
+        messageId: 445,
+        text: "",
+        isReplyToBot: false,
+        media: {
+          kind: "voice",
+          mimeType: "audio/ogg",
+        },
+        sessionKey: "chat-1111-user-2222",
+        sessionFile: join(mediaInboundSessionDir, "chat-1111-user-2222.jsonl"),
+      },
+    ], null, 2),
+  );
+
+  const mediaInboundPrompts: string[] = [];
+  const mediaInboundSent: Array<{ chat_id: number; text: string }> = [];
+  const mediaInboundClient = {
+    async getUpdates() {
+      return [];
+    },
+    async sendMessage(params: { chat_id: number; text: string }) {
+      mediaInboundSent.push({ chat_id: params.chat_id, text: params.text });
+      return { message_id: 4, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction() {
+      return true;
+    },
+  };
+
+  const mediaInboundRpcRunner = {
+    async runPrompt(_sessionFile: string, message: string) {
+      mediaInboundPrompts.push(message);
+      return "media envelope resumed reply";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  const mediaInboundRuntime = createTelegramWorkerRuntime({
+    settings,
+    client: mediaInboundClient as any,
+    rpcRunner: mediaInboundRpcRunner as any,
+    statePath: mediaInboundStatePath,
+    mapPath: mediaInboundMapPath,
+    sessionDir: mediaInboundSessionDir,
+    checkTriggerPath: join(mediaInboundDir, "check.trigger.json"),
+    operatorConfigPath: join(mediaInboundDir, "config.json"),
+    botUsername: "",
+    logPath: join(mediaInboundDir, "log.jsonl"),
+  });
+
+  const mediaInboundResult = await mediaInboundRuntime.pollOnce(false);
+  assert(mediaInboundResult.ok === true, "media inbound schema scenario poll succeeds");
+  assert(mediaInboundPrompts.length === 0, "media inbound schema scenario bypasses rpc prompt runner for queued voice envelope item");
+  assert(mediaInboundSent.length === 1, "media inbound schema scenario sends response for queued voice envelope item");
+  assert(mediaInboundSent[0]?.text.includes("Voice transcription"), "media inbound schema scenario returns transcription-path response text");
+
+  const drainedMediaInboundQueue = existsSync(mediaInboundQueuePath)
+    ? JSON.parse(readFileSync(mediaInboundQueuePath, "utf-8")) as any[]
+    : null;
+  assert(Array.isArray(drainedMediaInboundQueue) && drainedMediaInboundQueue.length === 0, "media inbound schema scenario drains persisted queue file");
+
+  mediaInboundRuntime.dispose();
+
+  console.log("\n-- inbound voice media runs ElevenLabs STT and replies with transcript --");
+  const sttStatePath = join(tmp, "telegram", "state.stt.json");
+  const sttMapPath = join(tmp, "telegram", "session-map.stt.json");
+  const sttSessionDir = join(tmp, "sessions-stt");
+
+  const sttUpdates = [
+    {
+      update_id: 1201,
+      message: {
+        message_id: 211,
+        from: { id: 2222 },
+        chat: { id: 1111, type: "private" as const },
+        date: 1,
+        voice: {
+          file_id: "voice-file-telegram-1",
+          duration: 4,
+          mime_type: "audio/ogg",
+        },
+      },
+    },
+  ];
+
+  const sttSent: Array<{ chat_id: number; text: string }> = [];
+  const sttActions: Array<{ chat_id: number; action: string }> = [];
+  const sttGetFileCalls: string[] = [];
+  const sttDownloadCalls: string[] = [];
+
+  const sttClient = {
+    async getUpdates() {
+      return sttUpdates;
+    },
+    async sendMessage(params: { chat_id: number; text: string }) {
+      sttSent.push({ chat_id: params.chat_id, text: params.text });
+      return { message_id: 5, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction(params: { chat_id: number; action: string }) {
+      sttActions.push({ chat_id: params.chat_id, action: params.action });
+      return true;
+    },
+    async getFile(params: { file_id: string }) {
+      sttGetFileCalls.push(params.file_id);
+      return {
+        file_id: params.file_id,
+        file_path: "voice/path-from-telegram.oga",
+      };
+    },
+    async downloadFile(filePath: string) {
+      sttDownloadCalls.push(filePath);
+      return new Uint8Array([9, 8, 7]);
+    },
+  };
+
+  let sttRpcCalls = 0;
+  const sttRpcRunner = {
+    async runPrompt() {
+      sttRpcCalls++;
+      return "should-not-run-for-voice";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  const originalFetch = globalThis.fetch;
+  const previousApiKey = process.env.ELEVENLABS_API_KEY;
+  const sttFetchCalls: Array<{ url: string; headers: Record<string, string>; body: FormData | null }> = [];
+  try {
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+
+    globalThis.fetch = (async (url: string, init?: any) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      sttFetchCalls.push({
+        url: String(url),
+        headers,
+        body: init?.body instanceof FormData ? init.body : null,
+      });
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { text: "voice transcript from ElevenLabs" };
+        },
+      } as any;
+    }) as any;
+
+    const sttRuntime = createTelegramWorkerRuntime({
+      settings,
+      client: sttClient as any,
+      rpcRunner: sttRpcRunner as any,
+      statePath: sttStatePath,
+      mapPath: sttMapPath,
+      sessionDir: sttSessionDir,
+      checkTriggerPath: join(tmp, "telegram", "check.trigger.stt.json"),
+      operatorConfigPath: join(tmp, "telegram", "config.stt.json"),
+      botUsername: "",
+      logPath: join(tmp, "telegram", "log.stt.jsonl"),
+    });
+
+    const sttResult = await sttRuntime.pollOnce(false);
+    assert(sttResult.ok === true, "stt scenario poll succeeds");
+    assert(sttResult.accepted === 1, "stt scenario accepts inbound voice update");
+    assert(sttRpcCalls === 0, "stt scenario bypasses rpc prompt runner for media updates");
+    assert(sttGetFileCalls.length === 1 && sttGetFileCalls[0] === "voice-file-telegram-1", "stt scenario resolves telegram file metadata from media file id");
+    assert(sttDownloadCalls.length === 1 && sttDownloadCalls[0] === "voice/path-from-telegram.oga", "stt scenario downloads telegram media file for transcription");
+    assert(sttFetchCalls.length === 1 && sttFetchCalls[0]?.url === "https://api.elevenlabs.io/v1/speech-to-text", "stt scenario posts media bytes to ElevenLabs STT endpoint");
+    assert(sttFetchCalls[0]?.headers?.["xi-api-key"] === "test-elevenlabs-key", "stt scenario uses ELEVENLABS_API_KEY header for STT request");
+
+    const sttBody = sttFetchCalls[0]?.body;
+    assert(sttBody instanceof FormData && sttBody.get("model_id") === "scribe_v1", "stt scenario sends model_id in multipart request");
+    assert(sttBody instanceof FormData && sttBody.get("file") instanceof Blob, "stt scenario sends binary media file in multipart request");
+
+    assert(sttSent.length === 1, "stt scenario sends transcript reply");
+    assert(sttSent[0]?.text.includes("voice transcript from ElevenLabs"), "stt scenario reply contains transcript text");
+    assert(sttActions.length >= 1, "stt scenario emits chat action while processing media");
+
+    sttRuntime.dispose();
+  } finally {
+    if (previousApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = previousApiKey;
+    }
+    globalThis.fetch = originalFetch;
+  }
+
+  console.log("\n-- inbound voice media fails gracefully when ELEVENLABS_API_KEY is missing --");
+  const sttMissingKeyStatePath = join(tmp, "telegram", "state.stt.missing-key.json");
+  const sttMissingKeyMapPath = join(tmp, "telegram", "session-map.stt.missing-key.json");
+  const sttMissingKeySessionDir = join(tmp, "sessions-stt-missing-key");
+
+  const sttMissingKeySent: Array<{ chat_id: number; text: string }> = [];
+  let sttMissingKeyRpcCalls = 0;
+  const sttMissingKeyClient = {
+    async getUpdates() {
+      return sttUpdates;
+    },
+    async sendMessage(params: { chat_id: number; text: string }) {
+      sttMissingKeySent.push({ chat_id: params.chat_id, text: params.text });
+      return { message_id: 6, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction() {
+      return true;
+    },
+    async getFile(_params: { file_id: string }) {
+      return {
+        file_id: "voice-file-telegram-1",
+        file_path: "voice/path-from-telegram.oga",
+      };
+    },
+    async downloadFile(_filePath: string) {
+      return new Uint8Array([9, 8, 7]);
+    },
+  };
+
+  const sttMissingKeyRpcRunner = {
+    async runPrompt() {
+      sttMissingKeyRpcCalls++;
+      return "should-not-run-for-voice";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  const previousMissingKeyApiKey = process.env.ELEVENLABS_API_KEY;
+  const missingKeyOriginalFetch = globalThis.fetch;
+  let missingKeyFetchCalls = 0;
+  try {
+    delete process.env.ELEVENLABS_API_KEY;
+    globalThis.fetch = (async () => {
+      missingKeyFetchCalls++;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { text: "unexpected" };
+        },
+      } as any;
+    }) as any;
+
+    const sttMissingKeyRuntime = createTelegramWorkerRuntime({
+      settings,
+      client: sttMissingKeyClient as any,
+      rpcRunner: sttMissingKeyRpcRunner as any,
+      statePath: sttMissingKeyStatePath,
+      mapPath: sttMissingKeyMapPath,
+      sessionDir: sttMissingKeySessionDir,
+      checkTriggerPath: join(tmp, "telegram", "check.trigger.stt.missing-key.json"),
+      operatorConfigPath: join(tmp, "telegram", "config.stt.missing-key.json"),
+      botUsername: "",
+      logPath: join(tmp, "telegram", "log.stt.missing-key.jsonl"),
+    });
+
+    const sttMissingKeyResult = await sttMissingKeyRuntime.pollOnce(false);
+    assert(sttMissingKeyResult.ok === true, "stt missing-key scenario poll succeeds");
+    assert(sttMissingKeyRpcCalls === 0, "stt missing-key scenario bypasses rpc prompt runner");
+    assert(missingKeyFetchCalls === 0, "stt missing-key scenario does not call ElevenLabs API without key");
+    assert(sttMissingKeySent.length === 1, "stt missing-key scenario sends user-facing failure reply");
+    assert(sttMissingKeySent[0]?.text.includes("ELEVENLABS_API_KEY"), "stt missing-key scenario reply tells operator how to fix config");
+
+    sttMissingKeyRuntime.dispose();
+  } finally {
+    if (previousMissingKeyApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = previousMissingKeyApiKey;
+    }
+    globalThis.fetch = missingKeyOriginalFetch;
+  }
+
+  console.log("\n-- /tts command generates ElevenLabs audio and sends Telegram voice reply --");
+  const ttsStatePath = join(tmp, "telegram", "state.tts.json");
+  const ttsMapPath = join(tmp, "telegram", "session-map.tts.json");
+  const ttsSessionDir = join(tmp, "sessions-tts");
+
+  const ttsUpdates = [
+    {
+      update_id: 1301,
+      message: {
+        message_id: 311,
+        from: { id: 2222 },
+        chat: { id: 1111, type: "private" as const },
+        date: 1,
+        text: "/tts hello from telegram",
+      },
+    },
+  ];
+
+  const ttsSentMessages: Array<{ chat_id: number; text: string }> = [];
+  const ttsSentVoice: Array<{ chat_id: number; reply_to_message_id?: number; voice: unknown }> = [];
+  const ttsActions: Array<{ chat_id: number; action: string }> = [];
+  const ttsClient = {
+    async getUpdates() {
+      return ttsUpdates;
+    },
+    async sendMessage(params: { chat_id: number; text: string }) {
+      ttsSentMessages.push({ chat_id: params.chat_id, text: params.text });
+      return { message_id: 7, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendVoice(params: { chat_id: number; reply_to_message_id?: number; voice: unknown }) {
+      ttsSentVoice.push(params);
+      return { message_id: 8, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction(params: { chat_id: number; action: string }) {
+      ttsActions.push(params);
+      return true;
+    },
+  };
+
+  let ttsRpcCalls = 0;
+  const ttsRpcRunner = {
+    async runPrompt() {
+      ttsRpcCalls++;
+      return "should-not-run-for-tts";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  const ttsOriginalFetch = globalThis.fetch;
+  const previousTtsApiKey = process.env.ELEVENLABS_API_KEY;
+  const ttsFetchCalls: Array<{ url: string; init: any }> = [];
+  try {
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+
+    globalThis.fetch = (async (url: string, init?: any) => {
+      ttsFetchCalls.push({ url: String(url), init });
+      return {
+        ok: true,
+        status: 200,
+        async arrayBuffer() {
+          return new Uint8Array([1, 9, 9, 6]).buffer;
+        },
+      } as any;
+    }) as any;
+
+    const ttsRuntime = createTelegramWorkerRuntime({
+      settings,
+      client: ttsClient as any,
+      rpcRunner: ttsRpcRunner as any,
+      statePath: ttsStatePath,
+      mapPath: ttsMapPath,
+      sessionDir: ttsSessionDir,
+      checkTriggerPath: join(tmp, "telegram", "check.trigger.tts.json"),
+      operatorConfigPath: join(tmp, "telegram", "config.tts.json"),
+      botUsername: "",
+      logPath: join(tmp, "telegram", "log.tts.jsonl"),
+    });
+
+    const ttsResult = await ttsRuntime.pollOnce(false);
+    assert(ttsResult.ok === true, "tts scenario poll succeeds");
+    assert(ttsResult.accepted === 1, "tts scenario accepts /tts update");
+    assert(ttsRpcCalls === 0, "tts scenario bypasses rpc prompt runner");
+    assert(ttsFetchCalls.length === 1, "tts scenario calls ElevenLabs TTS endpoint");
+    assert(ttsFetchCalls[0]?.url.includes("/v1/text-to-speech/"), "tts scenario targets ElevenLabs text-to-speech API path");
+    assert(ttsFetchCalls[0]?.init?.headers?.["xi-api-key"] === "test-elevenlabs-key", "tts scenario uses ELEVENLABS_API_KEY header for TTS request");
+
+    const ttsRequestBody = JSON.parse(String(ttsFetchCalls[0]?.init?.body || "{}")) as any;
+    assert(ttsRequestBody.text === "hello from telegram", "tts scenario sends stripped /tts text payload");
+
+    assert(ttsSentVoice.length === 1, "tts scenario sends Telegram voice reply");
+    assert(ttsSentVoice[0]?.reply_to_message_id === 311, "tts scenario replies in-thread to source message");
+    assert(ttsSentVoice[0]?.voice instanceof Uint8Array, "tts scenario sends binary audio payload to Telegram sendVoice");
+    assert(ttsSentMessages.length === 0, "tts scenario does not send fallback text when media send succeeds");
+    assert(ttsActions.some((action) => action.action === "record_voice"), "tts scenario emits record_voice chat action while synthesizing audio");
+    assert(ttsActions.some((action) => action.action === "upload_voice"), "tts scenario emits upload_voice chat action while sending Telegram voice");
+
+    ttsRuntime.dispose();
+  } finally {
+    if (previousTtsApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = previousTtsApiKey;
+    }
+    globalThis.fetch = ttsOriginalFetch;
+  }
+
+  console.log("\n-- /tts command fails gracefully when ELEVENLABS_API_KEY is missing --");
+  const ttsMissingKeyStatePath = join(tmp, "telegram", "state.tts.missing-key.json");
+  const ttsMissingKeyMapPath = join(tmp, "telegram", "session-map.tts.missing-key.json");
+  const ttsMissingKeySessionDir = join(tmp, "sessions-tts-missing-key");
+
+  const ttsMissingKeyUpdates = [
+    {
+      update_id: 1302,
+      message: {
+        message_id: 312,
+        from: { id: 2222 },
+        chat: { id: 1111, type: "private" as const },
+        date: 1,
+        text: "/tts missing key case",
+      },
+    },
+  ];
+
+  const ttsMissingKeySentMessages: Array<{ chat_id: number; text: string }> = [];
+  let ttsMissingKeyVoiceSends = 0;
+  const ttsMissingKeyClient = {
+    async getUpdates() {
+      return ttsMissingKeyUpdates;
+    },
+    async sendMessage(params: { chat_id: number; text: string }) {
+      ttsMissingKeySentMessages.push({ chat_id: params.chat_id, text: params.text });
+      return { message_id: 9, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendVoice(_params: { chat_id: number; voice: unknown }) {
+      ttsMissingKeyVoiceSends++;
+      return { message_id: 10, chat: { id: 1111, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction() {
+      return true;
+    },
+  };
+
+  let ttsMissingKeyRpcCalls = 0;
+  const ttsMissingKeyRpcRunner = {
+    async runPrompt() {
+      ttsMissingKeyRpcCalls++;
+      return "should-not-run-for-tts";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  const ttsMissingKeyOriginalFetch = globalThis.fetch;
+  const previousTtsMissingApiKey = process.env.ELEVENLABS_API_KEY;
+  let ttsMissingKeyFetchCalls = 0;
+  try {
+    delete process.env.ELEVENLABS_API_KEY;
+    globalThis.fetch = (async () => {
+      ttsMissingKeyFetchCalls++;
+      return {
+        ok: true,
+        status: 200,
+        async arrayBuffer() {
+          return new Uint8Array([7, 7, 7]).buffer;
+        },
+      } as any;
+    }) as any;
+
+    const ttsMissingKeyRuntime = createTelegramWorkerRuntime({
+      settings,
+      client: ttsMissingKeyClient as any,
+      rpcRunner: ttsMissingKeyRpcRunner as any,
+      statePath: ttsMissingKeyStatePath,
+      mapPath: ttsMissingKeyMapPath,
+      sessionDir: ttsMissingKeySessionDir,
+      checkTriggerPath: join(tmp, "telegram", "check.trigger.tts.missing-key.json"),
+      operatorConfigPath: join(tmp, "telegram", "config.tts.missing-key.json"),
+      botUsername: "",
+      logPath: join(tmp, "telegram", "log.tts.missing-key.jsonl"),
+    });
+
+    const ttsMissingKeyResult = await ttsMissingKeyRuntime.pollOnce(false);
+    assert(ttsMissingKeyResult.ok === true, "tts missing-key scenario poll succeeds");
+    assert(ttsMissingKeyRpcCalls === 0, "tts missing-key scenario bypasses rpc prompt runner");
+    assert(ttsMissingKeyFetchCalls === 0, "tts missing-key scenario does not call ElevenLabs API without key");
+    assert(ttsMissingKeyVoiceSends === 0, "tts missing-key scenario does not attempt Telegram media send");
+    assert(ttsMissingKeySentMessages.length === 1, "tts missing-key scenario sends user-facing failure message");
+    assert(ttsMissingKeySentMessages[0]?.text.includes("ELEVENLABS_API_KEY"), "tts missing-key scenario reply explains missing API key fix");
+
+    ttsMissingKeyRuntime.dispose();
+  } finally {
+    if (previousTtsMissingApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = previousTtsMissingApiKey;
+    }
+    globalThis.fetch = ttsMissingKeyOriginalFetch;
+  }
+
+  console.log("\n-- /tts media send failures fall back to text reply --");
+  const ttsSendFailureStatePath = join(tmp, "telegram", "state.tts.send-failure.json");
+  const ttsSendFailureMapPath = join(tmp, "telegram", "session-map.tts.send-failure.json");
+  const ttsSendFailureSessionDir = join(tmp, "sessions-tts-send-failure");
+
+  const ttsSendFailureUpdates = [
+    {
+      update_id: 1303,
+      message: {
+        message_id: 313,
+        from: { id: 2222 },
+        chat: { id: 1111, type: "private" as const },
+        date: 1,
+        text: "/tts media send failure",
+      },
+    },
+  ];
+
+  const ttsSendFailureMessages: Array<{ chat_id: number; text: string }> = [];
+  let ttsSendFailureVoiceCalls = 0;
+  const ttsSendFailureClient = {
+    async getUpdates() {
+      return ttsSendFailureUpdates;
+    },
+    async sendMessage(params: { chat_id: number; text: string }) {
+      ttsSendFailureMessages.push({ chat_id: params.chat_id, text: params.text });
+      return { message_id: 11, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendVoice(_params: { chat_id: number; voice: unknown }) {
+      ttsSendFailureVoiceCalls++;
+      throw new TelegramApiError("Bad Request: voice upload rejected", 400);
+    },
+    async sendChatAction() {
+      return true;
+    },
+  };
+
+  const ttsSendFailureRpcRunner = {
+    async runPrompt() {
+      return "should-not-run-for-tts";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  const ttsSendFailureOriginalFetch = globalThis.fetch;
+  const previousTtsSendFailureApiKey = process.env.ELEVENLABS_API_KEY;
+  try {
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    globalThis.fetch = (async () => {
+      return {
+        ok: true,
+        status: 200,
+        async arrayBuffer() {
+          return new Uint8Array([1, 2, 3, 4]).buffer;
+        },
+      } as any;
+    }) as any;
+
+    const ttsSendFailureRuntime = createTelegramWorkerRuntime({
+      settings,
+      client: ttsSendFailureClient as any,
+      rpcRunner: ttsSendFailureRpcRunner as any,
+      statePath: ttsSendFailureStatePath,
+      mapPath: ttsSendFailureMapPath,
+      sessionDir: ttsSendFailureSessionDir,
+      checkTriggerPath: join(tmp, "telegram", "check.trigger.tts.send-failure.json"),
+      operatorConfigPath: join(tmp, "telegram", "config.tts.send-failure.json"),
+      botUsername: "",
+      logPath: join(tmp, "telegram", "log.tts.send-failure.jsonl"),
+    });
+
+    const ttsSendFailureResult = await ttsSendFailureRuntime.pollOnce(false);
+    assert(ttsSendFailureResult.ok === true, "tts send-failure scenario poll succeeds");
+    assert(ttsSendFailureVoiceCalls === 1, "tts send-failure scenario attempts Telegram voice send");
+    assert(ttsSendFailureMessages.length === 1, "tts send-failure scenario emits text fallback reply");
+    assert(ttsSendFailureMessages[0]?.text.toLowerCase().includes("voice"), "tts send-failure scenario fallback message mentions voice send failure");
+
+    ttsSendFailureRuntime.dispose();
+  } finally {
+    if (previousTtsSendFailureApiKey === undefined) {
+      delete process.env.ELEVENLABS_API_KEY;
+    } else {
+      process.env.ELEVENLABS_API_KEY = previousTtsSendFailureApiKey;
+    }
+    globalThis.fetch = ttsSendFailureOriginalFetch;
+  }
+
   failingRuntime.dispose();
   runtime.dispose();
 } finally {

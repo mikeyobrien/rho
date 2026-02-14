@@ -8,6 +8,8 @@ Rho includes a polling-first Telegram adapter (`extensions/telegram`) that maps 
 - Normalizes inbound messages and applies authz gates
 - Maps chat -> session deterministically (`dm:<chat_id>`, `group:<chat_id>`)
 - Runs prompts through rho RPC (`pi --mode rpc`)
+- Transcribes inbound `voice` / `audio` / audio-document messages via ElevenLabs STT
+- Supports `/tts <text>` to generate and return Telegram voice replies via ElevenLabs TTS
 - Sends responses back with chunking + retry/backoff
 - Exposes operator controls via tool + `/telegram` command
 - Follows shared slash RPC contract (`docs/slash-command-contract.md`) for classification, execution, and errors
@@ -43,6 +45,28 @@ Apply config:
 ```bash
 rho sync
 ```
+
+## ElevenLabs media features (STT + /tts)
+
+Set an ElevenLabs API key for voice features:
+
+```bash
+export ELEVENLABS_API_KEY="<your-elevenlabs-key>"
+```
+
+Optional TTS voice override (default is ElevenLabs voice `EXAVITQu4vr4xnSDxMaL`):
+
+```bash
+export ELEVENLABS_TTS_VOICE_ID="<voice-id>"
+# or legacy alias:
+export ELEVENLABS_VOICE_ID="<voice-id>"
+```
+
+Behavior:
+
+- Inbound `voice`, `audio`, and `document` messages with `audio/*` MIME type are transcribed and replied to with text.
+- `/tts <text>` generates a playable Telegram voice reply.
+- Missing key or API failures return actionable in-chat error text instead of crashing the worker.
 
 ## Worker lifecycle (important)
 
@@ -149,5 +173,7 @@ Expected output:
 ## Known limits (MVP)
 
 - Polling mode only (webhook deferred)
-- Text-first outbound rendering
+- Text-first outbound rendering (except `/tts` voice replies)
+- STT/TTS depend on ElevenLabs availability and API quotas
+- `/tts` currently uses a single configured/default ElevenLabs voice
 - Operator controls optimized for single-agent runtime

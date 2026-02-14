@@ -1,6 +1,17 @@
 import type { TelegramMessage, TelegramUpdate } from "./api.ts";
 import type { TelegramSettings } from "./lib.ts";
 
+export type TelegramInboundMediaKind = "voice" | "audio" | "document_audio";
+
+export interface TelegramInboundMedia {
+  kind: TelegramInboundMediaKind;
+  fileId: string;
+  mimeType?: string;
+  fileName?: string;
+  durationSeconds?: number;
+  fileSize?: number;
+}
+
 export interface TelegramInboundEnvelope {
   updateId: number;
   chatId: number;
@@ -8,15 +19,53 @@ export interface TelegramInboundEnvelope {
   userId: number | null;
   messageId: number;
   text: string;
+  media?: TelegramInboundMedia;
   replyToMessageId?: number;
   isReplyToBot: boolean;
+}
+
+function extractInboundMedia(message: TelegramMessage): TelegramInboundMedia | undefined {
+  if (message.voice?.file_id) {
+    return {
+      kind: "voice",
+      fileId: message.voice.file_id,
+      mimeType: message.voice.mime_type,
+      durationSeconds: typeof message.voice.duration === "number" ? message.voice.duration : undefined,
+      fileSize: typeof message.voice.file_size === "number" ? message.voice.file_size : undefined,
+    };
+  }
+
+  if (message.audio?.file_id) {
+    return {
+      kind: "audio",
+      fileId: message.audio.file_id,
+      mimeType: message.audio.mime_type,
+      fileName: message.audio.file_name,
+      durationSeconds: typeof message.audio.duration === "number" ? message.audio.duration : undefined,
+      fileSize: typeof message.audio.file_size === "number" ? message.audio.file_size : undefined,
+    };
+  }
+
+  if (message.document?.file_id && message.document.mime_type?.toLowerCase().startsWith("audio/")) {
+    return {
+      kind: "document_audio",
+      fileId: message.document.file_id,
+      mimeType: message.document.mime_type,
+      fileName: message.document.file_name,
+      fileSize: typeof message.document.file_size === "number" ? message.document.file_size : undefined,
+    };
+  }
+
+  return undefined;
 }
 
 export function normalizeInboundUpdate(update: TelegramUpdate): TelegramInboundEnvelope | null {
   const message = update.message ?? update.edited_message;
   if (!message) return null;
+
   const text = (message.text || message.caption || "").trim();
-  if (!text) return null;
+  const media = extractInboundMedia(message);
+  if (!text && !media) return null;
 
   return {
     updateId: update.update_id,
@@ -25,6 +74,7 @@ export function normalizeInboundUpdate(update: TelegramUpdate): TelegramInboundE
     userId: typeof message.from?.id === "number" ? message.from.id : null,
     messageId: message.message_id,
     text,
+    media,
     replyToMessageId: message.reply_to_message?.message_id,
     isReplyToBot: message.reply_to_message?.from?.is_bot === true,
   };
