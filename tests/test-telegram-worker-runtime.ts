@@ -82,6 +82,8 @@ try {
     mode: "polling",
     botTokenEnv: "TELEGRAM_BOT_TOKEN",
     pollTimeoutSeconds: 1,
+    rpcPromptTimeoutSeconds: 1,
+    backgroundPromptTimeoutSeconds: 5,
     allowedChatIds: [1111],
     allowedUserIds: [2222],
     requireMentionInGroups: false,
@@ -111,6 +113,87 @@ try {
   assert(snapshot.runtimeState.last_update_id === 502, "runtime state advances update offset");
   assert(snapshot.pendingInbound === 0, "inbound queue drained");
   assert(snapshot.pendingOutbound === 0, "outbound queue drained");
+
+  console.log("\n-- prompt timeout defers to background and posts completion --");
+  const deferStatePath = join(tmp, "telegram", "state.defer.json");
+  const deferMapPath = join(tmp, "telegram", "session-map.defer.json");
+  const deferSessionDir = join(tmp, "sessions-defer");
+
+  const deferUpdates = [
+    {
+      update_id: 801,
+      message: {
+        message_id: 95,
+        from: { id: 2222 },
+        chat: { id: 1111, type: "private" as const },
+        date: 1,
+        text: "run long horizon task",
+      },
+    },
+  ];
+
+  let deferGetUpdatesCalls = 0;
+  const deferSent: Array<{ chat_id: number; text: string }> = [];
+  const deferClient = {
+    async getUpdates() {
+      deferGetUpdatesCalls++;
+      return deferGetUpdatesCalls === 1 ? deferUpdates : [];
+    },
+    async sendMessage(params: { chat_id: number; text: string }) {
+      deferSent.push({ chat_id: params.chat_id, text: params.text });
+      return { message_id: 1, chat: { id: params.chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction() {
+      return true;
+    },
+  };
+
+  const deferCalls: Array<{ message: string; timeoutMs: number | undefined }> = [];
+  const deferRpcRunner = {
+    async runPrompt(_sessionFile: string, message: string, timeoutMs?: number) {
+      deferCalls.push({ message, timeoutMs });
+      if ((timeoutMs ?? 0) <= 1000) {
+        throw new Error("RPC prompt timed out after 1s");
+      }
+      return "background result";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  const deferRuntime = createTelegramWorkerRuntime({
+    settings,
+    client: deferClient as any,
+    rpcRunner: deferRpcRunner as any,
+    statePath: deferStatePath,
+    mapPath: deferMapPath,
+    sessionDir: deferSessionDir,
+    checkTriggerPath: join(tmp, "telegram", "check.trigger.defer.json"),
+    operatorConfigPath: join(tmp, "telegram", "config.defer.json"),
+    botUsername: "tau_rhobot",
+    logPath: join(tmp, "telegram", "log.defer.jsonl"),
+  });
+
+  const deferResult = await deferRuntime.pollOnce(false);
+  assert(deferResult.ok === true, "defer scenario poll succeeds");
+  assert(deferResult.accepted === 1, "defer scenario accepts inbound update");
+
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  assert(
+    deferSent.some((item) => item.text.includes("continue in the background")),
+    "defer scenario sends immediate background acknowledgement",
+  );
+  assert(
+    deferSent.some((item) => item.text.includes("Background task finished") && item.text.includes("background result")),
+    "defer scenario posts background completion",
+  );
+  assert(deferCalls.length === 2, "defer scenario runs foreground attempt then background attempt");
+  assert((deferCalls[0]?.timeoutMs ?? 0) === 1000, "defer scenario foreground timeout uses rpc_prompt_timeout_seconds");
+  assert((deferCalls[1]?.timeoutMs ?? 0) === 5000, "defer scenario background timeout uses background_prompt_timeout_seconds");
+  assert(deferRuntime.getSnapshot().pendingBackground === 0, "defer scenario drains background queue after completion");
+  deferRuntime.dispose();
 
   console.log("\n-- /new resets chat session without calling RPC --");
   const resetStatePath = join(tmp, "telegram", "state.reset.json");

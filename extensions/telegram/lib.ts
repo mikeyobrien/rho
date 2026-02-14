@@ -17,6 +17,8 @@ export interface TelegramSettings {
   mode: "polling" | "webhook";
   botTokenEnv: string;
   pollTimeoutSeconds: number;
+  rpcPromptTimeoutSeconds: number;
+  backgroundPromptTimeoutSeconds: number;
   allowedChatIds: number[];
   allowedUserIds: number[];
   requireMentionInGroups: boolean;
@@ -38,6 +40,8 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
   mode: "polling",
   botTokenEnv: "TELEGRAM_BOT_TOKEN",
   pollTimeoutSeconds: 30,
+  rpcPromptTimeoutSeconds: 60,
+  backgroundPromptTimeoutSeconds: 900,
   allowedChatIds: [],
   allowedUserIds: [],
   requireMentionInGroups: true,
@@ -75,6 +79,14 @@ export function readTelegramSettings(initPath: string = INIT_TOML): TelegramSett
       pollTimeoutSeconds: typeof telegram.poll_timeout_seconds === "number" && telegram.poll_timeout_seconds > 0
         ? Math.floor(telegram.poll_timeout_seconds)
         : DEFAULT_SETTINGS.pollTimeoutSeconds,
+      rpcPromptTimeoutSeconds:
+        typeof telegram.rpc_prompt_timeout_seconds === "number" && telegram.rpc_prompt_timeout_seconds > 0
+          ? Math.floor(telegram.rpc_prompt_timeout_seconds)
+          : DEFAULT_SETTINGS.rpcPromptTimeoutSeconds,
+      backgroundPromptTimeoutSeconds:
+        typeof telegram.background_prompt_timeout_seconds === "number" && telegram.background_prompt_timeout_seconds > 0
+          ? Math.floor(telegram.background_prompt_timeout_seconds)
+          : DEFAULT_SETTINGS.backgroundPromptTimeoutSeconds,
       allowedChatIds: toNumberArray(telegram.allowed_chat_ids),
       allowedUserIds: toNumberArray(telegram.allowed_user_ids),
       requireMentionInGroups:

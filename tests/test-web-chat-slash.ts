@@ -46,11 +46,14 @@ console.log("-- command index + supported classification --");
   });
   const index = contract.buildCommandIndex(commands);
   const supported = contract.classifySlashCommand("/review this file", index);
+  const mentionQualified = contract.classifySlashCommand("/review@my_bot this file", index);
 
   assertEq(commands.length, 2, "normalizes command payload entries");
   assertEq(supported.kind, "supported", "supported command classified as supported");
   assertEq(supported.commandName, "review", "extracts slash command name");
   assertEq(supported.commandSource, "extension", "keeps command source for queue semantics");
+  assertEq(mentionQualified.kind, "supported", "mention-qualified slash command remains supported");
+  assertEq(mentionQualified.commandName, "review", "mention-qualified slash command strips @bot target");
 }
 
 console.log("\n-- unsupported and interactive-only guardrails --");

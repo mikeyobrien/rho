@@ -58,7 +58,8 @@ export function parseSlashInput(message: unknown): SlashParseResult {
 
   const body = trimmed.slice(1);
   const commandToken = body.split(/\s+/, 1)[0] ?? "";
-  const commandName = normalizeCommandName(commandToken);
+  const commandTokenWithoutTarget = commandToken.split("@", 1)[0] ?? "";
+  const commandName = normalizeCommandName(commandTokenWithoutTarget);
 
   if (!commandName) {
     return {

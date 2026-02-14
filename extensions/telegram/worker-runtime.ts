@@ -31,7 +31,7 @@ export interface TelegramClientLike {
 }
 
 export interface TelegramRpcRunnerLike {
-  runPrompt(sessionFile: string, message: string): Promise<string>;
+  runPrompt(sessionFile: string, message: string, timeoutMs?: number): Promise<string>;
   dispose(): void;
 }
 
@@ -62,6 +62,7 @@ export interface TelegramWorkerSnapshot {
   runtimeState: TelegramRuntimeState;
   pendingInbound: number;
   pendingOutbound: number;
+  pendingBackground: number;
   sendFailures: number;
   lastCheckConsumeAt: number | null;
   lastCheckOutcome: "ok" | "error" | null;
@@ -95,6 +96,19 @@ type PendingOutboundItem = {
   text: string;
   attempts: number;
   notBeforeMs: number;
+};
+
+type PendingBackgroundItem = {
+  id: string;
+  updateId: number;
+  chatId: number;
+  userId: number | null;
+  messageId: number;
+  sessionKey: string;
+  sessionFile: string;
+  promptText: string;
+  createdAtMs: number;
+  startedAtMs: number | null;
 };
 
 function ensureJsonFile(path: string): void {
@@ -149,12 +163,42 @@ function loadOutboundQueue(path: string): PendingOutboundItem[] {
   }
 }
 
+function loadBackgroundQueue(path: string): PendingBackgroundItem[] {
+  ensureJsonFile(path);
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter((item): item is PendingBackgroundItem => {
+      if (!item || typeof item !== "object") return false;
+      const candidate = item as Record<string, unknown>;
+      return typeof candidate.id === "string"
+        && typeof candidate.updateId === "number"
+        && typeof candidate.chatId === "number"
+        && (typeof candidate.userId === "number" || candidate.userId === null)
+        && typeof candidate.messageId === "number"
+        && typeof candidate.sessionKey === "string"
+        && typeof candidate.sessionFile === "string"
+        && typeof candidate.promptText === "string"
+        && typeof candidate.createdAtMs === "number"
+        && (typeof candidate.startedAtMs === "number" || candidate.startedAtMs === null);
+    });
+  } catch {
+    return [];
+  }
+}
+
 function saveInboundQueue(path: string, queue: PendingInboundItem[]): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(queue, null, 2));
 }
 
 function saveOutboundQueue(path: string, queue: PendingOutboundItem[]): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(queue, null, 2));
+}
+
+function saveBackgroundQueue(path: string, queue: PendingBackgroundItem[]): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(queue, null, 2));
 }
@@ -170,20 +214,36 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
   const telegramDir = dirname(statePath);
   const inboundQueuePath = join(telegramDir, "inbound.queue.json");
   const outboundQueuePath = join(telegramDir, "outbound.queue.json");
+  const backgroundQueuePath = join(telegramDir, "background.queue.json");
   const checkTriggerPath = options.checkTriggerPath ?? TELEGRAM_CHECK_TRIGGER_PATH;
   const logPath = options.logPath;
   const strictAllowlist = true;
+  const foregroundPromptTimeoutMs = Math.max(1, settings.rpcPromptTimeoutSeconds) * 1000;
+  const backgroundPromptTimeoutMs = Math.max(
+    foregroundPromptTimeoutMs,
+    Math.max(1, settings.backgroundPromptTimeoutSeconds) * 1000,
+  );
 
   let runtimeState: TelegramRuntimeState = loadRuntimeState(statePath);
   let pendingInbound: PendingInboundItem[] = loadInboundQueue(inboundQueuePath);
   let pendingOutbound: PendingOutboundItem[] = loadOutboundQueue(outboundQueuePath);
+  let pendingBackground: PendingBackgroundItem[] = loadBackgroundQueue(backgroundQueuePath).map((item) => ({
+    ...item,
+    startedAtMs: null,
+  }));
   let drainingInbound = false;
+  let flushingOutbound = false;
   let pollInFlight = false;
+  let backgroundPumpInFlight = false;
+  let disposed = false;
   let consecutiveSendFailures = 0;
   let checkTriggerSeenMtimeMs = 0;
   let lastCheckConsumeAt: number | null = runtimeState.last_check_consume_at;
   let lastCheckOutcome: "ok" | "error" | null = runtimeState.last_check_outcome;
   let lastCheckRequesterPid: number | null = runtimeState.last_check_requester_pid;
+
+  const activeBackgroundBySession = new Set<string>();
+  const activeBackgroundById = new Set<string>();
 
   const logEvent = (event: string, context: TelegramLogContext = {}, extra: Record<string, unknown> = {}) => {
     if (options.logEvent) {
@@ -226,6 +286,10 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     saveOutboundQueue(outboundQueuePath, pendingOutbound);
   };
 
+  const persistBackgroundQueue = () => {
+    saveBackgroundQueue(backgroundQueuePath, pendingBackground);
+  };
+
   const withTypingIndicator = async <T>(chatId: number, work: () => Promise<T>): Promise<T> => {
     if (!client) return await work();
 
@@ -259,6 +323,51 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     return `⚠️ Failed to run prompt: ${message}`;
   };
 
+  const isPromptTimeoutError = (rawMessage: string): boolean => {
+    const message = String(rawMessage || "");
+    return /rpc prompt timed out/i.test(message);
+  };
+
+  const shouldDeferPromptToBackground = (promptText: string, rawMessage: string): boolean => {
+    if (parseSlashInput(promptText).isSlash) return false;
+    return isPromptTimeoutError(rawMessage);
+  };
+
+  const backgroundDeferAcknowledgement = "⏳ This may take a while. I’ll continue in the background and post results here.";
+
+  const normalizeSlashMention = (text: string): string => {
+    const trimmed = String(text || "").trim();
+    if (!trimmed.startsWith("/")) return text;
+
+    const token = trimmed.split(/\s+/, 1)[0] || "";
+    const match = token.match(/^\/([a-z0-9:_-]+)@([a-z0-9_]+)$/i);
+    if (!match) return text;
+
+    if (!botUsername) return text;
+    if (match[2].toLowerCase() !== botUsername.toLowerCase()) return text;
+
+    const rest = trimmed.slice(token.length);
+    return `/${match[1]}${rest}`;
+  };
+
+  const enqueueBackgroundPrompt = (item: PendingInboundItem, promptText: string): PendingBackgroundItem => {
+    const queued: PendingBackgroundItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      updateId: item.updateId,
+      chatId: item.chatId,
+      userId: item.userId,
+      messageId: item.messageId,
+      sessionKey: item.sessionKey,
+      sessionFile: item.sessionFile,
+      promptText,
+      createdAtMs: Date.now(),
+      startedAtMs: null,
+    };
+    pendingBackground.push(queued);
+    persistBackgroundQueue();
+    return queued;
+  };
+
   const isNewSessionCommand = (text: string): boolean => {
     const token = String(text || "").trim().split(/\s+/, 1)[0]?.toLowerCase() || "";
     if (!token.startsWith("/new")) return false;
@@ -273,18 +382,129 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
   const newSessionAcknowledgement = "🆕 Started a new session for this chat.";
 
+  const pumpBackgroundQueue = async () => {
+    if (backgroundPumpInFlight || disposed) return;
+    backgroundPumpInFlight = true;
+
+    try {
+      for (const item of pendingBackground) {
+        if (disposed) break;
+        if (activeBackgroundById.has(item.id)) continue;
+        if (activeBackgroundBySession.has(item.sessionKey)) continue;
+
+        activeBackgroundById.add(item.id);
+        activeBackgroundBySession.add(item.sessionKey);
+        item.startedAtMs = Date.now();
+        persistBackgroundQueue();
+
+        logEvent(
+          "rpc_prompt_background_started",
+          {
+            updateId: item.updateId,
+            chatId: item.chatId,
+            userId: item.userId,
+            messageId: item.messageId,
+            sessionKey: item.sessionKey,
+            sessionFile: item.sessionFile,
+          },
+          {
+            timeout_ms: backgroundPromptTimeoutMs,
+            prompt_preview: item.promptText.slice(0, 160),
+          },
+        );
+
+        void (async () => {
+          try {
+            const response = await withTypingIndicator(
+              item.chatId,
+              () => rpcRunner.runPrompt(item.sessionFile, item.promptText, backgroundPromptTimeoutMs),
+            );
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              text: response
+                ? `✅ Background task finished.\n\n${response}`
+                : "✅ Background task finished.\n\n(No response)",
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "rpc_prompt_background_ok",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                response_length: response.length,
+              },
+            );
+          } catch (error) {
+            const msg = (error as Error)?.message || String(error);
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              text: formatPromptFailureText(item.promptText, msg),
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "rpc_prompt_background_error",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                error: msg,
+              },
+            );
+          } finally {
+            activeBackgroundById.delete(item.id);
+            activeBackgroundBySession.delete(item.sessionKey);
+            pendingBackground = pendingBackground.filter((candidate) => candidate.id !== item.id);
+            persistBackgroundQueue();
+            persistOutboundQueue();
+            await flushOutboundQueue();
+            await drainInboundQueue();
+            void pumpBackgroundQueue();
+          }
+        })();
+      }
+    } finally {
+      backgroundPumpInFlight = false;
+    }
+  };
+
   const drainInboundQueue = async () => {
     if (drainingInbound) return;
     drainingInbound = true;
     try {
+      if (pendingInbound.length === 0) {
+        await pumpBackgroundQueue();
+        return;
+      }
+
+      const deferred: PendingInboundItem[] = [];
       while (pendingInbound.length > 0) {
-        const item = pendingInbound[0]!;
-        const promptText = item.text;
+        const item = pendingInbound.shift()!;
+        if (activeBackgroundBySession.has(item.sessionKey)) {
+          deferred.push(item);
+          continue;
+        }
+
+        const promptText = normalizeSlashMention(item.text);
 
         try {
           const response = await withTypingIndicator(
             item.chatId,
-            () => rpcRunner.runPrompt(item.sessionFile, promptText),
+            () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs),
           );
           pendingOutbound.push({
             chatId: item.chatId,
@@ -307,40 +527,72 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           );
         } catch (error) {
           const msg = (error as Error)?.message || String(error);
-          pendingOutbound.push({
-            chatId: item.chatId,
-            replyToMessageId: item.messageId,
-            text: formatPromptFailureText(promptText, msg),
-            attempts: 0,
-            notBeforeMs: 0,
-          });
-          logEvent(
-            "rpc_prompt_error",
-            {
-              updateId: item.updateId,
+
+          if (shouldDeferPromptToBackground(promptText, msg)) {
+            const queued = enqueueBackgroundPrompt(item, promptText);
+            pendingOutbound.push({
               chatId: item.chatId,
-              userId: item.userId,
-              messageId: item.messageId,
-              sessionKey: item.sessionKey,
-              sessionFile: item.sessionFile,
-            },
-            { error: msg },
-          );
+              replyToMessageId: item.messageId,
+              text: backgroundDeferAcknowledgement,
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "rpc_prompt_deferred_background",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                background_id: queued.id,
+                timeout_ms: foregroundPromptTimeoutMs,
+                error: msg,
+              },
+            );
+          } else {
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              text: formatPromptFailureText(promptText, msg),
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "rpc_prompt_error",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              { error: msg },
+            );
+          }
         }
 
-        pendingInbound.shift();
-        persistInboundQueue();
         persistOutboundQueue();
       }
+
+      pendingInbound = deferred;
+      persistInboundQueue();
+      await pumpBackgroundQueue();
     } finally {
       drainingInbound = false;
     }
   };
 
   const flushOutboundQueue = async () => {
-    if (!client) return;
+    if (!client || flushingOutbound) return;
+    flushingOutbound = true;
 
-    let index = 0;
+    try {
+      let index = 0;
     while (index < pendingOutbound.length) {
       const item = pendingOutbound[index]!;
       if (item.notBeforeMs > Date.now()) {
@@ -456,6 +708,9 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
       if (retryScheduled) {
         index += 1;
       }
+    }
+    } finally {
+      flushingOutbound = false;
     }
   };
 
@@ -590,6 +845,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
       await drainInboundQueue();
       await flushOutboundQueue();
+      await pumpBackgroundQueue();
 
       logEvent("poll_ok", {}, {
         updates: updates.length,
@@ -598,6 +854,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
         last_update_id: runtimeState.last_update_id,
         poll_failures: runtimeState.consecutive_failures,
         send_failures: consecutiveSendFailures,
+        background_pending: pendingBackground.length,
       });
 
       if (!silent) {
@@ -681,6 +938,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     runtimeState,
     pendingInbound: pendingInbound.length,
     pendingOutbound: pendingOutbound.length,
+    pendingBackground: pendingBackground.length,
     sendFailures: consecutiveSendFailures,
     lastCheckConsumeAt,
     lastCheckOutcome,
@@ -688,6 +946,9 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
   });
 
   const dispose = () => {
+    disposed = true;
+    activeBackgroundById.clear();
+    activeBackgroundBySession.clear();
     rpcRunner.dispose();
   };
 

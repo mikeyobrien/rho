@@ -51,7 +51,7 @@ console.log("-- parity: slash classification decisions --");
   const webIndex = webContract.buildCommandIndex(inventory);
   const telegramIndex = buildTelegramCommandIndex(inventory);
 
-  const inputs = ["/telegram status", "/settings", "/nope"];
+  const inputs = ["/telegram status", "/telegram@tau_rhobot status", "/settings", "/nope"];
   for (const input of inputs) {
     const web = webContract.classifySlashCommand(input, webIndex);
     const telegram = classifyTelegramSlash(input, telegramIndex);

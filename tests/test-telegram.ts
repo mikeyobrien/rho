@@ -61,6 +61,8 @@ try {
     assert(settings.mode === "polling", "mode defaults polling");
     assert(settings.botTokenEnv === "TELEGRAM_BOT_TOKEN", "default token env");
     assert(settings.pollTimeoutSeconds === 30, "default poll timeout");
+    assert(settings.rpcPromptTimeoutSeconds === 60, "default rpc prompt timeout");
+    assert(settings.backgroundPromptTimeoutSeconds === 900, "default background prompt timeout");
     assert(settings.requireMentionInGroups === true, "default group mention requirement");
   }
 
@@ -75,6 +77,8 @@ try {
         "mode = \"webhook\"",
         "bot_token_env = \"TG_BOT\"",
         "poll_timeout_seconds = 45",
+        "rpc_prompt_timeout_seconds = 55",
+        "background_prompt_timeout_seconds = 600",
         "allowed_chat_ids = [123, 456]",
         "allowed_user_ids = [42]",
         "require_mention_in_groups = false",
@@ -86,6 +90,8 @@ try {
     assert(settings.mode === "webhook", "mode parsed");
     assert(settings.botTokenEnv === "TG_BOT", "token env parsed");
     assert(settings.pollTimeoutSeconds === 45, "poll timeout parsed");
+    assert(settings.rpcPromptTimeoutSeconds === 55, "rpc prompt timeout parsed");
+    assert(settings.backgroundPromptTimeoutSeconds === 600, "background prompt timeout parsed");
     assert(settings.allowedChatIds.length === 2, "chat ids parsed");
     assert(settings.allowedUserIds.length === 1, "user ids parsed");
     assert(settings.requireMentionInGroups === false, "group mention flag parsed");
@@ -218,6 +224,8 @@ try {
       mode: "polling",
       botTokenEnv: "TELEGRAM_BOT_TOKEN",
       pollTimeoutSeconds: 30,
+      rpcPromptTimeoutSeconds: 60,
+      backgroundPromptTimeoutSeconds: 900,
       allowedChatIds: [777],
       allowedUserIds: [42],
       requireMentionInGroups: true,
@@ -728,6 +736,9 @@ try {
     const supported = await runner.runPrompt("/tmp/fake-inventory-session.jsonl", "/telegram status", 300);
     assert(supported.includes("/telegram"), "supported slash command runs via prompt with deterministic ack");
 
+    const mentionQualified = await runner.runPrompt("/tmp/fake-inventory-session.jsonl", "/telegram@tau_rhobot status", 300);
+    assert(mentionQualified.includes("/telegram status"), "mention-qualified slash command normalizes to canonical command");
+
     let interactiveRejected = false;
     try {
       await runner.runPrompt("/tmp/fake-inventory-session.jsonl", "/settings", 300);
@@ -735,7 +746,7 @@ try {
       interactiveRejected = String((error as Error)?.message || "").includes("interactive TUI");
     }
     assert(interactiveRejected, "interactive-only slash command is rejected before prompt execution");
-    assert(promptCount === 1, "interactive-only slash rejection does not send prompt RPC command");
+    assert(promptCount === 2, "interactive-only slash rejection does not send prompt RPC command");
 
     runner.dispose();
   }
@@ -1224,6 +1235,8 @@ try {
       mode: "polling",
       botTokenEnv: "TELEGRAM_BOT_TOKEN",
       pollTimeoutSeconds: 30,
+      rpcPromptTimeoutSeconds: 60,
+      backgroundPromptTimeoutSeconds: 900,
       allowedChatIds: [777],
       allowedUserIds: [42],
       requireMentionInGroups: true,

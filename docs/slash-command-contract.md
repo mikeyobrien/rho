@@ -10,7 +10,7 @@ Applies to:
 
 ## Decision model
 
-1. Parse inbound text as slash/non-slash.
+1. Parse inbound text as slash/non-slash (including Telegram `/<command>@<bot>` forms; `@<bot>` is stripped for classification/execution).
 2. If slash, classify using RPC `get_commands` inventory and interactive-only built-ins list.
 3. Route supported slash commands through RPC `prompt`.
 4. Reject unsupported/interactive-only slash commands with actionable user guidance.

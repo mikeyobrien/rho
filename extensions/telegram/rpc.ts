@@ -71,6 +71,17 @@ function formatStderrSuffix(lines: string[]): string {
   return `\nRPC stderr:\n${joined}`;
 }
 
+function normalizeSlashPromptForRpc(message: string): string {
+  const parsed = parseSlashInput(message);
+  if (!parsed.isSlash || !parsed.commandName) return message;
+
+  const token = parsed.trimmed.split(/\s+/, 1)[0] ?? "";
+  if (!token.includes("@")) return message;
+
+  const rest = parsed.trimmed.slice(token.length);
+  return `/${parsed.commandName}${rest}`;
+}
+
 export class TelegramRpcRunner {
   private readonly sessions = new Map<string, RpcSessionState>();
   private readonly spawnProcess: typeof spawn;
@@ -87,7 +98,8 @@ export class TelegramRpcRunner {
       throw new Error(`RPC session busy for ${sessionFile}`);
     }
 
-    const slashClassification = await this.classifySlashPrompt(session, message, timeoutMs);
+    const normalizedMessage = normalizeSlashPromptForRpc(message);
+    const slashClassification = await this.classifySlashPrompt(session, normalizedMessage, timeoutMs);
     if (slashClassification && slashClassification.kind !== "supported") {
       throw new Error(formatUnsupportedMessage(slashClassification));
     }
@@ -107,15 +119,15 @@ export class TelegramRpcRunner {
         reject,
         timer,
         requestId,
-        inputMessage: message,
-        isSlashCommand: parseSlashInput(message).isSlash,
+        inputMessage: normalizedMessage,
+        isSlashCommand: parseSlashInput(normalizedMessage).isSlash,
         sawPromptResponse: false,
         sawAgentEnd: false,
         lastAssistantText: "",
         stderrLines: [],
       };
 
-      this.sendCommand(session, { id: requestId, type: "prompt", message });
+      this.sendCommand(session, { id: requestId, type: "prompt", message: normalizedMessage });
     });
   }
 

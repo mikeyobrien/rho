@@ -25,6 +25,8 @@ enabled = true
 mode = "polling"
 bot_token_env = "TELEGRAM_BOT_TOKEN"
 poll_timeout_seconds = 30
+rpc_prompt_timeout_seconds = 60
+background_prompt_timeout_seconds = 900
 allowed_chat_ids = []
 allowed_user_ids = []
 require_mention_in_groups = true
@@ -96,6 +98,21 @@ Tool action interface (`telegram` tool):
 - `allow` / `revoke` (`target=chat|user`, `id`)
 - `list_chats`
 
+## Long prompt handling
+
+Telegram keeps a foreground RPC timeout (`rpc_prompt_timeout_seconds`) so one stuck prompt cannot block the queue forever.
+
+If a non-slash prompt hits that timeout, the worker:
+
+1. sends an immediate acknowledgement,
+2. continues the prompt in a durable background queue,
+3. posts the final result in-thread when complete.
+
+Tune with:
+
+- `rpc_prompt_timeout_seconds` (default `60`)
+- `background_prompt_timeout_seconds` (default `900`)
+
 ## Security model
 
 - Default-off transport (`settings.telegram.enabled = false`)
@@ -111,6 +128,7 @@ Tool action interface (`telegram` tool):
 - `~/.rho/telegram/config.json` (runtime allow/revoke overrides)
 - `~/.rho/telegram/inbound.queue.json` (durable inbound queue)
 - `~/.rho/telegram/outbound.queue.json` (durable outbound queue)
+- `~/.rho/telegram/background.queue.json` (durable deferred prompt queue)
 - `~/.rho/telegram/pending-approvals.json` (approval requests)
 
 ## Smoke test
