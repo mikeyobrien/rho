@@ -32,3 +32,6 @@ skills/*/
 !skills/vault-clean/
 !skills/soul-update/
 .worktrees/
+
+# Local SOP planning artifacts
+.agents/scratchpad/
