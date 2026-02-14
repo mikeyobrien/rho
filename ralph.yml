@@ -32,7 +32,7 @@ event_loop:
 cli:
   backend: "pi"
   prompt_mode: "arg"
-  args: ["--provider", "openai-codex", "--model", "gpt-5.2-codex", "--thinking", "high"]
+  args: ["--provider", "openai-codex", "--model", "gpt-5.3-codex", "--thinking", "high"]
 
 core:
   specs_dir: ".ralph/specs/"
