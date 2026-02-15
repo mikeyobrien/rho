@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 
-import { TelegramClient } from "../../extensions/telegram/api.ts";
+import { Api } from "../../extensions/telegram/api.ts";
 import {
   loadRuntimeState,
   readTelegramSettings,
@@ -227,7 +227,7 @@ async function telegramGetMe(token: string): Promise<TelegramGetMeResult> {
   return json.result;
 }
 
-async function waitForHandshakeUpdate(client: TelegramClient, timeoutSeconds: number, offset?: number): Promise<HandshakeUpdate> {
+async function waitForHandshakeUpdate(client: Api, timeoutSeconds: number, offset?: number): Promise<HandshakeUpdate> {
   const deadline = Date.now() + timeoutSeconds * 1000;
   let nextOffset = typeof offset === "number" ? offset : undefined;
 
@@ -490,7 +490,7 @@ Options:
   const username = me.username || `bot-${me.id}`;
   console.log(`  Token valid for @${username}`);
 
-  const client = new TelegramClient(token);
+  const client = new Api(token);
   const runtime = loadRuntimeState();
 
   let chatId = opts.chatId ?? null;
@@ -548,7 +548,7 @@ Options:
 
   console.log("\nStep 5: Send verification message");
   const verifyText = "✅ rho Telegram onboarding complete. You are authorized.";
-  await client.sendMessage({ chat_id: chatId, text: verifyText }).catch((error) => {
+  await client.sendMessage(chatId, verifyText).catch((error) => {
     console.error(`  Failed to send verification message: ${(error as Error)?.message || String(error)}`);
     process.exitCode = 1;
   });

@@ -2,16 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
-  TelegramApiError,
+  GrammyError,
+  InputFile,
   isTelegramParseModeError,
-  type GetFileParams,
-  type GetUpdatesParams,
-  type SendAudioParams,
-  type SendChatActionParams,
-  type SendMessageParams,
-  type SendVoiceParams,
-  type TelegramFile,
-  type TelegramUpdate,
+  downloadFile as downloadTelegramFile,
+  type Update,
+  type Message,
+  type File,
 } from "./api.ts";
 import {
   advanceUpdateOffset,
@@ -35,14 +32,17 @@ import { TelegramRpcRunner } from "./rpc.ts";
 import { upsertPendingApproval } from "./pending-approvals.ts";
 import { formatSlashPromptFailure, parseSlashInput } from "./slash-contract.ts";
 
+/**
+ * Minimal interface matching the grammy Api methods this module uses.
+ * Production code passes a real grammy `Api` instance; tests pass lightweight mocks.
+ */
 export interface TelegramClientLike {
-  getUpdates(params: GetUpdatesParams): Promise<TelegramUpdate[]>;
-  sendMessage(params: SendMessageParams): Promise<unknown>;
-  sendChatAction(params: SendChatActionParams): Promise<unknown>;
-  sendVoice?(params: SendVoiceParams): Promise<unknown>;
-  sendAudio?(params: SendAudioParams): Promise<unknown>;
-  getFile?(params: GetFileParams): Promise<TelegramFile>;
-  downloadFile?(filePath: string): Promise<Uint8Array>;
+  getUpdates(other?: { offset?: number; timeout?: number; allowed_updates?: readonly string[] }): Promise<Update[]>;
+  sendMessage(chat_id: number | string, text: string, other?: Record<string, unknown>): Promise<Message.TextMessage>;
+  sendChatAction(chat_id: number | string, action: string): Promise<true>;
+  sendVoice?(chat_id: number | string, voice: InputFile | string, other?: Record<string, unknown>): Promise<Message.VoiceMessage>;
+  sendAudio?(chat_id: number | string, audio: InputFile | string, other?: Record<string, unknown>): Promise<Message.AudioMessage>;
+  getFile?(file_id: string): Promise<File>;
 }
 
 export interface TelegramRpcRunnerLike {
@@ -53,6 +53,7 @@ export interface TelegramRpcRunnerLike {
 export interface TelegramWorkerRuntimeOptions {
   settings: TelegramSettings;
   client: TelegramClientLike | null;
+  botToken?: string;
   botUsername?: string;
   statePath?: string;
   mapPath?: string;
@@ -252,6 +253,7 @@ function saveBackgroundQueue(path: string, queue: PendingBackgroundItem[]): void
 export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOptions): TelegramWorkerRuntime {
   const settings = options.settings;
   const client = options.client;
+  const botToken = options.botToken ?? "";
   const rpcRunner = options.rpcRunner ?? new TelegramRpcRunner();
   const botUsername = (options.botUsername || "").replace(/^@/, "").trim();
   const statePath = options.statePath ?? TELEGRAM_STATE_PATH;
@@ -338,7 +340,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
   const withChatAction = async <T>(
     chatId: number,
-    action: SendChatActionParams["action"],
+    action: string,
     work: () => Promise<T>,
   ): Promise<T> => {
     if (!client) return await work();
@@ -346,7 +348,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     let timer: NodeJS.Timeout | null = null;
     const emitAction = async () => {
       try {
-        await client.sendChatAction({ chat_id: chatId, action });
+        await client.sendChatAction(chatId, action);
       } catch {
         // Ignore chat action failures; they are non-critical.
       }
@@ -399,7 +401,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     if (!item.media) {
       throw new Error("No media payload available for transcription");
     }
-    if (!client?.getFile || !client?.downloadFile) {
+    if (!client?.getFile) {
       throw new Error("Telegram media download support is unavailable in this worker build");
     }
 
@@ -408,13 +410,13 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
       throw new Error("ELEVENLABS_API_KEY is not set");
     }
 
-    const file = await client.getFile({ file_id: item.media.fileId });
+    const file = await client.getFile(item.media.fileId);
     const filePath = String(file.file_path || "").trim();
     if (!filePath) {
       throw new Error("Telegram file metadata missing file_path");
     }
 
-    const mediaBytes = await client.downloadFile(filePath);
+    const mediaBytes = await downloadTelegramFile(botToken, filePath);
     const mimeType = item.media.mimeType || "application/octet-stream";
     const extension = mimeType.includes("/") ? mimeType.split("/")[1] : "bin";
     const inferredName = item.media.fileName || `${item.media.kind}.${extension}`;
@@ -537,25 +539,23 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
       try {
         await withChatAction(item.chatId, "upload_voice", async () => {
           if (client.sendVoice) {
-            await client.sendVoice({
-              chat_id: item.chatId,
-              voice: audio.bytes,
-              filename: audio.fileName,
-              mimeType: audio.mimeType,
-              reply_to_message_id: item.messageId,
-            });
+            await client.sendVoice(
+              item.chatId,
+              new InputFile(audio.bytes, audio.fileName),
+              { reply_parameters: { message_id: item.messageId } },
+            );
             return;
           }
 
           if (client.sendAudio) {
-            await client.sendAudio({
-              chat_id: item.chatId,
-              audio: audio.bytes,
-              filename: audio.fileName,
-              mimeType: audio.mimeType,
-              title: "rho /tts",
-              reply_to_message_id: item.messageId,
-            });
+            await client.sendAudio(
+              item.chatId,
+              new InputFile(audio.bytes, audio.fileName),
+              {
+                title: "rho /tts",
+                reply_parameters: { message_id: item.messageId },
+              },
+            );
             return;
           }
         });
@@ -658,7 +658,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     return isPromptTimeoutError(rawMessage);
   };
 
-  const backgroundDeferAcknowledgement = "⏳ This may take a while. I’ll continue in the background and post results here.";
+  const backgroundDeferAcknowledgement = "⏳ This may take a while. I'll continue in the background and post results here.";
 
   const normalizeSlashMention = (text: string): string => {
     const trimmed = String(text || "").trim();
@@ -706,6 +706,11 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
   };
 
   const newSessionAcknowledgement = "🆕 Started a new session for this chat.";
+
+  /** Helper: build reply_parameters for grammy sendMessage calls. */
+  const replyParams = (messageId: number | undefined) => {
+    return messageId ? { reply_parameters: { message_id: messageId } } : {};
+  };
 
   const pumpBackgroundQueue = async () => {
     if (backgroundPumpInFlight || disposed) return;
@@ -961,6 +966,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
         }
 
         const promptText = normalizeSlashMention(item.text);
+
         const ttsCommand = parseTtsCommandInput(promptText);
 
         if (ttsCommand.matched) {
@@ -1134,20 +1140,16 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
         try {
           try {
-            await client.sendMessage({
-              chat_id: item.chatId,
-              text: chunk.text,
+            await client.sendMessage(item.chatId, chunk.text, {
               parse_mode: chunk.parseMode,
-              disable_web_page_preview: true,
-              reply_to_message_id: i === 0 ? item.replyToMessageId : undefined,
+              link_preview_options: { is_disabled: true },
+              ...replyParams(i === 0 ? item.replyToMessageId : undefined),
             });
           } catch (error) {
             if (chunk.parseMode && isTelegramParseModeError(error)) {
-              await client.sendMessage({
-                chat_id: item.chatId,
-                text: chunk.fallbackText,
-                disable_web_page_preview: true,
-                reply_to_message_id: i === 0 ? item.replyToMessageId : undefined,
+              await client.sendMessage(item.chatId, chunk.fallbackText, {
+                link_preview_options: { is_disabled: true },
+                ...replyParams(i === 0 ? item.replyToMessageId : undefined),
               });
               sentTextPreview = chunk.fallbackText;
               logEvent(
@@ -1297,11 +1299,11 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
             if (pending.created) {
               try {
-                await client.sendMessage({
-                  chat_id: envelope.chatId,
-                  text: `🔒 Access request received. Share this PIN with the operator to approve: ${pending.request.pin}`,
-                  reply_to_message_id: envelope.messageId,
-                });
+                await client.sendMessage(
+                  envelope.chatId,
+                  `🔒 Access request received. Share this PIN with the operator to approve: ${pending.request.pin}`,
+                  replyParams(envelope.messageId),
+                );
               } catch {
                 // ignore notification failures for blocked users
               }
@@ -1389,7 +1391,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     } catch (error) {
       runtimeState = markPollFailure(runtimeState);
       persistRuntimeState();
-      const msg = error instanceof TelegramApiError ? error.message : (error as Error)?.message || String(error);
+      const msg = error instanceof GrammyError ? error.message : (error as Error)?.message || String(error);
       logEvent("poll_error", {}, {
         error: msg,
         last_update_id: runtimeState.last_update_id,
@@ -1403,12 +1405,12 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
   const executeOperatorCheck = async (
     source: "trigger" | "manual",
-    options?: { requesterPid?: number | null; silent?: boolean },
+    checkOptions?: { requesterPid?: number | null; silent?: boolean },
   ) => {
-    const result = await pollOnce(options?.silent ?? source === "trigger");
+    const result = await pollOnce(checkOptions?.silent ?? source === "trigger");
     logEvent("operator_check_executed", {}, {
       check_source: source,
-      requester_pid: options?.requesterPid ?? null,
+      requester_pid: checkOptions?.requesterPid ?? null,
       executed_by_pid: process.pid,
       result: result.ok ? "ok" : "error",
       skipped: result.skipped ?? null,

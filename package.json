@@ -52,6 +52,7 @@
   "dependencies": {
     "@hono/node-server": "^1.13.1",
     "@hono/node-ws": "^1.0.7",
+    "grammy": "^1.40.0",
     "hono": "^4.6.16",
     "smol-toml": "^1.6.0",
     "tsx": "^4.21.0"

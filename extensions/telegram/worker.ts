@@ -1,4 +1,4 @@
-import { TelegramClient } from "./api.ts";
+import { Api } from "./api.ts";
 import { readTelegramSettings, TELEGRAM_WORKER_LOCK_PATH } from "./lib.ts";
 import {
   createTelegramWorkerLockState,
@@ -47,7 +47,7 @@ export function runTelegramWorker(options: TelegramWorkerOptions = {}): void {
   }
 
   const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "").trim();
-  const client = new TelegramClient(token);
+  const client = new Api(token);
 
   const lockPath = options.lockPath ?? TELEGRAM_WORKER_LOCK_PATH;
   const refreshMs = options.refreshMs
@@ -72,6 +72,7 @@ export function runTelegramWorker(options: TelegramWorkerOptions = {}): void {
   const runtime = createTelegramWorkerRuntime({
     settings,
     client,
+    botToken: token,
     botUsername,
   });
 

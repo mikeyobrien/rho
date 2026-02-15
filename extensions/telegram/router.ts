@@ -1,4 +1,4 @@
-import type { TelegramMessage, TelegramUpdate } from "./api.ts";
+import type { Update, Message } from "./api.ts";
 import type { TelegramSettings } from "./lib.ts";
 
 export type TelegramInboundMediaKind = "voice" | "audio" | "document_audio";
@@ -15,7 +15,7 @@ export interface TelegramInboundMedia {
 export interface TelegramInboundEnvelope {
   updateId: number;
   chatId: number;
-  chatType: TelegramMessage["chat"]["type"];
+  chatType: "private" | "group" | "supergroup" | "channel";
   userId: number | null;
   messageId: number;
   text: string;
@@ -24,7 +24,7 @@ export interface TelegramInboundEnvelope {
   isReplyToBot: boolean;
 }
 
-function extractInboundMedia(message: TelegramMessage): TelegramInboundMedia | undefined {
+function extractInboundMedia(message: Message): TelegramInboundMedia | undefined {
   if (message.voice?.file_id) {
     return {
       kind: "voice",
@@ -59,7 +59,7 @@ function extractInboundMedia(message: TelegramMessage): TelegramInboundMedia | u
   return undefined;
 }
 
-export function normalizeInboundUpdate(update: TelegramUpdate): TelegramInboundEnvelope | null {
+export function normalizeInboundUpdate(update: Update): TelegramInboundEnvelope | null {
   const message = update.message ?? update.edited_message;
   if (!message) return null;
 
@@ -70,7 +70,7 @@ export function normalizeInboundUpdate(update: TelegramUpdate): TelegramInboundE
   return {
     updateId: update.update_id,
     chatId: message.chat.id,
-    chatType: message.chat.type,
+    chatType: message.chat.type as TelegramInboundEnvelope["chatType"],
     userId: typeof message.from?.id === "number" ? message.from.id : null,
     messageId: message.message_id,
     text,

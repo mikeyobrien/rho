@@ -16,7 +16,7 @@ import {
   advanceUpdateOffset,
   type TelegramSettings,
 } from "../extensions/telegram/lib.ts";
-import { TelegramClient, TelegramApiError, isTelegramParseModeError } from "../extensions/telegram/api.ts";
+import { GrammyError, isTelegramParseModeError, downloadFile } from "../extensions/telegram/api.ts";
 import { authorizeInbound, normalizeInboundUpdate } from "../extensions/telegram/router.ts";
 import { loadSessionMap, resolveSessionFile, sessionKeyForEnvelope } from "../extensions/telegram/session-map.ts";
 import { TelegramRpcRunner } from "../extensions/telegram/rpc.ts";
@@ -138,96 +138,12 @@ try {
     assert(advanceUpdateOffset(0, [1, 3, 2]) === 4, "out-of-order ids use max+1");
   }
 
-  console.log("\n-- TelegramClient mocked API --");
+  console.log("\n-- downloadFile utility --");
   {
     const originalFetch = globalThis.fetch;
     try {
-      globalThis.fetch = (async (_url: string, _init?: any) => {
-        return {
-          ok: true,
-          status: 200,
-          async json() {
-            return {
-              ok: true,
-              result: [{ update_id: 1 }, { update_id: 2 }],
-            };
-          },
-        } as any;
-      }) as any;
-
-      const client = new TelegramClient("test-token", "https://example.test");
-      const updates = await client.getUpdates({ offset: 0, timeout: 1 });
-      assert(updates.length === 2, "getUpdates returns mocked updates");
-
-      globalThis.fetch = (async (_url: string, _init?: any) => {
-        return {
-          ok: false,
-          status: 429,
-          async json() {
-            return {
-              ok: false,
-              description: "Too Many Requests",
-              parameters: { retry_after: 2 },
-            };
-          },
-        } as any;
-      }) as any;
-
-      let gotRateLimit = false;
-      try {
-        await client.sendMessage({ chat_id: 1, text: "hi" });
-      } catch (error) {
-        gotRateLimit = error instanceof TelegramApiError && error.retryAfterSeconds === 2;
-      }
-      assert(gotRateLimit, "sendMessage surfaces retry_after on 429");
-
-      globalThis.fetch = (async (_url: string, _init?: any) => {
-        return {
-          ok: true,
-          status: 200,
-          async json() {
-            return {
-              ok: true,
-              result: true,
-            };
-          },
-        } as any;
-      }) as any;
-
-      const typing = await client.sendChatAction({ chat_id: 1, action: "typing" });
-      assert(typing === true, "sendChatAction returns true on success");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  }
-
-  console.log("\n-- TelegramClient media helpers --");
-  {
-    const originalFetch = globalThis.fetch;
-    const calls: Array<{ url: string; init: any }> = [];
-    try {
-      globalThis.fetch = (async (url: string, init?: any) => {
-        const requestUrl = String(url);
-        calls.push({ url: requestUrl, init });
-
-        if (requestUrl.endsWith("/getFile")) {
-          return {
-            ok: true,
-            status: 200,
-            async json() {
-              return {
-                ok: true,
-                result: {
-                  file_id: "voice-file-1",
-                  file_path: "voice/path.oga",
-                  file_size: 3,
-                },
-              };
-            },
-          } as any;
-        }
-
-        if (requestUrl.endsWith("/file/bottest-token/voice/path.oga")) {
+      globalThis.fetch = (async (url: string, _init?: any) => {
+        if (String(url).endsWith("/file/bottest-token/voice/path.oga")) {
           return {
             ok: true,
             status: 200,
@@ -236,91 +152,18 @@ try {
             },
           } as any;
         }
-
-        if (requestUrl.endsWith("/sendVoice")) {
-          return {
-            ok: true,
-            status: 200,
-            async json() {
-              return {
-                ok: true,
-                result: {
-                  message_id: 101,
-                  chat: { id: 1, type: "private" as const },
-                  date: 1,
-                },
-              };
-            },
-          } as any;
-        }
-
-        if (requestUrl.endsWith("/sendAudio")) {
-          return {
-            ok: true,
-            status: 200,
-            async json() {
-              return {
-                ok: true,
-                result: {
-                  message_id: 102,
-                  chat: { id: 1, type: "private" as const },
-                  date: 1,
-                },
-              };
-            },
-          } as any;
-        }
-
-        return {
-          ok: false,
-          status: 500,
-          async json() {
-            return { ok: false, description: "unexpected request" };
-          },
-        } as any;
+        return { ok: false, status: 404, statusText: "Not Found" } as any;
       }) as any;
 
-      const client = new TelegramClient("test-token", "https://example.test/");
-
-      const file = await client.getFile({ file_id: "voice-file-1" });
-      assert(file.file_path === "voice/path.oga", "getFile returns Telegram file metadata");
-
-      const bytes = await client.downloadFile(file.file_path || "");
+      const bytes = await downloadFile("test-token", "voice/path.oga", "https://example.test");
       assert(bytes.length === 3 && bytes[0] === 1 && bytes[2] === 3, "downloadFile returns binary file bytes");
-
-      const sentVoice = await client.sendVoice({
-        chat_id: 1,
-        voice: new Uint8Array([7, 8, 9]),
-        caption: "voice caption",
-        reply_to_message_id: 88,
-      });
-      assert(sentVoice.message_id === 101, "sendVoice returns Telegram message payload");
-
-      const sentAudio = await client.sendAudio({
-        chat_id: 1,
-        audio: "existing-audio-file-id",
-        title: "sample title",
-      });
-      assert(sentAudio.message_id === 102, "sendAudio returns Telegram message payload");
-
-      const getFileCall = calls.find((call) => call.url.endsWith("/getFile"));
-      assert(getFileCall?.url === "https://example.test/bottest-token/getFile", "getFile targets bot API endpoint");
-
-      const downloadCall = calls.find((call) => call.url.endsWith("/file/bottest-token/voice/path.oga"));
-      assert(!!downloadCall, "downloadFile targets Telegram file endpoint");
-
-      const sendVoiceCall = calls.find((call) => call.url.endsWith("/sendVoice"));
-      assert(sendVoiceCall?.init?.body instanceof FormData, "sendVoice uses multipart form payload");
-      const sendVoiceForm = sendVoiceCall?.init?.body as FormData;
-      assert(sendVoiceForm.get("chat_id") === "1", "sendVoice form includes chat_id");
-      assert(sendVoiceForm.get("voice") instanceof Blob, "sendVoice binary payload is appended as Blob");
-      assert(sendVoiceForm.get("caption") === "voice caption", "sendVoice form includes caption");
-
-      const sendAudioCall = calls.find((call) => call.url.endsWith("/sendAudio"));
-      assert(sendAudioCall?.init?.body instanceof FormData, "sendAudio uses multipart form payload");
-      const sendAudioForm = sendAudioCall?.init?.body as FormData;
-      assert(sendAudioForm.get("audio") === "existing-audio-file-id", "sendAudio supports string file_id payload");
-      assert(sendAudioForm.get("title") === "sample title", "sendAudio form includes title");
+      let gotError = false;
+      try {
+        await downloadFile("test-token", "bad/path.oga", "https://example.test");
+      } catch {
+        gotError = true;
+      }
+      assert(gotError, "downloadFile throws on non-ok response");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1126,8 +969,8 @@ try {
 
   console.log("\n-- parse-mode error detection --");
   {
-    const parseError = new TelegramApiError("Bad Request: can't parse entities", 400);
-    const serverError = new TelegramApiError("Internal Server Error", 500);
+    const parseError = new GrammyError("Bad Request: can't parse entities", {error_code: 400, description: "Bad Request: can't parse entities"}, "sendMessage", {});
+    const serverError = new GrammyError("Internal Server Error", {error_code: 500, description: "Internal Server Error"}, "sendMessage", {});
 
     assert(isTelegramParseModeError(parseError) === true, "detects parse-mode entity errors");
     assert(isTelegramParseModeError(serverError) === false, "does not treat 5xx as parse-mode errors");
@@ -1136,15 +979,15 @@ try {
 
   console.log("\n-- retry policy helpers --");
   {
-    const e429 = new TelegramApiError("rate", 429, 2);
+    const e429 = new GrammyError("rate", {error_code: 429, description: "rate", parameters: {retry_after: 2}}, "sendMessage", {});
     assert(shouldRetryTelegramError(e429, 0) === true, "retry 429 on first attempt");
     assert(retryDelayMs(e429, 0) === 2000, "retry_after overrides delay");
 
-    const e500 = new TelegramApiError("server", 500);
+    const e500 = new GrammyError("server", {error_code: 500, description: "server"}, "sendMessage", {});
     assert(shouldRetryTelegramError(e500, 1) === true, "retry 5xx errors");
     assert(retryDelayMs(e500, 2) === 4000, "backoff for non-retry_after error");
 
-    const e400 = new TelegramApiError("bad", 400);
+    const e400 = new GrammyError("bad", {error_code: 400, description: "bad"}, "sendMessage", {});
     assert(shouldRetryTelegramError(e400, 0) === false, "do not retry 4xx non-rate-limit");
     assert(shouldRetryTelegramError(e500, 3) === false, "respect max attempt cap");
   }

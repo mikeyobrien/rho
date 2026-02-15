@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 
-import { TelegramClient } from "../extensions/telegram/api.ts";
+import { Api } from "../extensions/telegram/api.ts";
 
 async function main() {
   const token = process.env.TELEGRAM_BOT_TOKEN || "";
@@ -21,10 +21,10 @@ async function main() {
     process.exit(1);
   }
 
-  const client = new TelegramClient(token.trim());
+  const client = new Api(token.trim());
 
   const text = `rho telegram smoke: ${new Date().toISOString()}`;
-  const sent = await client.sendMessage({ chat_id: chatId, text });
+  const sent = await client.sendMessage(chatId, text);
 
   console.log(`sent message_id=${sent.message_id} chat_id=${sent.chat.id}`);
 

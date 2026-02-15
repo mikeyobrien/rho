@@ -5,7 +5,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
-import { TelegramClient, isTelegramParseModeError } from "./api.ts";
+import { Api, isTelegramParseModeError } from "./api.ts";
 import {
   loadRuntimeState,
   readTelegramSettings,
@@ -71,7 +71,7 @@ export default function (pi: ExtensionAPI) {
   let consecutiveSendFailures = 0;
   let lastCheckRequestAtMs: number | null = null;
 
-  const client = token.trim() ? new TelegramClient(token.trim()) : null;
+  const client = token.trim() ? new Api(token.trim()) : null;
 
   const persistOperator = () => {
     saveOperatorConfig({
@@ -228,6 +228,11 @@ export default function (pi: ExtensionAPI) {
     return requested;
   };
 
+  /** Helper: build reply_parameters for grammy sendMessage calls. */
+  const replyParams = (messageId: number | undefined) => {
+    return messageId ? { reply_parameters: { message_id: messageId } } : {};
+  };
+
   const flushOutboundQueue = async (ctx: ExtensionContext) => {
     if (!client) return;
     const deferred: typeof pendingOutbound = [];
@@ -248,20 +253,16 @@ export default function (pi: ExtensionAPI) {
 
         try {
           try {
-            await client.sendMessage({
-              chat_id: item.chatId,
-              text: chunk.text,
+            await client.sendMessage(item.chatId, chunk.text, {
               parse_mode: chunk.parseMode,
-              disable_web_page_preview: true,
-              reply_to_message_id: i === 0 ? item.replyToMessageId : undefined,
+              link_preview_options: { is_disabled: true },
+              ...replyParams(i === 0 ? item.replyToMessageId : undefined),
             });
           } catch (error) {
             if (chunk.parseMode && isTelegramParseModeError(error)) {
-              await client.sendMessage({
-                chat_id: item.chatId,
-                text: chunk.fallbackText,
-                disable_web_page_preview: true,
-                reply_to_message_id: i === 0 ? item.replyToMessageId : undefined,
+              await client.sendMessage(item.chatId, chunk.fallbackText, {
+                link_preview_options: { is_disabled: true },
+                ...replyParams(i === 0 ? item.replyToMessageId : undefined),
               });
               sentTextPreview = chunk.fallbackText;
               logEvent(
