@@ -1152,7 +1152,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           );
 
           if (isRetryableAfterAutoRetry(error, item.attempts)) {
-            const delay = queueRetryDelayMs(item.attempts);
+            const delay = queueRetryDelayMs(error, item.attempts);
             pendingOutbound[index] = {
               ...item,
               attempts: item.attempts + 1,

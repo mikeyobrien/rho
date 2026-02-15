@@ -314,7 +314,7 @@ export default function (pi: ExtensionAPI) {
           );
 
           if (isRetryableAfterAutoRetry(error, item.attempts)) {
-            const delay = queueRetryDelayMs(item.attempts);
+            const delay = queueRetryDelayMs(error, item.attempts);
             deferred.push({
               ...item,
               attempts: item.attempts + 1,

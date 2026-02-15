@@ -43,7 +43,10 @@ export function isRetryableAfterAutoRetry(error: unknown, attempt: number, maxAt
   return false;
 }
 
-export function queueRetryDelayMs(attempt: number): number {
+export function queueRetryDelayMs(error: unknown, attempt: number): number {
+  if (error instanceof GrammyError && typeof error.parameters?.retry_after === "number") {
+    return Math.max(0, error.parameters.retry_after * 1000);
+  }
   const base = 2000;
   return Math.min(60_000, base * Math.pow(2, Math.max(0, attempt)));
 }
