@@ -214,7 +214,7 @@ export class TelegramClient {
     if (value instanceof Blob) {
       blob = value;
     } else if (value instanceof Uint8Array) {
-      blob = new Blob([value], { type: mimeType ?? "application/octet-stream" });
+      blob = new Blob([value as BlobPart], { type: mimeType ?? "application/octet-stream" });
     } else {
       blob = new Blob([value], { type: mimeType ?? "application/octet-stream" });
     }
@@ -222,7 +222,7 @@ export class TelegramClient {
     form.append(fieldName, blob, filename);
   }
 
-  private async call<T>(method: string, body: Record<string, unknown>): Promise<T> {
+  private async call<T>(method: string, body: Record<string, unknown> | object): Promise<T> {
     const response = await fetch(`${this.baseUrl}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
