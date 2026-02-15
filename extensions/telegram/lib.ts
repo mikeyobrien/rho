@@ -22,6 +22,7 @@ export interface TelegramSettings {
   allowedChatIds: number[];
   allowedUserIds: number[];
   requireMentionInGroups: boolean;
+  threadedMode: boolean;
 }
 
 export interface TelegramRuntimeState {
@@ -45,6 +46,7 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
   allowedChatIds: [],
   allowedUserIds: [],
   requireMentionInGroups: true,
+  threadedMode: false,
 };
 
 export const DEFAULT_STATE: TelegramRuntimeState = {
@@ -93,6 +95,7 @@ export function readTelegramSettings(initPath: string = INIT_TOML): TelegramSett
         typeof telegram.require_mention_in_groups === "boolean"
           ? telegram.require_mention_in_groups
           : DEFAULT_SETTINGS.requireMentionInGroups,
+      threadedMode: telegram.threaded_mode === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

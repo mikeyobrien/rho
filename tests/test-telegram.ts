@@ -338,6 +338,43 @@ try {
     assert(groupMapping.sessionFile !== first.sessionFile, "group uses different session file");
   }
 
+  console.log("\n-- threaded mode session mapping --");
+  {
+    const threadMapPath = join(tmp, "telegram", "threaded-session-map.json");
+    const threadSessionDir = join(tmp, "threaded-sessions");
+
+    const threadedEnvelope = {
+      updateId: 1,
+      chatId: 555,
+      chatType: "private" as const,
+      userId: 42,
+      messageId: 10,
+      text: "hello from thread",
+      isReplyToBot: false,
+      messageThreadId: 7,
+    };
+
+    assert(sessionKeyForEnvelope(threadedEnvelope) === "dm:555:topic:7", "threaded dm key includes topic id");
+
+    const threadMapping = resolveSessionFile(threadedEnvelope, threadMapPath, threadSessionDir);
+    assert(threadMapping.sessionKey === "dm:555:topic:7", "threaded mapping key stored");
+    assert(threadMapping.created === true, "threaded mapping creates session file");
+
+    // Different thread in same chat = different session
+    const otherThreadEnvelope = { ...threadedEnvelope, messageThreadId: 12 };
+    assert(sessionKeyForEnvelope(otherThreadEnvelope) === "dm:555:topic:12", "different thread gets different key");
+    const otherThreadMapping = resolveSessionFile(otherThreadEnvelope, threadMapPath, threadSessionDir);
+    assert(otherThreadMapping.sessionFile !== threadMapping.sessionFile, "different thread uses different session file");
+
+    // Same chat without thread = original key (backward compat)
+    const noThreadEnvelope = { ...threadedEnvelope, messageThreadId: undefined };
+    assert(sessionKeyForEnvelope(noThreadEnvelope) === "dm:555", "no thread falls back to flat key");
+
+    // Group with thread
+    const groupThreadEnvelope = { ...threadedEnvelope, chatId: -1001, chatType: "group" as const, messageThreadId: 3 };
+    assert(sessionKeyForEnvelope(groupThreadEnvelope) === "group:-1001:topic:3", "group threaded key format");
+  }
+
   console.log("\n-- RPC prompt runner integration (mocked stream) --");
   {
     const fakeSpawn = (() => {

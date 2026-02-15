@@ -15,7 +15,11 @@ function defaultMapPath(): string {
 export type SessionMap = Record<string, string>;
 
 export function sessionKeyForEnvelope(envelope: TelegramInboundEnvelope): string {
-  return envelope.chatType === "private" ? `dm:${envelope.chatId}` : `group:${envelope.chatId}`;
+	const base = envelope.chatType === "private" ? `dm:${envelope.chatId}` : `group:${envelope.chatId}`;
+	if (typeof envelope.messageThreadId === "number") {
+		return `${base}:topic:${envelope.messageThreadId}`;
+	}
+	return base;
 }
 
 export function loadSessionMap(mapPath: string = defaultMapPath()): SessionMap {

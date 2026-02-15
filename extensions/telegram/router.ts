@@ -22,6 +22,7 @@ export interface TelegramInboundEnvelope {
   media?: TelegramInboundMedia;
   replyToMessageId?: number;
   isReplyToBot: boolean;
+  messageThreadId?: number;
 }
 
 function extractInboundMedia(message: Message): TelegramInboundMedia | undefined {
@@ -77,6 +78,7 @@ export function normalizeInboundUpdate(update: Update): TelegramInboundEnvelope 
     media,
     replyToMessageId: message.reply_to_message?.message_id,
     isReplyToBot: message.reply_to_message?.from?.is_bot === true,
+    messageThreadId: typeof message.message_thread_id === "number" ? message.message_thread_id : undefined,
   };
 }
 
