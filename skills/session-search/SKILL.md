@@ -1,6 +1,7 @@
 ---
 name: session-search
 description: Search across pi session JSONL logs (user prompts, tool calls, results). Uses the session-digest tool and ripgrep for fast triage.
+kind: sop
 ---
 
 # Session Search

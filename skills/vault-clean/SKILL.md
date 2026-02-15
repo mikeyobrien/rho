@@ -1,6 +1,7 @@
 ---
 name: vault-clean
 description: Detect and resolve orphaned notes in the vault. Use during heartbeat maintenance or when vault status shows orphans. Finds notes with no inbound wikilinks and either connects them to the graph or flags them for cleanup.
+kind: sop
 ---
 
 # Vault Orphan Cleanup

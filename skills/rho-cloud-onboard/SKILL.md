@@ -1,6 +1,7 @@
 ---
 name: rho-cloud-onboard
 description: Register an agent email address on Rhobot Mail (name@rhobot.dev). Use when the user wants to set up agent email, register a Rhobot Mail account, claim an email handle, or onboard to rhobot.dev.
+kind: sop
 ---
 
 # Rhobot Mail Onboarding
