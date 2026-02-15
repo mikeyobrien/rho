@@ -12,6 +12,7 @@ import { createTelegramWorkerRuntime } from "../extensions/telegram/worker-runti
 import { requestTelegramCheckTrigger } from "../extensions/telegram/check-trigger.ts";
 import { loadRuntimeState, type TelegramSettings } from "../extensions/telegram/lib.ts";
 import { loadSessionMap } from "../extensions/telegram/session-map.ts";
+import type { SttProvider } from "../extensions/telegram/stt.ts";
 
 let PASS = 0;
 let FAIL = 0;
@@ -88,6 +89,10 @@ try {
     allowedUserIds: [2222],
     requireMentionInGroups: false,
     threadedMode: false,
+    sttProvider: "elevenlabs",
+    sttApiKeyEnv: "ELEVENLABS_API_KEY",
+    sttEndpoint: "",
+    sttModel: "",
   };
 
   const runtime = createTelegramWorkerRuntime({
@@ -797,7 +802,7 @@ try {
 
   mediaInboundRuntime.dispose();
 
-  console.log("\n-- inbound voice media runs ElevenLabs STT and replies with transcript --");
+  console.log("\n-- inbound voice media runs STT provider and replies with transcript --");
   const sttStatePath = join(tmp, "telegram", "state.stt.json");
   const sttMapPath = join(tmp, "telegram", "session-map.stt.json");
   const sttSessionDir = join(tmp, "sessions-stt");
@@ -858,43 +863,20 @@ try {
     },
   };
 
-  const originalFetch = globalThis.fetch;
-  const previousApiKey = process.env.ELEVENLABS_API_KEY;
-  const sttFetchCalls: Array<{ url: string; headers: Record<string, string>; body: FormData | null }> = [];
-  try {
-    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+  const mockSttTranscribeCalls: Array<{ audio: Uint8Array; mimeType: string; fileName: string }> = [];
+  const mockSttProvider: SttProvider = {
+    async transcribe(audio: Uint8Array, mimeType: string, fileName: string) {
+      mockSttTranscribeCalls.push({ audio, mimeType, fileName });
+      return "voice transcript from provider";
+    },
+  };
 
-    globalThis.fetch = (async (url: string, init?: any) => {
-      const urlStr = String(url);
-      if (urlStr.includes("/file/bot")) {
-        sttDownloadCalls.push(urlStr);
-        return {
-          ok: true,
-          status: 200,
-          async arrayBuffer() {
-            return new Uint8Array([9, 8, 7]).buffer;
-          },
-        } as any;
-      }
-      const headers = (init?.headers ?? {}) as Record<string, string>;
-      sttFetchCalls.push({
-        url: urlStr,
-        headers,
-        body: init?.body instanceof FormData ? init.body : null,
-      });
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return { text: "voice transcript from ElevenLabs" };
-        },
-      } as any;
-    }) as any;
-
+  {
     const sttRuntime = createTelegramWorkerRuntime({
       settings,
       client: sttClient as any,
       rpcRunner: sttRpcRunner as any,
+      sttProvider: mockSttProvider,
       statePath: sttStatePath,
       mapPath: sttMapPath,
       sessionDir: sttSessionDir,
@@ -908,31 +890,27 @@ try {
     assert(sttResult.ok === true, "stt scenario poll succeeds");
     assert(sttResult.accepted === 1, "stt scenario accepts inbound voice update");
     assert(sttRpcCalls === 1, "stt scenario treats transcript as prompt and runs rpc once");
-    assert(sttRpcPrompts[0] === "voice transcript from ElevenLabs", "stt scenario forwards transcript text to rpc prompt runner");
+    assert(sttRpcPrompts[0] === "voice transcript from provider", "stt scenario forwards transcript text to rpc prompt runner");
     assert(sttGetFileCalls.length === 1 && sttGetFileCalls[0] === "voice-file-telegram-1", "stt scenario resolves telegram file metadata from media file id");
-    assert(sttDownloadCalls.length === 1 && sttDownloadCalls[0]?.includes("voice/path-from-telegram.oga"), "stt scenario downloads telegram media file for transcription");
-    assert(sttFetchCalls.length === 1 && sttFetchCalls[0]?.url === "https://api.elevenlabs.io/v1/speech-to-text", "stt scenario posts media bytes to ElevenLabs STT endpoint");
-    assert(sttFetchCalls[0]?.headers?.["xi-api-key"] === "test-elevenlabs-key", "stt scenario uses ELEVENLABS_API_KEY header for STT request");
+    assert(sttDownloadCalls.length === 1 && sttDownloadCalls[0] === "voice/path-from-telegram.oga", "stt scenario downloads telegram media file for transcription");
+    assert(mockSttTranscribeCalls.length === 1, "stt scenario calls provider transcribe exactly once");
 
-    const sttBody = sttFetchCalls[0]?.body;
-    assert(sttBody instanceof FormData && sttBody.get("model_id") === "scribe_v1", "stt scenario sends model_id in multipart request");
-    assert(sttBody instanceof FormData && sttBody.get("file") instanceof Blob, "stt scenario sends binary media file in multipart request");
+    const providerCall = mockSttTranscribeCalls[0]!;
+    assert(
+      providerCall.audio.length === 3 && providerCall.audio[0] === 9 && providerCall.audio[1] === 8 && providerCall.audio[2] === 7,
+      "stt scenario passes downloaded media bytes to provider",
+    );
+    assert(providerCall.mimeType === "audio/ogg", "stt scenario passes correct mime type to provider");
+    assert(providerCall.fileName === "voice.ogg", "stt scenario passes inferred file name to provider");
 
     assert(sttSent.length === 1, "stt scenario sends assistant reply for transcribed prompt");
     assert(sttSent[0]?.text.includes("assistant response from transcript"), "stt scenario reply contains assistant response");
     assert(sttActions.length >= 1, "stt scenario emits chat action while processing media");
 
     sttRuntime.dispose();
-  } finally {
-    if (previousApiKey === undefined) {
-      delete process.env.ELEVENLABS_API_KEY;
-    } else {
-      process.env.ELEVENLABS_API_KEY = previousApiKey;
-    }
-    globalThis.fetch = originalFetch;
   }
 
-  console.log("\n-- inbound voice media fails gracefully when ELEVENLABS_API_KEY is missing --");
+  console.log("\n-- inbound voice media fails gracefully when STT provider throws missing key --");
   const sttMissingKeyStatePath = join(tmp, "telegram", "state.stt.missing-key.json");
   const sttMissingKeyMapPath = join(tmp, "telegram", "session-map.stt.missing-key.json");
   const sttMissingKeySessionDir = join(tmp, "sessions-stt-missing-key");
@@ -968,26 +946,20 @@ try {
     },
   };
 
-  const previousMissingKeyApiKey = process.env.ELEVENLABS_API_KEY;
-  const missingKeyOriginalFetch = globalThis.fetch;
-  let missingKeyFetchCalls = 0;
-  try {
-    delete process.env.ELEVENLABS_API_KEY;
-    globalThis.fetch = (async () => {
-      missingKeyFetchCalls++;
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return { text: "unexpected" };
-        },
-      } as any;
-    }) as any;
+  let missingKeySttTranscribeCalls = 0;
+  const failingSttProvider: SttProvider = {
+    async transcribe() {
+      missingKeySttTranscribeCalls++;
+      throw new Error("ELEVENLABS_API_KEY is not set");
+    },
+  };
 
+  {
     const sttMissingKeyRuntime = createTelegramWorkerRuntime({
       settings,
       client: sttMissingKeyClient as any,
       rpcRunner: sttMissingKeyRpcRunner as any,
+      sttProvider: failingSttProvider,
       statePath: sttMissingKeyStatePath,
       mapPath: sttMissingKeyMapPath,
       sessionDir: sttMissingKeySessionDir,
@@ -1000,18 +972,11 @@ try {
     const sttMissingKeyResult = await sttMissingKeyRuntime.pollOnce(false);
     assert(sttMissingKeyResult.ok === true, "stt missing-key scenario poll succeeds");
     assert(sttMissingKeyRpcCalls === 0, "stt missing-key scenario bypasses rpc prompt runner");
-    assert(missingKeyFetchCalls === 0, "stt missing-key scenario does not call ElevenLabs API without key");
+    assert(missingKeySttTranscribeCalls === 1, "stt missing-key scenario calls provider transcribe once");
     assert(sttMissingKeySent.length === 1, "stt missing-key scenario sends user-facing failure reply");
     assert(sttMissingKeySent[0]?.text.includes("ELEVENLABS_API_KEY"), "stt missing-key scenario reply tells operator how to fix config");
 
     sttMissingKeyRuntime.dispose();
-  } finally {
-    if (previousMissingKeyApiKey === undefined) {
-      delete process.env.ELEVENLABS_API_KEY;
-    } else {
-      process.env.ELEVENLABS_API_KEY = previousMissingKeyApiKey;
-    }
-    globalThis.fetch = missingKeyOriginalFetch;
   }
 
   console.log("\n-- /tts command generates ElevenLabs audio and sends Telegram voice reply --");

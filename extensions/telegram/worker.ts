@@ -1,6 +1,7 @@
 import { Api } from "./api.ts";
 import { autoRetry } from "@grammyjs/auto-retry";
 import { readTelegramSettings, TELEGRAM_WORKER_LOCK_PATH } from "./lib.ts";
+import { createSttProvider } from "./stt.ts";
 import {
   createTelegramWorkerLockState,
   releaseTelegramWorkerLock,
@@ -51,6 +52,13 @@ export function runTelegramWorker(options: TelegramWorkerOptions = {}): void {
   const client = new Api(token);
   client.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
+  const sttProvider = createSttProvider({
+    provider: settings.sttProvider,
+    apiKeyEnv: settings.sttApiKeyEnv,
+    endpoint: settings.sttEndpoint || undefined,
+    model: settings.sttModel || undefined,
+  });
+
   const lockPath = options.lockPath ?? TELEGRAM_WORKER_LOCK_PATH;
   const refreshMs = options.refreshMs
     ?? parsePositiveIntEnv("RHO_TELEGRAM_WORKER_LOCK_REFRESH_MS", DEFAULT_WORKER_LOCK_REFRESH_MS);
@@ -76,6 +84,7 @@ export function runTelegramWorker(options: TelegramWorkerOptions = {}): void {
     client,
     botToken: token,
     botUsername,
+    sttProvider,
   });
 
   let pollTimer: NodeJS.Timeout | null = null;

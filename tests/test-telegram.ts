@@ -274,6 +274,10 @@ try {
       allowedUserIds: [42],
       requireMentionInGroups: true,
       threadedMode: false,
+      sttProvider: "elevenlabs",
+      sttApiKeyEnv: "ELEVENLABS_API_KEY",
+      sttEndpoint: "",
+      sttModel: "",
     };
 
     const authOk = authorizeInbound(normalized!, settings);
@@ -1313,6 +1317,10 @@ try {
       allowedUserIds: [42],
       requireMentionInGroups: true,
       threadedMode: false,
+      sttProvider: "elevenlabs",
+      sttApiKeyEnv: "ELEVENLABS_API_KEY",
+      sttEndpoint: "",
+      sttModel: "",
     };
 
     const auth = authorizeInbound(normalized!, settings);
