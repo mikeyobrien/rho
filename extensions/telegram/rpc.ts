@@ -32,6 +32,7 @@ interface PendingPrompt {
   lastAssistantText: string;
   stderrLines: string[];
   triedBusyFollowUp: boolean;
+  images?: Array<{ type: "image"; data: string; mimeType: string }>;
 }
 
 interface PendingCommandsRequest {
@@ -134,7 +135,7 @@ export class TelegramRpcRunner {
     this.spawnProcess = spawnProcess;
   }
 
-  async runPrompt(sessionFile: string, message: string, timeoutMs = 120_000): Promise<string> {
+  async runPrompt(sessionFile: string, message: string, timeoutMs = 120_000, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<string> {
     const session = this.ensureSession(sessionFile);
     if (session.pending) {
       throw new Error(`RPC session busy for ${sessionFile}`);
@@ -172,6 +173,7 @@ export class TelegramRpcRunner {
         lastAssistantText: "",
         stderrLines: [],
         triedBusyFollowUp: false,
+        images: images?.length ? images : undefined,
       };
 
       this.sendPromptCommand(session, session.pending);
@@ -304,6 +306,7 @@ export class TelegramRpcRunner {
       type: "prompt",
       message: pending.rpcMessage,
       ...(streamingBehavior ? { streamingBehavior } : {}),
+      ...(pending.images?.length ? { images: pending.images } : {}),
     });
   }
 

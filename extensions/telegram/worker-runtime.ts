@@ -25,7 +25,7 @@ import {
   type TelegramRuntimeState,
   type TelegramSettings,
 } from "./lib.ts";
-import { authorizeInbound, normalizeInboundUpdate, type TelegramInboundEnvelope } from "./router.ts";
+import { authorizeInbound, normalizeInboundUpdate, IMAGE_MAX_FILE_SIZE, type TelegramInboundEnvelope } from "./router.ts";
 import { resetSessionFile, resolveSessionFile } from "./session-map.ts";
 import { appendTelegramLog } from "./log.ts";
 import { renderTelegramOutboundChunks } from "./outbound.ts";
@@ -57,7 +57,7 @@ export interface TelegramApiLike {
 }
 
 export interface TelegramRpcRunnerLike {
-  runPrompt(sessionFile: string, message: string, timeoutMs?: number): Promise<string>;
+  runPrompt(sessionFile: string, message: string, timeoutMs?: number, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<string>;
   cancelSession?(sessionFile: string, reason?: string): boolean;
   dispose(): void;
 }
@@ -147,17 +147,30 @@ function ensureJsonFile(path: string): void {
   }
 }
 
+function isImageMediaKind(kind: string): boolean {
+  return kind === "photo" || kind === "document_image";
+}
+
 function isInboundMediaEnvelope(value: unknown): value is NonNullable<TelegramInboundEnvelope["media"]> {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Record<string, unknown>;
-  if (candidate.kind !== "voice" && candidate.kind !== "audio" && candidate.kind !== "document_audio") {
+  if (
+    candidate.kind !== "voice"
+    && candidate.kind !== "audio"
+    && candidate.kind !== "document_audio"
+    && candidate.kind !== "photo"
+    && candidate.kind !== "document_image"
+  ) {
     return false;
   }
   if (typeof candidate.fileId !== "string" || candidate.fileId.trim().length === 0) return false;
   if (candidate.mimeType !== undefined && typeof candidate.mimeType !== "string") return false;
   if (candidate.fileName !== undefined && typeof candidate.fileName !== "string") return false;
-  if (candidate.durationSeconds !== undefined && (typeof candidate.durationSeconds !== "number" || !Number.isFinite(candidate.durationSeconds))) {
-    return false;
+  // durationSeconds only applies to audio kinds
+  if (!isImageMediaKind(candidate.kind as string)) {
+    if (candidate.durationSeconds !== undefined && (typeof candidate.durationSeconds !== "number" || !Number.isFinite(candidate.durationSeconds))) {
+      return false;
+    }
   }
   if (candidate.fileSize !== undefined && (typeof candidate.fileSize !== "number" || !Number.isFinite(candidate.fileSize))) {
     return false;
@@ -454,6 +467,51 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     const inferredName = item.media.fileName || `${item.media.kind}.${extension}`;
 
     return await sttProvider.transcribe(mediaBytes, mimeType, inferredName);
+  };
+
+  const downloadInboundImage = async (item: PendingInboundItem): Promise<{ data: string; mimeType: string }> => {
+    if (!item.media) {
+      throw new Error("No media payload available for image download");
+    }
+    if (!client?.getFile) {
+      throw new Error("Telegram media download support is unavailable in this worker build");
+    }
+
+    // Retry getFile up to 3 times (matches openclaw pattern)
+    let file: Awaited<ReturnType<NonNullable<TelegramApiLike["getFile"]>>>;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        file = await client.getFile(item.media.fileId);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err;
+        if (attempt < 2) await waitMs(500 * (attempt + 1));
+      }
+    }
+    if (lastError) throw lastError;
+
+    // Pre-download size check (File.file_size is optional - skip if undefined)
+    if (typeof file!.file_size === "number" && file!.file_size >= IMAGE_MAX_FILE_SIZE) {
+      throw new Error("Image is too large (over 5MB). Please send a smaller image.");
+    }
+
+    const filePath = String(file!.file_path || "").trim();
+    if (!filePath) {
+      throw new Error("Telegram file metadata missing file_path");
+    }
+
+    const mediaBytes = await downloadTelegramFile(botToken, filePath);
+
+    // Post-download byte check
+    if (mediaBytes.length >= IMAGE_MAX_FILE_SIZE) {
+      throw new Error("Image is too large (over 5MB). Please send a smaller image.");
+    }
+
+    const data = Buffer.from(mediaBytes).toString("base64");
+    const mimeType = item.media.mimeType || "image/jpeg";
+    return { data, mimeType };
   };
 
   const formatTranscriptionFailureText = (error: unknown): string => {
@@ -974,7 +1032,123 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           continue;
         }
 
+        if (item.media && isImageMediaKind(item.media.kind)) {
+          // IMAGE PATH: download -> base64 -> runPrompt with images
+          let imagePayload: { data: string; mimeType: string } | null = null;
+          try {
+            imagePayload = await withTypingIndicator(item.chatId, () => downloadInboundImage(item), item.messageThreadId);
+            logEvent(
+              "inbound_image_downloaded",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                media_kind: item.media.kind,
+                mime_type: imagePayload.mimeType,
+                base64_length: imagePayload.data.length,
+              },
+            );
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
+              text: `⚠️ Failed to download image: ${msg}`,
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "inbound_image_download_error",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                media_kind: item.media.kind,
+                error: msg,
+              },
+            );
+            persistOutboundQueue();
+            continue;
+          }
+
+          const promptText = item.text || "Describe this image.";
+          const images = [{ type: "image" as const, data: imagePayload.data, mimeType: imagePayload.mimeType }];
+          try {
+            const rawResponse = await withTypingIndicator(
+              item.chatId,
+              () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs, images),
+              item.messageThreadId,
+            );
+            const response = requireNonEmptyPromptResponse(rawResponse);
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
+              text: response,
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "inbound_image_prompt_ok",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                media_kind: item.media.kind,
+                prompt_length: promptText.length,
+                response_length: response.length,
+              },
+            );
+          } catch (error) {
+            // NO background deferral for images - on timeout, return error asking to retry
+            const msg = (error as Error)?.message || String(error);
+            pendingOutbound.push({
+              chatId: item.chatId,
+              replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
+              text: formatPromptFailureText(promptText, msg),
+              attempts: 0,
+              notBeforeMs: 0,
+            });
+            logEvent(
+              "inbound_image_prompt_error",
+              {
+                updateId: item.updateId,
+                chatId: item.chatId,
+                userId: item.userId,
+                messageId: item.messageId,
+                sessionKey: item.sessionKey,
+                sessionFile: item.sessionFile,
+              },
+              {
+                media_kind: item.media.kind,
+                error: msg,
+              },
+            );
+          }
+
+          persistOutboundQueue();
+          continue;
+        }
+
         if (item.media) {
+          // AUDIO/STT PATH: existing transcription flow unchanged
           let transcript = "";
           try {
             transcript = await withTypingIndicator(item.chatId, () => transcribeInboundMedia(item), item.messageThreadId);
