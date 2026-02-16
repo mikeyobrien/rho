@@ -52,5 +52,30 @@ export {
 export type { BrainActionResult } from "./brain-tool.ts";
 export { handleBrainAction } from "./brain-tool.ts";
 
+export type {
+  BootstrapStatus,
+  ValidateResult as BootstrapValidateResult,
+  BootstrapMetaShape,
+  ManagedMetadataShape,
+  ManagedKeyInput,
+} from "./brain-bootstrap-schema.ts";
+export {
+  BOOTSTRAP_STATUS_NOT_STARTED,
+  BOOTSTRAP_STATUS_PARTIAL,
+  BOOTSTRAP_STATUS_COMPLETED,
+  PERSONAL_ASSISTANT_PROFILE_ID,
+  PROFILE_SOURCE_PREFIX,
+  DEFAULT_PROFILE_SOURCE,
+  BOOTSTRAP_META_KEYS,
+  isKnownProfileVersion,
+  isIsoTimestamp,
+  validateBootstrapMeta,
+  validateManagedMetadata,
+  buildManagedKey,
+} from "./brain-bootstrap-schema.ts";
+
+export type { BrainLikeEntry, BootstrapState } from "./brain-bootstrap-state.ts";
+export { getBootstrapState, markBootstrapCompleted } from "./brain-bootstrap-state.ts";
+
 export type { MigrationPaths, MigrationStatus, MigrationStats } from "./brain-migration.ts";
 export { detectMigration, detectMigrationWithPaths, runMigration, runMigrationWithPaths } from "./brain-migration.ts";

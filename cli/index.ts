@@ -37,6 +37,7 @@ const COMMANDS: Record<string, CommandDef> = {
   telegram: { description: "Manage the Telegram worker",                 load: () => import("./commands/telegram.ts") },
   login:   { description: "Authenticate with pi providers",            load: () => import("./commands/login.ts") },
   web:     { description: "Launch the web UI server",                   load: () => import("./commands/web.ts") },
+  bootstrap: { description: "Manage brain-native bootstrap lifecycle",    load: () => import("./commands/bootstrap.ts") },
 };
 
 function printHelp(): void {
