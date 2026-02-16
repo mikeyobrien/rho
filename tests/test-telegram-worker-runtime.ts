@@ -115,6 +115,70 @@ try {
   assert(snapshot.pendingInbound === 0, "inbound queue drained");
   assert(snapshot.pendingOutbound === 0, "outbound queue drained");
 
+  console.log("\n-- empty prompt responses return actionable error text --");
+  {
+    const emptyStatePath = join(tmp, "telegram", "state.empty-response.json");
+    const emptyMapPath = join(tmp, "telegram", "session-map.empty-response.json");
+    const emptySessionDir = join(tmp, "sessions-empty-response");
+
+    const emptyUpdates = [
+      {
+        update_id: 551,
+        message: {
+          message_id: 79,
+          from: { id: 2222 },
+          chat: { id: 1111, type: "private" as const },
+          date: 1,
+          text: "trigger empty",
+        },
+      },
+    ];
+
+    const emptySent: Array<{ chat_id: number; text: string }> = [];
+    const emptyClient = {
+      async getUpdates() {
+        return emptyUpdates;
+      },
+      async sendMessage(chat_id: number, text: string, _other?: any) {
+        emptySent.push({ chat_id, text });
+        return { message_id: 1, chat: { id: chat_id, type: "private" as const }, date: 1 };
+      },
+      async sendChatAction() {
+        return true;
+      },
+    };
+
+    const emptyRpcRunner = {
+      async runPrompt() {
+        return "   ";
+      },
+      dispose() {
+        // no-op
+      },
+    };
+
+    const emptyRuntime = createTelegramWorkerRuntime({
+      settings,
+      client: emptyClient as any,
+      rpcRunner: emptyRpcRunner as any,
+      statePath: emptyStatePath,
+      mapPath: emptyMapPath,
+      sessionDir: emptySessionDir,
+      checkTriggerPath: join(tmp, "telegram", "check.trigger.empty-response.json"),
+      operatorConfigPath: join(tmp, "telegram", "config.empty-response.json"),
+      botUsername: "",
+      logPath: join(tmp, "telegram", "log.empty-response.jsonl"),
+    });
+
+    const emptyResult = await emptyRuntime.pollOnce(false);
+    assert(emptyResult.ok === true, "empty-response scenario poll succeeds");
+    assert(emptySent.length === 1, "empty-response scenario sends fallback text message");
+    assert(!emptySent[0]?.text.includes("(No response)"), "empty-response scenario does not emit '(No response)'");
+    assert(emptySent[0]?.text.toLowerCase().includes("empty response"), "empty-response scenario explains empty response failure");
+
+    emptyRuntime.dispose();
+  }
+
   console.log("\n-- prompt timeout defers to background and posts completion --");
   const deferStatePath = join(tmp, "telegram", "state.defer.json");
   const deferMapPath = join(tmp, "telegram", "session-map.defer.json");

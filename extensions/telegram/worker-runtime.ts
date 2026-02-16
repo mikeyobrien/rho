@@ -605,6 +605,14 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     return `⚠️ Failed to run prompt: ${message}`;
   };
 
+  const requireNonEmptyPromptResponse = (response: string): string => {
+    const normalized = String(response || "").trim();
+    if (!normalized) {
+      throw new Error("RPC prompt returned an empty response");
+    }
+    return normalized;
+  };
+
   const isPromptTimeoutError = (rawMessage: string): boolean => {
     const message = String(rawMessage || "");
     return /rpc prompt timed out/i.test(message);
@@ -704,18 +712,17 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
         void (async () => {
           try {
-            const response = await withTypingIndicator(
+            const rawResponse = await withTypingIndicator(
               item.chatId,
               () => rpcRunner.runPrompt(item.sessionFile, item.promptText, backgroundPromptTimeoutMs),
               item.messageThreadId,
             );
+            const response = requireNonEmptyPromptResponse(rawResponse);
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
               messageThreadId: item.messageThreadId,
-              text: response
-                ? `✅ Background task finished.\n\n${response}`
-                : "✅ Background task finished.\n\n(No response)",
+              text: `✅ Background task finished.\n\n${response}`,
               attempts: 0,
               notBeforeMs: 0,
             });
@@ -841,16 +848,17 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
 
           const promptText = transcript;
           try {
-            const response = await withTypingIndicator(
+            const rawResponse = await withTypingIndicator(
               item.chatId,
               () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs),
               item.messageThreadId,
             );
+            const response = requireNonEmptyPromptResponse(rawResponse);
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
               messageThreadId: item.messageThreadId,
-              text: response || "(No response)",
+              text: response,
               attempts: 0,
               notBeforeMs: 0,
             });
@@ -1001,16 +1009,17 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
         }
 
         try {
-          const response = await withTypingIndicator(
+          const rawResponse = await withTypingIndicator(
             item.chatId,
             () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs),
             item.messageThreadId,
           );
+          const response = requireNonEmptyPromptResponse(rawResponse);
           pendingOutbound.push({
             chatId: item.chatId,
             replyToMessageId: item.messageId,
             messageThreadId: item.messageThreadId,
-            text: response || "(No response)",
+            text: response,
             attempts: 0,
             notBeforeMs: 0,
           });
