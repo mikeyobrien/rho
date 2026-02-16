@@ -23,6 +23,10 @@ export interface TelegramSettings {
   allowedUserIds: number[];
   requireMentionInGroups: boolean;
   threadedMode: boolean;
+  sttProvider: "elevenlabs" | "openai";
+  sttApiKeyEnv: string;
+  sttEndpoint: string;
+  sttModel: string;
 }
 
 export interface TelegramRuntimeState {
@@ -47,6 +51,10 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
   allowedUserIds: [],
   requireMentionInGroups: true,
   threadedMode: false,
+  sttProvider: "elevenlabs",
+  sttApiKeyEnv: "ELEVENLABS_API_KEY",
+  sttEndpoint: "",
+  sttModel: "",
 };
 
 export const DEFAULT_STATE: TelegramRuntimeState = {
@@ -96,6 +104,22 @@ export function readTelegramSettings(initPath: string = INIT_TOML): TelegramSett
           ? telegram.require_mention_in_groups
           : DEFAULT_SETTINGS.requireMentionInGroups,
       threadedMode: telegram.threaded_mode === true,
+      sttProvider:
+        telegram.stt_provider === "elevenlabs" || telegram.stt_provider === "openai"
+          ? telegram.stt_provider
+          : DEFAULT_SETTINGS.sttProvider,
+      sttApiKeyEnv:
+        typeof telegram.stt_api_key_env === "string" && telegram.stt_api_key_env.trim()
+          ? telegram.stt_api_key_env.trim()
+          : DEFAULT_SETTINGS.sttApiKeyEnv,
+      sttEndpoint:
+        typeof telegram.stt_endpoint === "string"
+          ? telegram.stt_endpoint.trim()
+          : DEFAULT_SETTINGS.sttEndpoint,
+      sttModel:
+        typeof telegram.stt_model === "string"
+          ? telegram.stt_model.trim()
+          : DEFAULT_SETTINGS.sttModel,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

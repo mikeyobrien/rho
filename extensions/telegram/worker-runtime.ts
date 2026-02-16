@@ -34,6 +34,7 @@ import { consumeTelegramCheckTrigger, type TelegramCheckTriggerRequestV1 } from 
 import { TelegramRpcRunner } from "./rpc.ts";
 import { upsertPendingApproval } from "./pending-approvals.ts";
 import { formatSlashPromptFailure, parseSlashInput } from "./slash-contract.ts";
+import { createSttProvider, SttApiKeyMissingError, type SttProvider } from "./stt.ts";
 
 /**
  * Minimal interface matching the grammy Api methods this module uses.
@@ -64,6 +65,7 @@ export interface TelegramWorkerRuntimeOptions {
   checkTriggerPath?: string;
   operatorConfigPath?: string;
   rpcRunner?: TelegramRpcRunnerLike;
+  sttProvider?: SttProvider;
   logPath?: string;
   logEvent?: (event: string, context?: TelegramLogContext, extra?: Record<string, unknown>) => void;
 }
@@ -371,34 +373,12 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     return await withChatAction(chatId, "typing", work, messageThreadId);
   };
 
-  const extractTranscriptText = (payload: unknown): string => {
-    if (!payload || typeof payload !== "object") return "";
-    const candidate = payload as Record<string, unknown>;
-
-    const directText = typeof candidate.text === "string" ? candidate.text.trim() : "";
-    if (directText) return directText;
-
-    const directTranscript = typeof candidate.transcript === "string" ? candidate.transcript.trim() : "";
-    if (directTranscript) return directTranscript;
-
-    const nestedResult = candidate.result;
-    if (nestedResult && typeof nestedResult === "object") {
-      const resultText = typeof (nestedResult as Record<string, unknown>).text === "string"
-        ? ((nestedResult as Record<string, unknown>).text as string).trim()
-        : "";
-      if (resultText) return resultText;
-    }
-
-    const nestedData = candidate.data;
-    if (nestedData && typeof nestedData === "object") {
-      const dataText = typeof (nestedData as Record<string, unknown>).text === "string"
-        ? ((nestedData as Record<string, unknown>).text as string).trim()
-        : "";
-      if (dataText) return dataText;
-    }
-
-    return "";
-  };
+  const sttProvider = options.sttProvider ?? createSttProvider({
+    provider: settings.sttProvider,
+    apiKeyEnv: settings.sttApiKeyEnv,
+    endpoint: settings.sttEndpoint,
+    model: settings.sttModel,
+  });
 
   const transcribeInboundMedia = async (item: PendingInboundItem): Promise<string> => {
     if (!item.media) {
@@ -406,11 +386,6 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     }
     if (!client?.getFile) {
       throw new Error("Telegram media download support is unavailable in this worker build");
-    }
-
-    const apiKey = (process.env.ELEVENLABS_API_KEY || "").trim();
-    if (!apiKey) {
-      throw new Error("ELEVENLABS_API_KEY is not set");
     }
 
     const file = await client.getFile(item.media.fileId);
@@ -424,51 +399,17 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     const extension = mimeType.includes("/") ? mimeType.split("/")[1] : "bin";
     const inferredName = item.media.fileName || `${item.media.kind}.${extension}`;
 
-    const form = new FormData();
-    form.append("model_id", "scribe_v1");
-    form.append("file", new Blob([mediaBytes], { type: mimeType }), inferredName);
-
-    const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-      },
-      body: form,
-    });
-
-    if (!response.ok) {
-      let detail = "";
-      try {
-        const body = await response.text();
-        detail = body.trim();
-      } catch {
-        // ignore response body parse errors
-      }
-      const suffix = detail ? `: ${detail.slice(0, 240)}` : "";
-      throw new Error(`ElevenLabs STT request failed (${response.status})${suffix}`);
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new Error("ElevenLabs STT response was not valid JSON");
-    }
-
-    const transcript = extractTranscriptText(payload);
-    if (!transcript) {
-      throw new Error("ElevenLabs STT response did not include transcript text");
-    }
-
-    return transcript;
+    return await sttProvider.transcribe(mediaBytes, mimeType, inferredName);
   };
 
-  const formatTranscriptionFailureText = (rawMessage: string): string => {
-    const message = String(rawMessage || "Voice transcription failed").trim() || "Voice transcription failed";
-
-    if (/ELEVENLABS_API_KEY is not set/i.test(message)) {
-      return "⚠️ Voice transcription is unavailable. Set ELEVENLABS_API_KEY for the Telegram worker and try again.";
+  const formatTranscriptionFailureText = (error: unknown): string => {
+    if (error instanceof SttApiKeyMissingError) {
+      return `⚠️ Voice transcription is unavailable. Set ${error.envVar} for the Telegram worker and try again.`;
     }
+
+    const message = String(
+      error instanceof Error ? error.message : error || "Voice transcription failed",
+    ).trim() || "Voice transcription failed";
 
     return `⚠️ Voice transcription failed: ${message}`;
   };
@@ -818,7 +759,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
               },
             );
           } catch (error) {
-            const msg = (error as Error)?.message || String(error);
+            const msg = error instanceof Error ? error.message : String(error);
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
@@ -839,7 +780,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
               },
               {
                 media_kind: item.media.kind,
-                error: msg,
+                error: error instanceof Error ? error.message : String(error),
               },
             );
             persistOutboundQueue();

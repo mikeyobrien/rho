@@ -55,6 +55,11 @@ poll_timeout_seconds = 30             # Long-poll timeout for getUpdates
 allowed_chat_ids = []                 # Optional allowlist of chat IDs
 allowed_user_ids = []                 # Optional allowlist of Telegram user IDs
 require_mention_in_groups = true      # Ignore group chatter unless activated
+# Speech-to-text provider for voice message transcription
+# stt_provider = "elevenlabs"           # "elevenlabs" | "openai"
+# stt_api_key_env = "ELEVENLABS_API_KEY" # Env var holding API key
+# stt_endpoint = ""                      # Custom endpoint (e.g., "http://localhost:8787" for local Whisper)
+# stt_model = ""                         # Model override (default: provider-specific)
 
 [settings.email]
 # handle = ""                         # Your rhobot.dev email handle
