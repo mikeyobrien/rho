@@ -5,7 +5,7 @@
  * knowledge vault, and heartbeat check-ins.
  *
  * Tools:  memory, tasks, vault, rho_control, rho_subagent
- * Commands: /brain, /tasks, /vault, /rho
+ * Commands: /brain, /tasks, /vault, /rho, /bootstrap
  * Events: session_start, session_switch, session_fork, session_shutdown,
  *         before_agent_start, agent_end, session_before_compact
  */
@@ -46,6 +46,7 @@ import { handleBrainAction } from "../lib/brain-tool.ts";
 import { readBrain, foldBrain, buildBrainPrompt, appendBrainEntryWithDedup, getInjectedIds, BRAIN_PATH } from "../lib/brain-store.ts";
 import { detectMigration, runMigration } from "../lib/brain-migration.ts";
 import { LeaseHandle, isLeaseStale, readLeaseMeta, tryAcquireLeaseLock } from "../lib/lease-lock.ts";
+import { handleBootstrapSlash, runBootstrapCliFromExtension } from "./bootstrap/slash-bootstrap.ts";
 
 export { parseFrontmatter, extractWikilinks };
 export {
@@ -2654,6 +2655,26 @@ Instructions:
           ctx.ui.notify(`Subagents (${subagents.length}):\n${lines.join("\n")}`, "info");
         } catch {
           ctx.ui.notify("No tmux session found.", "info");
+        }
+      },
+    });
+  }
+
+  // ── Command: /bootstrap ─────────────────────────────────────────────────────
+
+  if (!IS_SUBAGENT) {
+    pi.registerCommand("bootstrap", {
+      description: "Brain bootstrap lifecycle: status, run, reapply, upgrade, diff, reset, audit",
+      handler: async (args, ctx) => {
+        const result = handleBootstrapSlash(args, (cliArgs) => runBootstrapCliFromExtension(__dirname, cliArgs));
+        const level = result.notify.level;
+        const text = result.notify.text;
+
+        if (ctx.hasUI) ctx.ui.notify(text, level);
+
+        if (!result.ok && !ctx.hasUI) {
+          // In headless mode, still surface failures.
+          console.error(text);
         }
       },
     });

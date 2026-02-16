@@ -97,13 +97,23 @@ rho upgrade              # Update Rho and sync new modules
 Inside a session:
 
 ```
-/rho status           Show heartbeat state
-/rho now              Trigger check-in immediately
-/rho interval 30m     Set check-in interval
-/rho enable/disable   Toggle heartbeat
-/subagents            Check spawned subagent status
-/vault inbox          View captured items
-/brain                Interact with memory
+/rho status              Show heartbeat state
+/rho now                 Trigger check-in immediately
+/rho interval 30m        Set check-in interval
+/rho enable/disable      Toggle heartbeat
+/bootstrap status        Show bootstrap state + managed count + last operation
+/bootstrap run           Run bootstrap apply (non-interactive defaults)
+/bootstrap diff --to pa-v2
+                         Preview merge/upgrade actions
+/bootstrap reapply       Re-apply current bootstrap profile
+/bootstrap upgrade --to pa-v2
+                         Upgrade profile pack version
+/bootstrap reset --confirm RESET_BOOTSTRAP
+                         Reset bootstrap state safely
+/bootstrap audit         Show recent bootstrap lifecycle events
+/subagents               Check spawned subagent status
+/vault inbox             View captured items
+/brain                   Interact with memory
 /skill run pdd           Run the Prompt-Driven Development workflow
 /skill run code-assist   Run the code implementation workflow
 ```
@@ -432,6 +442,7 @@ BRAVE_API_KEY="..."     # For web search (optional)
 
 ## Links
 
+- [Brain bootstrapping guide](docs/bootstrapping-brain.md)
 - [Demo walkthrough](docs/demo.md)
 - [iPhone/iPad setup](docs/iphone-setup.md)
 - [VPS setup guide](docs/vps-setup.md)
