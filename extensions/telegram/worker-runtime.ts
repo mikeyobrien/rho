@@ -40,7 +40,7 @@ import { createSttProvider, SttApiKeyMissingError, type SttProvider } from "./st
  * Minimal interface matching the grammy Api methods this module uses.
  * Production code passes a real grammy `Api` instance; tests pass lightweight mocks.
  */
-export interface TelegramClientLike {
+export interface TelegramApiLike {
   getUpdates(other?: { offset?: number; timeout?: number; allowed_updates?: readonly string[] }): Promise<Update[]>;
   sendMessage(chat_id: number | string, text: string, other?: Record<string, unknown>): Promise<Message.TextMessage>;
   sendChatAction(chat_id: number | string, action: string, other?: Record<string, unknown>): Promise<true>;
@@ -56,7 +56,7 @@ export interface TelegramRpcRunnerLike {
 
 export interface TelegramWorkerRuntimeOptions {
   settings: TelegramSettings;
-  client: TelegramClientLike | null;
+  client: TelegramApiLike | null;
   botToken?: string;
   botUsername?: string;
   statePath?: string;

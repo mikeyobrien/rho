@@ -17,12 +17,19 @@ import {
   advanceUpdateOffset,
   type TelegramSettings,
 } from "../extensions/telegram/lib.ts";
-import { TelegramClient, TelegramApiError, isTelegramParseModeError } from "../extensions/telegram/api.ts";
+import {
+  Api,
+  GrammyError,
+  HttpError,
+  downloadFile,
+  isTelegramParseModeError,
+  isRetryableAfterAutoRetry,
+  queueRetryDelayMs,
+} from "../extensions/telegram/api.ts";
 import { authorizeInbound, normalizeInboundUpdate } from "../extensions/telegram/router.ts";
 import { loadSessionMap, resolveSessionFile, sessionKeyForEnvelope } from "../extensions/telegram/session-map.ts";
 import { TelegramRpcRunner } from "../extensions/telegram/rpc.ts";
 import { chunkTelegramText, renderOutboundText, renderTelegramOutboundChunks } from "../extensions/telegram/outbound.ts";
-import { retryDelayMs, shouldRetryTelegramError } from "../extensions/telegram/retry.ts";
 import { appendTelegramLog } from "../extensions/telegram/log.ts";
 import { loadOperatorConfig, saveOperatorConfig } from "../extensions/telegram/operator-config.ts";
 import {
@@ -49,6 +56,20 @@ function assert(condition: boolean, label: string): void {
     console.error(`  FAIL: ${label}`);
     FAIL++;
   }
+}
+
+function createGrammyApiError(description: string, errorCode: number, retryAfterSeconds?: number): GrammyError {
+  return new GrammyError(
+    description,
+    {
+      ok: false,
+      error_code: errorCode,
+      description,
+      parameters: typeof retryAfterSeconds === "number" ? { retry_after: retryAfterSeconds } : {},
+    } as any,
+    "sendMessage",
+    {},
+  );
 }
 
 console.log("\n=== Telegram helper tests ===\n");
@@ -139,70 +160,7 @@ try {
     assert(advanceUpdateOffset(0, [1, 3, 2]) === 4, "out-of-order ids use max+1");
   }
 
-  console.log("\n-- TelegramClient mocked API --");
-  {
-    const originalFetch = globalThis.fetch;
-    try {
-      globalThis.fetch = (async (_url: string, _init?: any) => {
-        return {
-          ok: true,
-          status: 200,
-          async json() {
-            return {
-              ok: true,
-              result: [{ update_id: 1 }, { update_id: 2 }],
-            };
-          },
-        } as any;
-      }) as any;
-
-      const client = new TelegramClient("test-token", "https://example.test");
-      const updates = await client.getUpdates({ offset: 0, timeout: 1 });
-      assert(updates.length === 2, "getUpdates returns mocked updates");
-
-      globalThis.fetch = (async (_url: string, _init?: any) => {
-        return {
-          ok: false,
-          status: 429,
-          async json() {
-            return {
-              ok: false,
-              description: "Too Many Requests",
-              parameters: { retry_after: 2 },
-            };
-          },
-        } as any;
-      }) as any;
-
-      let gotRateLimit = false;
-      try {
-        await client.sendMessage({ chat_id: 1, text: "hi" });
-      } catch (error) {
-        gotRateLimit = error instanceof TelegramApiError && error.retryAfterSeconds === 2;
-      }
-      assert(gotRateLimit, "sendMessage surfaces retry_after on 429");
-
-      globalThis.fetch = (async (_url: string, _init?: any) => {
-        return {
-          ok: true,
-          status: 200,
-          async json() {
-            return {
-              ok: true,
-              result: true,
-            };
-          },
-        } as any;
-      }) as any;
-
-      const typing = await client.sendChatAction({ chat_id: 1, action: "typing" });
-      assert(typing === true, "sendChatAction returns true on success");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  }
-
-  console.log("\n-- TelegramClient media helpers --");
+  console.log("\n-- grammY Api mocked calls + download helper --");
   {
     const originalFetch = globalThis.fetch;
     const calls: Array<{ url: string; init: any }> = [];
@@ -211,18 +169,29 @@ try {
         const requestUrl = String(url);
         calls.push({ url: requestUrl, init });
 
-        if (requestUrl.endsWith("/getFile")) {
+        if (requestUrl.endsWith("/getUpdates")) {
           return {
             ok: true,
             status: 200,
             async json() {
               return {
                 ok: true,
-                result: {
-                  file_id: "voice-file-1",
-                  file_path: "voice/path.oga",
-                  file_size: 3,
-                },
+                result: [{ update_id: 1 }, { update_id: 2 }],
+              };
+            },
+          } as any;
+        }
+
+        if (requestUrl.endsWith("/sendMessage")) {
+          return {
+            ok: false,
+            status: 429,
+            async json() {
+              return {
+                ok: false,
+                error_code: 429,
+                description: "Too Many Requests",
+                parameters: { retry_after: 2 },
               };
             },
           } as any;
@@ -238,90 +207,45 @@ try {
           } as any;
         }
 
-        if (requestUrl.endsWith("/sendVoice")) {
-          return {
-            ok: true,
-            status: 200,
-            async json() {
-              return {
-                ok: true,
-                result: {
-                  message_id: 101,
-                  chat: { id: 1, type: "private" as const },
-                  date: 1,
-                },
-              };
-            },
-          } as any;
-        }
-
-        if (requestUrl.endsWith("/sendAudio")) {
-          return {
-            ok: true,
-            status: 200,
-            async json() {
-              return {
-                ok: true,
-                result: {
-                  message_id: 102,
-                  chat: { id: 1, type: "private" as const },
-                  date: 1,
-                },
-              };
-            },
-          } as any;
-        }
-
         return {
-          ok: false,
-          status: 500,
+          ok: true,
+          status: 200,
           async json() {
-            return { ok: false, description: "unexpected request" };
+            return {
+              ok: true,
+              result: true,
+            };
           },
         } as any;
       }) as any;
 
-      const client = new TelegramClient("test-token", "https://example.test/");
-
-      const file = await client.getFile({ file_id: "voice-file-1" });
-      assert(file.file_path === "voice/path.oga", "getFile returns Telegram file metadata");
-
-      const bytes = await client.downloadFile(file.file_path || "");
-      assert(bytes.length === 3 && bytes[0] === 1 && bytes[2] === 3, "downloadFile returns binary file bytes");
-
-      const sentVoice = await client.sendVoice({
-        chat_id: 1,
-        voice: new Uint8Array([7, 8, 9]),
-        caption: "voice caption",
-        reply_to_message_id: 88,
+      const api = new Api("test-token", {
+        apiRoot: "https://example.test",
+        fetch: globalThis.fetch as any,
       });
-      assert(sentVoice.message_id === 101, "sendVoice returns Telegram message payload");
 
-      const sentAudio = await client.sendAudio({
-        chat_id: 1,
-        audio: "existing-audio-file-id",
-        title: "sample title",
-      });
-      assert(sentAudio.message_id === 102, "sendAudio returns Telegram message payload");
+      const updates = await api.getUpdates({ offset: 0, timeout: 1 });
+      assert(updates.length === 2, "grammy getUpdates returns mocked updates");
 
-      const getFileCall = calls.find((call) => call.url.endsWith("/getFile"));
-      assert(getFileCall?.url === "https://example.test/bottest-token/getFile", "getFile targets bot API endpoint");
+      let gotRateLimit = false;
+      try {
+        await api.sendMessage(1, "hi");
+      } catch (error) {
+        gotRateLimit = error instanceof GrammyError && error.parameters?.retry_after === 2;
+      }
+      assert(gotRateLimit, "grammy sendMessage surfaces retry_after on 429");
+
+      const bytes = await downloadFile("test-token", "voice/path.oga", "https://example.test/");
+      assert(bytes.length === 3 && bytes[0] === 1 && bytes[2] === 3, "downloadFile helper returns binary bytes");
+
+      const updatesCall = calls.find((call) => call.url.endsWith("/getUpdates"));
+      assert(updatesCall?.url === "https://example.test/bottest-token/getUpdates", "grammy getUpdates targets bot API endpoint");
+
+      const sendMessageCall = calls.find((call) => call.url.endsWith("/sendMessage"));
+      assert(sendMessageCall?.url === "https://example.test/bottest-token/sendMessage", "grammy sendMessage targets bot API endpoint");
 
       const downloadCall = calls.find((call) => call.url.endsWith("/file/bottest-token/voice/path.oga"));
-      assert(!!downloadCall, "downloadFile targets Telegram file endpoint");
-
-      const sendVoiceCall = calls.find((call) => call.url.endsWith("/sendVoice"));
-      assert(sendVoiceCall?.init?.body instanceof FormData, "sendVoice uses multipart form payload");
-      const sendVoiceForm = sendVoiceCall?.init?.body as FormData;
-      assert(sendVoiceForm.get("chat_id") === "1", "sendVoice form includes chat_id");
-      assert(sendVoiceForm.get("voice") instanceof Blob, "sendVoice binary payload is appended as Blob");
-      assert(sendVoiceForm.get("caption") === "voice caption", "sendVoice form includes caption");
-
-      const sendAudioCall = calls.find((call) => call.url.endsWith("/sendAudio"));
-      assert(sendAudioCall?.init?.body instanceof FormData, "sendAudio uses multipart form payload");
-      const sendAudioForm = sendAudioCall?.init?.body as FormData;
-      assert(sendAudioForm.get("audio") === "existing-audio-file-id", "sendAudio supports string file_id payload");
-      assert(sendAudioForm.get("title") === "sample title", "sendAudio form includes title");
+      assert(!!downloadCall, "downloadFile helper targets Telegram file endpoint");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1123,8 +1047,8 @@ try {
 
   console.log("\n-- parse-mode error detection --");
   {
-    const parseError = new TelegramApiError("Bad Request: can't parse entities", 400);
-    const serverError = new TelegramApiError("Internal Server Error", 500);
+    const parseError = createGrammyApiError("Bad Request: can't parse entities", 400);
+    const serverError = createGrammyApiError("Internal Server Error", 500);
 
     assert(isTelegramParseModeError(parseError) === true, "detects parse-mode entity errors");
     assert(isTelegramParseModeError(serverError) === false, "does not treat 5xx as parse-mode errors");
@@ -1133,17 +1057,20 @@ try {
 
   console.log("\n-- retry policy helpers --");
   {
-    const e429 = new TelegramApiError("rate", 429, 2);
-    assert(shouldRetryTelegramError(e429, 0) === true, "retry 429 on first attempt");
-    assert(retryDelayMs(e429, 0) === 2000, "retry_after overrides delay");
+    const e429 = createGrammyApiError("rate", 429, 2);
+    assert(isRetryableAfterAutoRetry(e429, 0) === true, "retry 429 on first attempt");
+    assert(queueRetryDelayMs(e429, 0) === 2000, "retry_after overrides delay");
 
-    const e500 = new TelegramApiError("server", 500);
-    assert(shouldRetryTelegramError(e500, 1) === true, "retry 5xx errors");
-    assert(retryDelayMs(e500, 2) === 4000, "backoff for non-retry_after error");
+    const e500 = createGrammyApiError("server", 500);
+    assert(isRetryableAfterAutoRetry(e500, 1) === true, "retry 5xx errors");
+    assert(queueRetryDelayMs(e500, 2) === 8000, "backoff for non-retry_after error");
 
-    const e400 = new TelegramApiError("bad", 400);
-    assert(shouldRetryTelegramError(e400, 0) === false, "do not retry 4xx non-rate-limit");
-    assert(shouldRetryTelegramError(e500, 3) === false, "respect max attempt cap");
+    const e400 = createGrammyApiError("bad", 400);
+    assert(isRetryableAfterAutoRetry(e400, 0) === false, "do not retry 4xx non-rate-limit");
+    assert(isRetryableAfterAutoRetry(e500, 6) === false, "respect max attempt cap");
+
+    const transport = new HttpError("network down", new Error("ECONNRESET"));
+    assert(isRetryableAfterAutoRetry(transport, 1) === true, "transport failures remain retryable");
   }
 
   console.log("\n-- slash acknowledgement formatting --");

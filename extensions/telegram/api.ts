@@ -1,8 +1,8 @@
 /**
- * Telegram API adapter — backed by grammy.
+ * Telegram API adapter — backed by grammY.
  *
- * Re-exports grammy primitives so the rest of the telegram extension
- * can import them from a single canonical location.
+ * Centralizes imports/utility helpers so the rest of the telegram extension
+ * can use one canonical module.
  */
 
 import { Api, GrammyError, HttpError, InputFile } from "grammy";
@@ -14,6 +14,12 @@ export type { Update, Message, User, Chat, File };
 /* ------------------------------------------------------------------ */
 /*  Error utilities                                                    */
 /* ------------------------------------------------------------------ */
+
+export function retryAfterSeconds(error: unknown): number | undefined {
+  if (!(error instanceof GrammyError)) return undefined;
+  const value = error.parameters?.retry_after;
+  return typeof value === "number" ? value : undefined;
+}
 
 export function isTelegramParseModeError(error: unknown): boolean {
   if (!(error instanceof GrammyError)) return false;
@@ -30,9 +36,7 @@ export function isTelegramParseModeError(error: unknown): boolean {
 
 /**
  * Should a failed send be re-queued for a later flush cycle?
- * Called AFTER auto-retry already exhausted its within-call retries.
- * Returns true for transient errors (429, 5xx, transport) that may
- * resolve on a later attempt; false for permanent client errors (4xx).
+ * Called AFTER auto-retry exhausted its within-call retries.
  */
 export function isRetryableAfterAutoRetry(error: unknown, attempt: number, maxAttempts = 6): boolean {
   if (attempt >= maxAttempts) return false;
@@ -44,20 +48,21 @@ export function isRetryableAfterAutoRetry(error: unknown, attempt: number, maxAt
 }
 
 export function queueRetryDelayMs(error: unknown, attempt: number): number {
-  if (error instanceof GrammyError && typeof error.parameters?.retry_after === "number") {
-    return Math.max(0, error.parameters.retry_after * 1000);
+  const retryAfter = retryAfterSeconds(error);
+  if (typeof retryAfter === "number") {
+    return Math.max(0, retryAfter * 1000);
   }
   const base = 2000;
   return Math.min(60_000, base * Math.pow(2, Math.max(0, attempt)));
 }
 
-/** Build reply_parameters for grammy sendMessage calls. */
+/** Build reply_parameters for grammY sendMessage/sendVoice calls. */
 export function replyParams(messageId: number | undefined): Record<string, unknown> {
   return messageId ? { reply_parameters: { message_id: messageId } } : {};
 }
 
 /* ------------------------------------------------------------------ */
-/*  File download helper (grammy doesn't provide raw file download)    */
+/*  File download helper (grammY doesn't provide raw file download)    */
 /* ------------------------------------------------------------------ */
 
 export async function downloadFile(
