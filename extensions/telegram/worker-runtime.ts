@@ -42,7 +42,7 @@ import { formatSlashPromptFailure, parseSlashInput } from "./slash-contract.ts";
 export interface TelegramClientLike {
   getUpdates(other?: { offset?: number; timeout?: number; allowed_updates?: readonly string[] }): Promise<Update[]>;
   sendMessage(chat_id: number | string, text: string, other?: Record<string, unknown>): Promise<Message.TextMessage>;
-  sendChatAction(chat_id: number | string, action: string): Promise<true>;
+  sendChatAction(chat_id: number | string, action: string, other?: Record<string, unknown>): Promise<true>;
   sendVoice?(chat_id: number | string, voice: InputFile | string, other?: Record<string, unknown>): Promise<Message.VoiceMessage>;
   sendAudio?(chat_id: number | string, audio: InputFile | string, other?: Record<string, unknown>): Promise<Message.AudioMessage>;
   getFile?(file_id: string): Promise<File>;
@@ -112,6 +112,7 @@ type PendingInboundItem = TelegramInboundEnvelope & {
 type PendingOutboundItem = {
   chatId: number;
   replyToMessageId?: number;
+  messageThreadId?: number;
   text: string;
   attempts: number;
   notBeforeMs: number;
@@ -123,6 +124,7 @@ type PendingBackgroundItem = {
   chatId: number;
   userId: number | null;
   messageId: number;
+  messageThreadId?: number;
   sessionKey: string;
   sessionFile: string;
   promptText: string;
@@ -345,21 +347,19 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     chatId: number,
     action: string,
     work: () => Promise<T>,
+    messageThreadId?: number,
   ): Promise<T> => {
     if (!client) return await work();
-
     let timer: NodeJS.Timeout | null = null;
     const emitAction = async () => {
       try {
-        await client.sendChatAction(chatId, action);
+        await client.sendChatAction(chatId, action, { message_thread_id: messageThreadId });
       } catch {
         // Ignore chat action failures; they are non-critical.
       }
     };
-
     void emitAction();
     timer = setInterval(() => { void emitAction(); }, 4000);
-
     try {
       return await work();
     } finally {
@@ -367,8 +367,8 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     }
   };
 
-  const withTypingIndicator = async <T>(chatId: number, work: () => Promise<T>): Promise<T> => {
-    return await withChatAction(chatId, "typing", work);
+  const withTypingIndicator = async <T>(chatId: number, work: () => Promise<T>, messageThreadId?: number): Promise<T> => {
+    return await withChatAction(chatId, "typing", work, messageThreadId);
   };
 
   const extractTranscriptText = (payload: unknown): string => {
@@ -542,7 +542,10 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
         await client.sendVoice(
           item.chatId,
           new InputFile(audio.bytes, audio.fileName),
-          { reply_parameters: { message_id: item.messageId } },
+          {
+            message_thread_id: item.messageThreadId,
+            ...replyParams(item.messageId),
+          },
         );
         return;
       }
@@ -552,12 +555,13 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           new InputFile(audio.bytes, audio.fileName),
           {
             title: "rho /tts",
-            reply_parameters: { message_id: item.messageId },
+            message_thread_id: item.messageThreadId,
+            ...replyParams(item.messageId),
           },
         );
         return;
       }
-    });
+    }, item.messageThreadId);
 
     logEvent(
       "outbound_media_sent",
@@ -637,6 +641,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
       messageId: item.messageId,
       sessionKey: item.sessionKey,
       sessionFile: item.sessionFile,
+      messageThreadId: item.messageThreadId,
       promptText,
       createdAtMs: Date.now(),
       startedAtMs: null,
@@ -696,10 +701,12 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             const response = await withTypingIndicator(
               item.chatId,
               () => rpcRunner.runPrompt(item.sessionFile, item.promptText, backgroundPromptTimeoutMs),
+              item.messageThreadId,
             );
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: response
                 ? `✅ Background task finished.\n\n${response}`
                 : "✅ Background task finished.\n\n(No response)",
@@ -725,6 +732,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: formatPromptFailureText(item.promptText, msg),
               attempts: 0,
               notBeforeMs: 0,
@@ -780,7 +788,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
         if (item.media) {
           let transcript = "";
           try {
-            transcript = await withTypingIndicator(item.chatId, () => transcribeInboundMedia(item));
+            transcript = await withTypingIndicator(item.chatId, () => transcribeInboundMedia(item), item.messageThreadId);
             logEvent(
               "inbound_media_transcribed",
               {
@@ -801,6 +809,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: formatTranscriptionFailureText(msg),
               attempts: 0,
               notBeforeMs: 0,
@@ -829,10 +838,12 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             const response = await withTypingIndicator(
               item.chatId,
               () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs),
+              item.messageThreadId,
             );
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: response || "(No response)",
               attempts: 0,
               notBeforeMs: 0,
@@ -860,6 +871,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
               pendingOutbound.push({
                 chatId: item.chatId,
                 replyToMessageId: item.messageId,
+                messageThreadId: item.messageThreadId,
                 text: backgroundDeferAcknowledgement,
                 attempts: 0,
                 notBeforeMs: 0,
@@ -886,6 +898,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
               pendingOutbound.push({
                 chatId: item.chatId,
                 replyToMessageId: item.messageId,
+                messageThreadId: item.messageThreadId,
                 text: formatPromptFailureText(promptText, msg),
                 attempts: 0,
                 notBeforeMs: 0,
@@ -922,6 +935,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: "⚠️ Usage: /tts <text>",
               attempts: 0,
               notBeforeMs: 0,
@@ -931,7 +945,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           }
 
           try {
-            const audio = await withChatAction(item.chatId, "record_voice", () => synthesizeTtsAudio(ttsCommand.payload));
+            const audio = await withChatAction(item.chatId, "record_voice", () => synthesizeTtsAudio(ttsCommand.payload), item.messageThreadId);
             await sendTtsVoiceReply(item, audio);
 
             logEvent(
@@ -954,6 +968,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: formatTtsFailureText(msg),
               attempts: 0,
               notBeforeMs: 0,
@@ -983,10 +998,12 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           const response = await withTypingIndicator(
             item.chatId,
             () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs),
+            item.messageThreadId,
           );
           pendingOutbound.push({
             chatId: item.chatId,
             replyToMessageId: item.messageId,
+            messageThreadId: item.messageThreadId,
             text: response || "(No response)",
             attempts: 0,
             notBeforeMs: 0,
@@ -1011,6 +1028,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: backgroundDeferAcknowledgement,
               attempts: 0,
               notBeforeMs: 0,
@@ -1035,6 +1053,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
+              messageThreadId: item.messageThreadId,
               text: formatPromptFailureText(promptText, msg),
               attempts: 0,
               notBeforeMs: 0,
@@ -1091,12 +1110,14 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
             await client.sendMessage(item.chatId, chunk.text, {
               parse_mode: chunk.parseMode,
               link_preview_options: { is_disabled: true },
+              message_thread_id: item.messageThreadId,
               ...replyParams(i === 0 ? item.replyToMessageId : undefined),
             });
           } catch (error) {
             if (chunk.parseMode && isTelegramParseModeError(error)) {
               await client.sendMessage(item.chatId, chunk.fallbackText, {
                 link_preview_options: { is_disabled: true },
+                message_thread_id: item.messageThreadId,
                 ...replyParams(i === 0 ? item.replyToMessageId : undefined),
               });
               sentTextPreview = chunk.fallbackText;
@@ -1209,6 +1230,11 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
         const envelope = normalizeInboundUpdate(update);
         if (!envelope) continue;
 
+        // Strip thread context when threaded mode is disabled
+        if (!settings.threadedMode) {
+          envelope.messageThreadId = undefined;
+        }
+
         const auth = authorizeInbound(envelope, effectiveAuthSettings(), botUsername || undefined, strictAllowlist);
         if (!auth.ok) {
           blocked += 1;
@@ -1249,7 +1275,10 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
                 await client.sendMessage(
                   envelope.chatId,
                   `🔒 Access request received. Share this PIN with the operator to approve: ${pending.request.pin}`,
-                  replyParams(envelope.messageId),
+                  {
+                    message_thread_id: envelope.messageThreadId,
+                    ...replyParams(envelope.messageId),
+                  },
                 );
               } catch {
                 // ignore notification failures for blocked users
@@ -1266,6 +1295,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           pendingOutbound.push({
             chatId: envelope.chatId,
             replyToMessageId: envelope.messageId,
+            messageThreadId: envelope.messageThreadId,
             text: newSessionAcknowledgement,
             attempts: 0,
             notBeforeMs: 0,

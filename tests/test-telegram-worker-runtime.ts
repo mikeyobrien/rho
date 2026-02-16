@@ -87,6 +87,7 @@ try {
     allowedChatIds: [1111],
     allowedUserIds: [2222],
     requireMentionInGroups: false,
+    threadedMode: false,
   };
 
   const runtime = createTelegramWorkerRuntime({
@@ -1239,6 +1240,93 @@ try {
       process.env.ELEVENLABS_API_KEY = previousTtsSendFailureApiKey;
     }
     globalThis.fetch = ttsSendFailureOriginalFetch;
+  }
+
+  console.log("\n-- threaded mode routes message_thread_id through full cycle --");
+  {
+    const threadedDir = join(tmp, "telegram-threaded");
+    const threadedStatePath = join(threadedDir, "state.json");
+    const threadedMapPath = join(threadedDir, "session-map.json");
+    const threadedSessionDir = join(tmp, "sessions-threaded");
+
+    const threadedUpdates = [
+      {
+        update_id: 901,
+        message: {
+          message_id: 55,
+          from: { id: 2222 },
+          chat: { id: 1111, type: "private" as const },
+          date: 1,
+          text: "hello from thread",
+          message_thread_id: 7,
+        },
+      },
+    ];
+
+    const threadedSent: Array<{ chat_id: number; text: string; other?: any }> = [];
+    const threadedActions: Array<{ chat_id: number; action: string; other?: any }> = [];
+    const threadedClient = {
+      async getUpdates() {
+        return threadedUpdates;
+      },
+      async sendMessage(chat_id: number, text: string, other?: any) {
+        threadedSent.push({ chat_id, text, other });
+        return { message_id: 1, chat: { id: chat_id, type: "private" as const }, date: 1 };
+      },
+      async sendChatAction(chat_id: number, action: string, other?: any) {
+        threadedActions.push({ chat_id, action, other });
+        return true;
+      },
+    };
+
+    const threadedRpcPrompts: string[] = [];
+    const threadedRpcRunner = {
+      async runPrompt(_sessionFile: string, message: string) {
+        threadedRpcPrompts.push(message);
+        return "threaded pong";
+      },
+      dispose() {},
+    };
+
+    const threadedSettings: TelegramSettings = {
+      enabled: true,
+      mode: "polling",
+      botTokenEnv: "TELEGRAM_BOT_TOKEN",
+      pollTimeoutSeconds: 1,
+      rpcPromptTimeoutSeconds: 1,
+      backgroundPromptTimeoutSeconds: 5,
+      allowedChatIds: [1111],
+      allowedUserIds: [2222],
+      requireMentionInGroups: false,
+      threadedMode: true,
+    };
+
+    const threadedRuntime = createTelegramWorkerRuntime({
+      settings: threadedSettings,
+      client: threadedClient as any,
+      rpcRunner: threadedRpcRunner as any,
+      statePath: threadedStatePath,
+      mapPath: threadedMapPath,
+      sessionDir: threadedSessionDir,
+      checkTriggerPath: join(threadedDir, "check.trigger.json"),
+      operatorConfigPath: join(threadedDir, "config.json"),
+      botUsername: "",
+      logPath: join(threadedDir, "log.jsonl"),
+    });
+
+    const threadedResult = await threadedRuntime.pollOnce(false);
+    assert(threadedResult.ok === true, "threaded poll succeeds");
+    assert(threadedResult.accepted === 1, "threaded poll accepts update");
+    assert(threadedSent.length === 1, "threaded poll sends reply");
+    assert(threadedSent[0]?.other?.message_thread_id === 7, "outbound sendMessage carries message_thread_id");
+    assert(threadedActions.some((a) => a.other?.message_thread_id === 7), "sendChatAction carries message_thread_id");
+
+    // Verify session key uses threaded format
+    const threadedMap = loadSessionMap(threadedMapPath);
+    const threadedKeys = Object.keys(threadedMap);
+    assert(threadedKeys.some((k) => k.includes("topic:7")), "session map key includes topic:7");
+
+    threadedRuntime.dispose();
   }
 
   failingRuntime.dispose();

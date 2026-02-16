@@ -64,6 +64,7 @@ export default function (pi: ExtensionAPI) {
   let pendingOutbound: Array<{
     chatId: number;
     replyToMessageId?: number;
+    messageThreadId?: number;
     text: string;
     attempts: number;
     notBeforeMs: number;
@@ -252,12 +253,14 @@ export default function (pi: ExtensionAPI) {
             await client.sendMessage(item.chatId, chunk.text, {
               parse_mode: chunk.parseMode,
               link_preview_options: { is_disabled: true },
+              message_thread_id: item.messageThreadId,
               ...replyParams(i === 0 ? item.replyToMessageId : undefined),
             });
           } catch (error) {
             if (chunk.parseMode && isTelegramParseModeError(error)) {
               await client.sendMessage(item.chatId, chunk.fallbackText, {
                 link_preview_options: { is_disabled: true },
+                message_thread_id: item.messageThreadId,
                 ...replyParams(i === 0 ? item.replyToMessageId : undefined),
               });
               sentTextPreview = chunk.fallbackText;
@@ -361,6 +364,7 @@ export default function (pi: ExtensionAPI) {
       chat_id: Type.Optional(Type.Integer()),
       text: Type.Optional(Type.String()),
       reply_to_message_id: Type.Optional(Type.Integer()),
+      message_thread_id: Type.Optional(Type.Integer()),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (params.action === "status") {
@@ -401,6 +405,7 @@ export default function (pi: ExtensionAPI) {
         pendingOutbound.push({
           chatId: params.chat_id,
           replyToMessageId: params.reply_to_message_id,
+          messageThreadId: params.message_thread_id,
           text,
           attempts: 0,
           notBeforeMs: 0,
