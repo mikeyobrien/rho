@@ -133,12 +133,29 @@ function buildNotifyText(command: string, payload: Record<string, unknown> | nul
   if (command === "status") {
     const status = (payload.status as string | undefined) ?? "unknown";
     const version = (payload.version as string | null | undefined) ?? "(none)";
+    const mode = (payload.mode as string | null | undefined) ?? null;
+    const phase = (payload.phase as string | null | undefined) ?? null;
+    const active = payload.active === true;
     const managedCount = typeof payload.managedCount === "number" ? payload.managedCount : 0;
+    const managedEntries = Array.isArray(payload.managedEntries)
+      ? payload.managedEntries.filter((item): item is string => typeof item === "string")
+      : [];
     const lastOp = typeof payload.lastOperation === "string" ? payload.lastOperation : null;
     const lastResult = typeof payload.lastResult === "string" ? payload.lastResult : null;
     const lastAt = typeof payload.lastOperationAt === "string" ? payload.lastOperationAt : null;
 
-    const lines = [`Bootstrap: ${status} · version: ${version}`, `Managed entries: ${managedCount}`];
+    const lines = [`Bootstrap: ${status} · version: ${version}`];
+    if (mode) lines.push(`Mode: ${mode}${phase ? ` · phase: ${phase}` : ""}`);
+    lines.push(`Active injection: ${active ? "on" : "off"}`);
+    lines.push(`Managed entries: ${managedCount}`);
+    if (managedEntries.length > 0) {
+      const preview = managedEntries.slice(0, 6);
+      lines.push("Entries:");
+      for (const item of preview) lines.push(`- ${item}`);
+      if (managedEntries.length > preview.length) {
+        lines.push(`… +${managedEntries.length - preview.length} more`);
+      }
+    }
     if (lastOp) {
       let line = `Last op: ${lastOp}`;
       if (lastResult) line += ` (${lastResult})`;
@@ -155,14 +172,11 @@ function buildNotifyText(command: string, payload: Record<string, unknown> | nul
   }
 
   if (command === "diff") {
-    const counts = (payload.planCounts as Record<string, number> | undefined) ?? {};
-    const add = counts.ADD ?? 0;
-    const upd = counts.UPDATE ?? 0;
-    const noop = counts.NOOP ?? 0;
-    const skip = (counts.SKIP_USER_EDITED ?? 0) + (counts.SKIP_CONFLICT ?? 0);
-    const dep = counts.DEPRECATE ?? 0;
+    const phase = typeof payload.phase === "string" ? payload.phase : "(unset)";
+    const inject = payload.inject === true ? "on" : "off";
+    const mode = typeof payload.mode === "string" ? payload.mode : "(unset)";
     return {
-      text: `Bootstrap diff: +${add} ~${upd} =${noop} skip:${skip} deprecate:${dep}`,
+      text: `Bootstrap agentic status: mode=${mode}, phase=${phase}, inject=${inject}`,
       level: "info",
     };
   }
@@ -197,10 +211,6 @@ export function buildBootstrapCliArgs(rawArgs: string): BootstrapCliArgsBuild {
   }
 
   const args = ["bootstrap", commandRaw, ...rest];
-
-  if (commandRaw === "run" && !rest.includes("--non-interactive")) {
-    args.push("--non-interactive");
-  }
 
   if (!args.includes("--json")) {
     args.push("--json");

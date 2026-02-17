@@ -78,6 +78,7 @@ console.log("\n-- bootstrap status --json --");
   assert(parsed !== null, "BS-011: status --json outputs valid JSON");
   assert(typeof parsed?.status === "string", "BS-011: status JSON includes status");
   assert(typeof parsed?.version === "string" || parsed?.version == null, "BS-011: status JSON includes version or null");
+  assert(Array.isArray(parsed?.managedEntries), "BS-011: status JSON includes managedEntries array");
 }
 
 console.log("\n-- bootstrap reset safety --");

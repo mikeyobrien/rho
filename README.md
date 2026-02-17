@@ -102,13 +102,11 @@ Inside a session:
 /rho now                 Trigger check-in immediately
 /rho interval 30m        Set check-in interval
 /rho enable/disable      Toggle heartbeat
-/bootstrap status        Show bootstrap state + managed count + last operation
-/bootstrap run           Run bootstrap apply (non-interactive defaults)
-/bootstrap diff --to pa-v2
-                         Preview merge/upgrade actions
-/bootstrap reapply       Re-apply current bootstrap profile
-/bootstrap upgrade --to pa-v2
-                         Upgrade profile pack version
+/bootstrap status        Show bootstrap state + managed count + agentic phase
+/bootstrap run           Activate agentic bootstrap conversation
+/bootstrap diff          Show agentic bootstrap mode/phase/injection state
+/bootstrap reapply       Restart agentic bootstrap from identity discovery
+/bootstrap upgrade       Alias for reapply (agentic restart)
 /bootstrap reset --confirm RESET_BOOTSTRAP
                          Reset bootstrap state safely
 /bootstrap audit         Show recent bootstrap lifecycle events

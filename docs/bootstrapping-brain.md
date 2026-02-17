@@ -1,113 +1,75 @@
-# Brain Bootstrapping
+# Brain Bootstrapping (Agentic)
 
-Brain bootstrapping configures Rho as a personal assistant using **brain primitives** (`identity`, `user`, `behavior`, `preference`, `context`, `reminder`, `meta`) instead of markdown bootstrap files.
+Bootstrap is now **agentic-first**.
+
+That means `/bootstrap run` does not apply any deterministic bootstrap template. It turns on an in-loop bootstrap mission so the agent resolves identity + user preferences conversationally and writes brain primitives directly.
+
+## What bootstrap writes
+
+When activated, bootstrap sets bootstrap control state in brain:
+
+- `meta bootstrap.mode = agentic`
+- `meta bootstrap.phase = identity_discovery`
+- `meta bootstrap.inject = on`
+- `meta bootstrap.completed = false`
+- internal seed prompt at `bootstrap/agentic.seed` (not user memory)
+
+Then the normal agent loop handles discovery and persistence into rho memory categories:
+
+- `behavior` (operating boundaries and values)
+- `identity` (starter name/vibe; identity evolves over time)
+- `user` (name/timezone/addressing)
+- `learning` (durable lessons from bootstrap conversation)
+- `preference` (style and workflow preferences)
+
+Completion is also written in brain meta:
+
+- `bootstrap.phase = completed`
+- `bootstrap.inject = off`
+- `bootstrap.completed = true`
+- `bootstrap.completedAt = <UTC ISO>`
 
 ## CLI quick start
 
 ```bash
-# 1) Check state
+# 1) Check status
 rho bootstrap status --json
 
-# 2) First-time bootstrap (non-interactive flags)
-rho bootstrap run \
-  --to pa-v1 \
-  --name "Mikey" \
-  --timezone "America/Chicago" \
-  --style balanced \
-  --external-action-policy ask-risky-only \
-  --coding-task-first \
-  --proactive-cadence light \
-  --non-interactive
+# 2) Activate bootstrap conversation
+rho bootstrap run
 
-# 3) Preview changes before upgrade
-rho bootstrap diff --to pa-v2 --json
+# 3) Inspect mode/phase/injection state
+rho bootstrap diff --json
 
-# 4) Upgrade profile pack
-rho bootstrap upgrade --to pa-v2
-
-# 5) Re-apply current version safely
+# 4) Restart bootstrap from identity discovery
 rho bootstrap reapply
+# (upgrade is an alias for reapply)
+rho bootstrap upgrade
 ```
 
-## In-session slash commands
+## Slash commands
 
 ```text
 /bootstrap status
-/bootstrap run --to pa-v1
-/bootstrap diff --to pa-v2
+/bootstrap run
+/bootstrap diff
 /bootstrap reapply
-/bootstrap upgrade --to pa-v2
+/bootstrap upgrade
 /bootstrap audit
 /bootstrap reset --confirm RESET_BOOTSTRAP
 ```
 
-> `/bootstrap run` is bridged as non-interactive by default to avoid prompt hangs in slash contexts.
+## Flags
 
-## Key flags
+- `--json`: machine-readable output
+- `--force`: on `bootstrap run`, re-open bootstrap even if completed
 
-- `--to <version>`: Target profile version (e.g. `pa-v1`, `pa-v2`)
-- `--dry-run`: Plan only (no writes) for `reapply`/`upgrade`
-- `--json`: Machine-readable output
-- `--force`: Re-run `bootstrap run` even if already completed
-- `--non-interactive`: Skip Q&A prompts and use provided/default values
-
-Bootstrap run onboarding flags:
-
-- `--name <NAME>`
-- `--timezone <IANA_TZ>`
-- `--style concise|balanced|detailed`
-- `--external-action-policy always-ask|ask-risky-only`
-- `--coding-task-first` or `--no-coding-task-first`
-- `--quiet-hours HH:mm-HH:mm`
-- `--proactive-cadence off|light|standard`
-
-## Migrating existing users
-
-Use this flow for users who already have a populated brain and want to opt in without losing custom memory.
+## Reset and safety
 
 ```bash
-# 0) Backup first
-cp ~/.rho/brain/brain.jsonl ~/.rho/brain/brain.jsonl.bak.$(date +%Y%m%d-%H%M%S)
-
-# 1) Inspect current bootstrap state
-rho bootstrap status --json
-
-# 2) Preview target profile impact
-rho bootstrap diff --to pa-v1 --json
-
-# 3) Apply bootstrap with explicit user defaults
-rho bootstrap run \
-  --to pa-v1 \
-  --name "<user-name>" \
-  --timezone "<IANA timezone>" \
-  --non-interactive
-
-# 4) Verify result + review audit
-rho bootstrap status --json
-rho bootstrap audit --limit 20 --json
+rho bootstrap reset --confirm RESET_BOOTSTRAP
+rho bootstrap reset --confirm RESET_BOOTSTRAP --purge-managed
 ```
 
-Upgrade path for existing users:
-
-```bash
-rho bootstrap diff --to pa-v2 --json
-rho bootstrap upgrade --to pa-v2 --dry-run --json
-rho bootstrap upgrade --to pa-v2
-```
-
-Rollback options:
-
-- Soft reset bootstrap markers (and optionally managed entries):
-  - `rho bootstrap reset --confirm RESET_BOOTSTRAP`
-  - `rho bootstrap reset --confirm RESET_BOOTSTRAP --purge-managed`
-- Full restore from backup:
-  - replace `~/.rho/brain/brain.jsonl` with your backup copy.
-
-## Safety notes
-
-- Existing user data is preserved; managed profile entries are merged.
-- User-edited managed entries are not overwritten (`SKIP_USER_EDITED`).
-- Use `diff` + `--dry-run` before `upgrade` on production agents.
-- `reset` is destructive for bootstrap state and requires explicit confirmation:
-  - `--confirm RESET_BOOTSTRAP`
-- Use `bootstrap audit` to inspect lifecycle events (`start/plan/complete/fail`).
+- `reset` requires explicit confirmation token.
+- Use `bootstrap audit` to inspect lifecycle events.

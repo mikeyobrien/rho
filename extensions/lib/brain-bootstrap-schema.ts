@@ -15,9 +15,9 @@ export type BootstrapStatus =
   | typeof BOOTSTRAP_STATUS_PARTIAL
   | typeof BOOTSTRAP_STATUS_COMPLETED;
 
-export const PERSONAL_ASSISTANT_PROFILE_ID = "personal-assistant" as const;
-export const PROFILE_SOURCE_PREFIX = "profile:" as const;
-export const DEFAULT_PROFILE_SOURCE = `${PROFILE_SOURCE_PREFIX}${PERSONAL_ASSISTANT_PROFILE_ID}` as const;
+export const AGENTIC_BOOTSTRAP_ID = "agentic-bootstrap" as const;
+export const BOOTSTRAP_SOURCE_PREFIX = "bootstrap:" as const;
+export const DEFAULT_BOOTSTRAP_SOURCE = `${BOOTSTRAP_SOURCE_PREFIX}${AGENTIC_BOOTSTRAP_ID}` as const;
 
 export const BOOTSTRAP_META_KEYS = {
   completed: "bootstrap.completed",
@@ -47,8 +47,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function isKnownProfileVersion(version: string): boolean {
-  return /^pa-v\d+$/.test(version.trim());
+export function isKnownBootstrapRevision(version: string): boolean {
+  return /^agentic-v\d+$/.test(version.trim());
 }
 
 export function isIsoTimestamp(value: string): boolean {
@@ -79,8 +79,8 @@ export function validateBootstrapMeta(input: unknown): ValidateResult {
   if (version !== undefined) {
     if (typeof version !== "string" || !version.trim()) {
       errors.push("version must be a non-empty string when provided");
-    } else if (!isKnownProfileVersion(version)) {
-      errors.push(`version must match pa-vN format (got \"${version}\")`);
+    } else if (!isKnownBootstrapRevision(version)) {
+      errors.push(`version must match agentic-vN format (got \"${version}\")`);
     }
   }
 
@@ -121,8 +121,8 @@ export function validateManagedMetadata(input: unknown): ValidateResult {
     }
     if (typeof sourceVersion !== "string" || !sourceVersion.trim()) {
       errors.push("sourceVersion is required when managed is true");
-    } else if (!isKnownProfileVersion(sourceVersion)) {
-      errors.push(`sourceVersion must match pa-vN format (got \"${sourceVersion}\")`);
+    } else if (!isKnownBootstrapRevision(sourceVersion)) {
+      errors.push(`sourceVersion must match agentic-vN format (got \"${sourceVersion}\")`);
     }
     if (typeof managedKey !== "string" || !managedKey.trim()) {
       errors.push("managedKey is required when managed is true");

@@ -1288,6 +1288,7 @@ export default function (pi: ExtensionAPI) {
   let autoMemoryInFlight = false;
   let compactMemoryInFlight = false;
   let cachedBrainPrompt: string | null = null;
+  let cachedBootstrapPrompt: string | null = null;
 
   // ── Brain cache (mtime-based invalidation for brain.jsonl) ─────────────
   interface BrainCache {
@@ -1318,10 +1319,68 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function parseMetaBool(raw: unknown): boolean {
+    if (typeof raw === "boolean") return raw;
+    if (typeof raw === "string") {
+      const v = raw.trim().toLowerCase();
+      if (["true", "1", "yes", "on"].includes(v)) return true;
+      if (["false", "0", "no", "off"].includes(v)) return false;
+    }
+    return false;
+  }
+
+  function buildAgenticBootstrapPrompt(brain: any): string | null {
+    const modeRaw = brain.meta.get("bootstrap.mode")?.value;
+    const phaseRaw = brain.meta.get("bootstrap.phase")?.value;
+    const injectRaw = brain.meta.get("bootstrap.inject")?.value;
+    const completedRaw = brain.meta.get("bootstrap.completed")?.value;
+
+    const mode = typeof modeRaw === "string" ? modeRaw.trim().toLowerCase() : "";
+    const phase = typeof phaseRaw === "string" && phaseRaw.trim() ? phaseRaw.trim() : "identity_discovery";
+    const inject = parseMetaBool(injectRaw);
+    const completed = parseMetaBool(completedRaw) || phase.toLowerCase() === "completed";
+
+    if (mode !== "agentic" || !inject || completed) return null;
+
+    const missingIdentityKeys = ["agent.name"]
+      .filter((k) => !brain.identity.has(k));
+    const missingUserKeys = ["name", "timezone"]
+      .filter((k) => !brain.user.has(k));
+
+    let phaseGoal = "Discuss user values, boundaries, and operating preferences.";
+    if (phase === "identity_discovery") {
+      phaseGoal = "Start naturally: \"I’m online with a fresh context. Help me set my starter identity: name, vibe, and how you want me to work with you.\" and co-discover a starter identity + user profile.";
+    } else if (phase === "values_alignment") {
+      phaseGoal = "Align on values/boundaries and store durable behavior + preferences.";
+    }
+
+    const lines = [
+      "## Bootstrap (Agentic Mode Active)",
+      `- Phase: ${phase}`,
+      `- Goal: ${phaseGoal}`,
+      "- Be conversational; do not interrogate.",
+      "- Persist outcomes using rho memory categories: behavior, identity, user, learning, preference.",
+    ];
+
+    if (missingIdentityKeys.length > 0) {
+      lines.push(`- Missing identity keys: ${missingIdentityKeys.join(", ")}`);
+    }
+    if (missingUserKeys.length > 0) {
+      lines.push(`- Missing user keys: ${missingUserKeys.join(", ")}`);
+    }
+
+    lines.push(
+      "- When done, write meta: bootstrap.phase=completed, bootstrap.inject=off, bootstrap.completed=true, bootstrap.completedAt=<UTC ISO>.",
+    );
+
+    return lines.join("\n");
+  }
+
   function rebuildBrainCache(cwd: string, promptBudget?: number): string {
     const { entries } = readBrain(BRAIN_PATH);
     const brain = foldBrain(entries);
     const prompt = buildBrainPrompt(brain, cwd, { promptBudget: promptBudget ?? memorySettings.promptBudget });
+    cachedBootstrapPrompt = buildAgenticBootstrapPrompt(brain);
     try {
       const stat = fs.statSync(BRAIN_PATH);
       brainCache = { prompt, mtimeMs: stat.mtimeMs, builtAt: Date.now() };
@@ -2080,11 +2139,19 @@ Instructions:
       const totalBudgetable = brain.behaviors.length + brain.preferences.length + brain.learnings.length + brain.contexts.length;
       const omitted = totalBudgetable - injected.size;
 
+      const ago = lastTs === 0 ? "never" : `${Math.floor(daysSince)}d ago`;
+
       if (omitted > 0) {
-        const ago = lastTs === 0 ? "never" : `${Math.floor(daysSince)}d ago`;
-        ctx.ui.notify(`🧹 ${omitted} entries over budget (last consolidation: ${ago}). Ask the agent to run the memory-consolidate skill`, "warning");
+        if (lastTs > 0 && daysSince < 1) {
+          const hoursSince = Math.max(1, Math.floor((Date.now() - lastTs) / (1000 * 60 * 60)));
+          ctx.ui.notify(
+            `🧹 ${omitted} entries still over budget (last consolidation: ${hoursSince}h ago). Recent consolidation already ran; re-run only if you want a more aggressive prune.`,
+            "info",
+          );
+        } else {
+          ctx.ui.notify(`🧹 ${omitted} entries over budget (last consolidation: ${ago}). Ask the agent to run the memory-consolidate skill`, "warning");
+        }
       } else if (daysSince > 1) {
-        const ago = lastTs === 0 ? "never" : `${Math.floor(daysSince)}d ago`;
         ctx.ui.notify(`🧹 Memory consolidation available (last: ${ago}). Ask the agent to run the memory-consolidate skill`, "info");
       }
     }
@@ -2116,7 +2183,7 @@ Instructions:
       isSubagent: IS_SUBAGENT,
     });
 
-    const sections = [metaPrompt, cachedBrainPrompt].filter(Boolean);
+    const sections = [metaPrompt, cachedBootstrapPrompt, cachedBrainPrompt].filter(Boolean);
     if (sections.length > 0) {
       return { systemPrompt: event.systemPrompt + "\n\n" + sections.join("\n\n") };
     }

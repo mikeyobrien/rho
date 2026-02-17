@@ -64,27 +64,27 @@ if (schema) {
   if (validateBootstrapMeta) {
     const valid = validateBootstrapMeta({
       completed: true,
-      version: "pa-v1",
+      version: "agentic-v1",
       completedAt: "2026-02-16T16:00:00.000Z",
     });
     assertEq(valid.ok, true, "BS-002: valid bootstrap meta passes");
 
     const invalid = validateBootstrapMeta({
       completed: true,
-      version: "pa-v1",
+      version: "agentic-v1",
       completedAt: "not-an-iso-time",
     });
     assertEq(invalid.ok, false, "BS-002: invalid completedAt fails validation");
   }
 
   if (validateManagedMetadata) {
-    const missingSource = validateManagedMetadata({ managed: true, sourceVersion: "pa-v1" });
+    const missingSource = validateManagedMetadata({ managed: true, sourceVersion: "agentic-v1" });
     assertEq(missingSource.ok, false, "BS-002: managed metadata requires source");
 
     const ok = validateManagedMetadata({
       managed: true,
-      source: "profile:personal-assistant",
-      sourceVersion: "pa-v1",
+      source: "bootstrap:agentic-bootstrap",
+      sourceVersion: "agentic-v1",
       managedKey: "preference:communication.style",
     });
     assertEq(ok.ok, true, "BS-002: managed metadata accepts valid shape");

@@ -59,7 +59,7 @@ if (stateMod) {
     assertEq(s0.status, "not_started", "BS-001: no meta => not_started");
 
     const partialEntries: BrainEntry[] = [
-      { type: "meta", key: "bootstrap.version", value: "pa-v1" },
+      { type: "meta", key: "bootstrap.version", value: "agentic-v1" },
     ];
     const s1 = getBootstrapState(partialEntries);
     assertEq(s1.status, "partial", "BS-003: version-only meta => partial");
@@ -67,7 +67,7 @@ if (stateMod) {
 
   if (getBootstrapState && markBootstrapCompleted) {
     const nowIso = "2026-02-16T16:05:00.000Z";
-    const updated = markBootstrapCompleted([], "pa-v1", nowIso);
+    const updated = markBootstrapCompleted([], "agentic-v1", nowIso);
 
     const byKey = new Map(
       updated
@@ -76,7 +76,7 @@ if (stateMod) {
     );
 
     assertEq(byKey.get("bootstrap.completed"), true, "BS-002: writes bootstrap.completed=true");
-    assertEq(byKey.get("bootstrap.version"), "pa-v1", "BS-002: writes bootstrap.version");
+    assertEq(byKey.get("bootstrap.version"), "agentic-v1", "BS-002: writes bootstrap.version");
     assertEq(byKey.get("bootstrap.completedAt"), nowIso, "BS-002: writes bootstrap.completedAt");
 
     const s2 = getBootstrapState(updated);

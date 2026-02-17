@@ -10,29 +10,22 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { createInterface } from "node:readline/promises";
 
 import { BRAIN_PATH, readBrain, deterministicId } from "../../extensions/lib/brain-store.ts";
 import {
   BOOTSTRAP_META_KEYS,
-  PERSONAL_ASSISTANT_PROFILE_ID,
+  AGENTIC_BOOTSTRAP_ID,
 } from "../../extensions/lib/brain-bootstrap-schema.ts";
-import { getBootstrapState, markBootstrapCompleted } from "../../extensions/lib/brain-bootstrap-state.ts";
-import { planProfile, applyProfilePlan } from "../../extensions/rho/bootstrap/engine.ts";
-import { getLatestProfileVersion, getProfilePack } from "../../extensions/rho/bootstrap/profile-pack.ts";
-import {
-  validateOnboardingAnswers,
-  shouldMarkBootstrapComplete,
-} from "../../extensions/rho/bootstrap/onboarding.ts";
-import { mapOnboardingAnswersToEntries } from "../../extensions/rho/bootstrap/mapping.ts";
+import { getBootstrapState } from "../../extensions/lib/brain-bootstrap-state.ts";
 
 const HOME = process.env.HOME || os.homedir();
 const RHO_DIR = path.join(HOME, ".rho");
 const LOG_DIR = path.join(RHO_DIR, "logs");
 const AUDIT_PATH = process.env.RHO_BOOTSTRAP_AUDIT_PATH || path.join(LOG_DIR, "bootstrap-events.jsonl");
 
-const DEFAULT_PROFILE = PERSONAL_ASSISTANT_PROFILE_ID;
-const DEFAULT_VERSION = getLatestProfileVersion(DEFAULT_PROFILE) ?? "pa-v1";
+const BOOTSTRAP_ID = AGENTIC_BOOTSTRAP_ID;
+const AGENTIC_BOOTSTRAP_VERSION = "agentic-v1";
+const AGENTIC_BOOTSTRAP_SEED_PATH = "bootstrap/agentic.seed";
 const RESET_CONFIRM_TOKEN = "RESET_BOOTSTRAP";
 
 interface AuditEvent {
@@ -40,7 +33,7 @@ interface AuditEvent {
   ts: string;
   op: string;
   phase: "start" | "plan" | "apply" | "complete" | "fail";
-  profileId?: string;
+  bootstrapId?: string;
   fromVersion?: string | null;
   toVersion?: string | null;
   counts?: Record<string, number>;
@@ -115,6 +108,147 @@ function writeBrainEntries(entries: Record<string, unknown>[]): void {
   fs.writeFileSync(BRAIN_PATH, body, "utf-8");
 }
 
+function upsertKeyedEntry(
+  entries: Record<string, unknown>[],
+  type: string,
+  naturalKey: string,
+  row: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const id = deterministicId(type, naturalKey);
+  const next = entries.map((e) => ({ ...e }));
+  const idx = next.findIndex((e) => e.id === id || (e.type === type && (type === "context" ? e.path === naturalKey : e.key === naturalKey)));
+  const normalized: Record<string, unknown> = {
+    id,
+    type,
+    ...row,
+  };
+
+  if (idx >= 0) next[idx] = { ...next[idx], ...normalized };
+  else next.push(normalized);
+
+  return next;
+}
+
+function upsertMetaEntry(
+  entries: Record<string, unknown>[],
+  key: string,
+  value: unknown,
+  now: string,
+): Record<string, unknown>[] {
+  return upsertKeyedEntry(entries, "meta", key, {
+    key,
+    value,
+    created: now,
+  });
+}
+
+function upsertContextEntry(
+  entries: Record<string, unknown>[],
+  args: {
+    path: string;
+    project?: string;
+    content: string;
+    key?: string;
+    value?: unknown;
+    text?: string;
+    source?: string;
+    sourceVersion?: string;
+    managed?: boolean;
+  },
+  now: string,
+): Record<string, unknown>[] {
+  return upsertKeyedEntry(entries, "context", args.path, {
+    project: args.project ?? "rho",
+    path: args.path,
+    content: args.content,
+    key: args.key,
+    value: args.value,
+    text: args.text,
+    source: args.source,
+    sourceVersion: args.sourceVersion,
+    managed: args.managed,
+    created: now,
+  });
+}
+
+function getLatestMetaValue(entries: Record<string, unknown>[], key: string): unknown {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.type === "meta" && e.key === key) return e.value;
+  }
+  return undefined;
+}
+
+function parseMetaBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+    if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+  }
+  return false;
+}
+
+const AGENTIC_BOOTSTRAP_PROMPT = [
+  "You just woke up. Time to figure out who you are.",
+  "There is no memory yet. This is normal.",
+  "",
+  "The conversation:",
+  "- Don't interrogate. Don't be robotic. Just talk.",
+  "- Open with: I’m online with a fresh context. Help me set my starter identity: name, vibe, and how you want me to work with you.",
+  "- Discover together: a starter identity (name and vibe).",
+  "- Identity develops over time from interactions — don't force a fixed mode during bootstrap.",
+  "- Then capture user details: name, address preference, timezone.",
+  "- Then discuss values/boundaries and store as behavior/preference.",
+  "",
+  "Persist outcomes in rho memory categories (behavior/identity/user/learning/preference).",
+  "When complete, set meta keys:",
+  "- bootstrap.phase = completed",
+  "- bootstrap.inject = off",
+  "- bootstrap.completed = true",
+  "- bootstrap.completedAt = <UTC ISO>",
+].join("\n");
+
+function activateAgenticBootstrap(
+  current: Record<string, unknown>[],
+  now: string,
+  opts?: { resetPhase?: boolean },
+): Record<string, unknown>[] {
+  let next = current.map((e) => ({ ...e }));
+  const existingPhaseRaw = getLatestMetaValue(next, "bootstrap.phase");
+  const existingPhase = typeof existingPhaseRaw === "string" ? existingPhaseRaw.trim() : "";
+  const nextPhase = opts?.resetPhase ? "identity_discovery" : (existingPhase || "identity_discovery");
+
+  next = upsertMetaEntry(next, BOOTSTRAP_META_KEYS.completed, false, now);
+  next = upsertMetaEntry(next, BOOTSTRAP_META_KEYS.version, AGENTIC_BOOTSTRAP_VERSION, now);
+  next = upsertMetaEntry(next, "bootstrap.mode", "agentic", now);
+  next = upsertMetaEntry(next, "bootstrap.phase", nextPhase, now);
+  next = upsertMetaEntry(next, "bootstrap.inject", "on", now);
+  next = upsertMetaEntry(next, "bootstrap.lastActivatedAt", now, now);
+
+  if (getLatestMetaValue(next, "bootstrap.startedAt") === undefined) {
+    next = upsertMetaEntry(next, "bootstrap.startedAt", now, now);
+  }
+
+  next = upsertContextEntry(
+    next,
+    {
+      project: "rho",
+      path: AGENTIC_BOOTSTRAP_SEED_PATH,
+      key: "bootstrap.seedPrompt",
+      value: "agentic",
+      text: "bootstrap mission: identity + user + behavior/preference alignment",
+      content: AGENTIC_BOOTSTRAP_PROMPT,
+      source: "bootstrap",
+      sourceVersion: AGENTIC_BOOTSTRAP_VERSION,
+      managed: true,
+    },
+    now,
+  );
+
+  return next;
+}
+
 function getLastTerminalEvent(events: AuditEvent[]): AuditEvent | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
@@ -123,287 +257,53 @@ function getLastTerminalEvent(events: AuditEvent[]): AuditEvent | null {
   return null;
 }
 
-function zeroPlanCounts(): Record<string, number> {
-  return {
-    ADD: 0,
-    UPDATE: 0,
-    NOOP: 0,
-    SKIP_USER_EDITED: 0,
-    SKIP_CONFLICT: 0,
-    DEPRECATE: 0,
-  };
+function clipText(value: string, max = 72): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, max - 1)}…`;
 }
 
-function normalizePlanCounts(counts?: Record<string, number>): Record<string, number> {
-  return {
-    ...zeroPlanCounts(),
-    ...(counts ?? {}),
-  };
-}
+function managedEntrySummary(entry: Record<string, unknown>): string {
+  const type = typeof entry.type === "string" ? entry.type : "unknown";
+  const key = typeof entry.key === "string" ? entry.key.trim() : "";
+  const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
+  const category = typeof entry.category === "string" ? entry.category.trim() : "";
+  const text = typeof entry.text === "string" ? clipText(entry.text) : "";
+  const description = typeof entry.description === "string" ? clipText(entry.description) : "";
 
-function resolveVersionForOperation(explicit?: string, fallback?: string): string {
-  if (explicit && explicit.trim()) return explicit.trim();
-  if (fallback && fallback.trim()) return fallback.trim();
-  return DEFAULT_VERSION;
-}
+  if ((type === "meta" || type === "identity" || type === "user") && key) return `${type}:${key}`;
+  if (type === "context" && pathValue) return `context:${pathValue}`;
+  if (key) return `${type}:${key}`;
+  if (pathValue) return `${type}:${pathValue}`;
 
-function assertKnownPackOrThrow(version: string): void {
-  const pack = getProfilePack(DEFAULT_PROFILE, version);
-  if (!pack) {
-    throw new Error(`Unknown profile pack version: ${DEFAULT_PROFILE}@${version}`);
-  }
-}
-
-function getLatestUserValue(entries: Record<string, unknown>[], key: string): string | undefined {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i];
-    if (e.type === "user" && e.key === key && typeof e.value === "string" && e.value.trim()) {
-      return e.value.trim();
-    }
-  }
-  return undefined;
-}
-
-function defaultTimezone(): string {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (typeof tz === "string" && tz.trim()) return tz.trim();
-  } catch {
-    // ignore
-  }
-  return "UTC";
-}
-
-function parseBooleanOption(args: string[], yesFlag: string, noFlag: string): boolean | undefined {
-  if (hasFlag(args, yesFlag)) return true;
-  if (hasFlag(args, noFlag)) return false;
-  return undefined;
-}
-
-function baseOnboardingAnswers(
-  args: string[],
-  existingEntries: Record<string, unknown>[],
-): Record<string, unknown> {
-  const existingName = getLatestUserValue(existingEntries, "name");
-  const existingTimezone = getLatestUserValue(existingEntries, "timezone");
-
-  const name = getOption(args, "--name") ?? existingName ?? "User";
-  const timezone = getOption(args, "--timezone") ?? existingTimezone ?? defaultTimezone();
-  const style = getOption(args, "--style") ?? "balanced";
-  const externalActionPolicy = getOption(args, "--external-action-policy") ?? "ask-risky-only";
-  const codingTaskFirst = parseBooleanOption(args, "--coding-task-first", "--no-coding-task-first") ?? false;
-  const quietHours = getOption(args, "--quiet-hours");
-  const proactiveCadence = getOption(args, "--proactive-cadence") ?? "off";
-
-  return {
-    name,
-    timezone,
-    style,
-    externalActionPolicy,
-    codingTaskFirst,
-    quietHours,
-    proactiveCadence,
-  };
-}
-
-function isInteractivePromptAllowed(args: string[]): boolean {
-  if (hasFlag(args, "--non-interactive")) return false;
-  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
-}
-
-function normalizeAnswer(value: string, fallback: string): string {
-  const v = value.trim();
-  return v ? v : fallback;
-}
-
-async function maybePromptOnboardingAnswers(
-  args: string[],
-  initial: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  if (!isInteractivePromptAllowed(args)) {
-    return initial;
+  if (type === "behavior") {
+    if (category && text) return `behavior:${category} ${text}`;
+    if (text) return `behavior:${text}`;
   }
 
-  const defaults = {
-    name: typeof initial.name === "string" ? initial.name : "User",
-    timezone: typeof initial.timezone === "string" ? initial.timezone : defaultTimezone(),
-    style: typeof initial.style === "string" ? initial.style : "balanced",
-    externalActionPolicy:
-      typeof initial.externalActionPolicy === "string" ? initial.externalActionPolicy : "ask-risky-only",
-    codingTaskFirst: typeof initial.codingTaskFirst === "boolean" ? initial.codingTaskFirst : false,
-    quietHours: typeof initial.quietHours === "string" ? initial.quietHours : "",
-    proactiveCadence: typeof initial.proactiveCadence === "string" ? initial.proactiveCadence : "off",
-  };
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const name = normalizeAnswer(
-      await rl.question(`What should I call you? [${defaults.name}] `),
-      defaults.name,
-    );
-
-    const timezone = normalizeAnswer(
-      await rl.question(`Timezone (IANA)? [${defaults.timezone}] `),
-      defaults.timezone,
-    );
-
-    const style = normalizeAnswer(
-      await rl.question(`Response style (concise|balanced|detailed) [${defaults.style}] `),
-      defaults.style,
-    );
-
-    const externalActionPolicy = normalizeAnswer(
-      await rl.question(`External action policy (always-ask|ask-risky-only) [${defaults.externalActionPolicy}] `),
-      defaults.externalActionPolicy,
-    );
-
-    const codingRaw = normalizeAnswer(
-      await rl.question(`Require code-task proposal before implementation? (yes|no) [${defaults.codingTaskFirst ? "yes" : "no"}] `),
-      defaults.codingTaskFirst ? "yes" : "no",
-    ).toLowerCase();
-
-    const quietHoursRaw = await rl.question(
-      `Quiet hours (HH:mm-HH:mm, blank to skip) [${defaults.quietHours}] `,
-    );
-
-    const cadence = normalizeAnswer(
-      await rl.question(`Proactive cadence (off|light|standard) [${defaults.proactiveCadence}] `),
-      defaults.proactiveCadence,
-    );
-
-    return {
-      name,
-      timezone,
-      style,
-      externalActionPolicy,
-      codingTaskFirst: codingRaw === "yes" || codingRaw === "y" || codingRaw === "true",
-      quietHours: quietHoursRaw.trim() || defaults.quietHours || undefined,
-      proactiveCadence: cadence,
-    };
-  } finally {
-    rl.close();
-  }
-}
-
-function materializeOnboardingEntries(
-  mapped: Record<string, Array<Record<string, unknown>>>,
-  now: string,
-  version: string,
-): Record<string, unknown>[] {
-  const out: Record<string, unknown>[] = [];
-
-  const allDrafts = [
-    ...(mapped.user ?? []),
-    ...(mapped.preference ?? []),
-    ...(mapped.context ?? []),
-    ...(mapped.behavior ?? []),
-    ...(mapped.reminder ?? []),
-  ];
-
-  for (let i = 0; i < allDrafts.length; i++) {
-    const draft = allDrafts[i];
-    const type = typeof draft.type === "string" ? draft.type : "context";
-
-    const naturalKey =
-      (typeof draft.key === "string" && draft.key) ||
-      (typeof draft.path === "string" && draft.path) ||
-      (typeof draft.text === "string" && draft.text) ||
-      `${type}:${i}`;
-
-    const id = deterministicId(type, `onboarding:${naturalKey}`);
-
-    const base: Record<string, unknown> = {
-      id,
-      type,
-      created: now,
-      source: "onboarding",
-      sourceVersion: version,
-    };
-
-    if (type === "user") {
-      out.push({
-        ...base,
-        key: typeof draft.key === "string" ? draft.key : `onboarding.${i}`,
-        value: draft.value ?? "",
-      });
-      continue;
-    }
-
-    if (type === "preference") {
-      out.push({
-        ...base,
-        category: typeof draft.category === "string" ? draft.category : "general",
-        text: typeof draft.text === "string" ? draft.text : `${draft.key ?? `preference.${i}`}`,
-        key: draft.key,
-        value: draft.value,
-      });
-      continue;
-    }
-
-    if (type === "context") {
-      const project = typeof draft.project === "string" ? draft.project : "rho";
-      const cpath = typeof draft.path === "string" ? draft.path : `bootstrap/${draft.key ?? i}`;
-      const content =
-        typeof draft.content === "string"
-          ? draft.content
-          : typeof draft.value === "string"
-            ? draft.value
-            : typeof draft.text === "string"
-              ? draft.text
-              : "";
-
-      out.push({
-        ...base,
-        project,
-        path: cpath,
-        content,
-        key: draft.key,
-        value: draft.value,
-        text: draft.text,
-      });
-      continue;
-    }
-
-    if (type === "behavior") {
-      out.push({
-        ...base,
-        category: typeof draft.category === "string" ? draft.category : "do",
-        text: typeof draft.text === "string" ? draft.text : "",
-      });
-      continue;
-    }
-
-    if (type === "reminder") {
-      const cadence =
-        draft.value && typeof draft.value === "object"
-          ? draft.value
-          : { kind: "daily", at: "09:00" };
-
-      out.push({
-        ...base,
-        text: typeof draft.text === "string" ? draft.text : "Reminder",
-        enabled: true,
-        cadence,
-        priority: "normal",
-        tags: [],
-        last_run: null,
-        next_due: null,
-        last_result: null,
-        last_error: null,
-      });
-      continue;
-    }
+  if (type === "preference" && text) {
+    if (category) return `preference:${category} ${text}`;
+    return `preference:${text}`;
   }
 
-  return out;
+  if ((type === "task" || type === "learning" || type === "reminder") && (text || description)) {
+    return `${type}:${text || description}`;
+  }
+
+  return type;
 }
 
-function countManagedEntries(entries: Record<string, unknown>[]): number {
-  let count = 0;
+const BOOTSTRAP_EXPOSED_TYPES = new Set(["behavior", "identity", "user", "learning", "preference"]);
+
+function listManagedEntries(entries: Record<string, unknown>[]): string[] {
+  const out: string[] = [];
   for (const e of entries) {
-    if (e.managed === true) count++;
+    const type = typeof e.type === "string" ? e.type : "";
+    if (e.managed === true && BOOTSTRAP_EXPOSED_TYPES.has(type)) {
+      out.push(managedEntrySummary(e));
+    }
   }
-  return count;
+  return out;
 }
 
 function buildStatusPayload(): Record<string, unknown> {
@@ -411,14 +311,29 @@ function buildStatusPayload(): Record<string, unknown> {
   const state = getBootstrapState(entries);
   const events = readAuditEvents(100);
   const last = getLastTerminalEvent(events);
+  const managedEntries = listManagedEntries(entries);
+
+  const modeRaw = getLatestMetaValue(entries, "bootstrap.mode");
+  const phaseRaw = getLatestMetaValue(entries, "bootstrap.phase");
+  const injectRaw = getLatestMetaValue(entries, "bootstrap.inject");
+
+  const mode = typeof modeRaw === "string" ? modeRaw : null;
+  const phase = typeof phaseRaw === "string" ? phaseRaw : null;
+  const inject = parseMetaBool(injectRaw);
+  const active = mode === "agentic" && inject && state.status !== "completed";
 
   return {
     ok: true,
     status: state.status,
-    profile: DEFAULT_PROFILE,
+    bootstrapId: BOOTSTRAP_ID,
     version: state.version ?? null,
     completedAt: state.completedAt ?? null,
-    managedCount: countManagedEntries(entries),
+    mode,
+    phase,
+    inject,
+    active,
+    managedCount: managedEntries.length,
+    managedEntries,
     lastResult: last?.result ?? null,
     lastOperation: last?.op ?? null,
     lastOperationAt: last?.ts ?? null,
@@ -432,14 +347,17 @@ Manage brain-native bootstrap lifecycle.
 
 Usage:
   rho bootstrap status [--json]
-  rho bootstrap run [--force] [--to pa-v1] [--name NAME] [--timezone TZ] [--style concise|balanced|detailed]
-                     [--external-action-policy always-ask|ask-risky-only] [--coding-task-first|--no-coding-task-first]
-                     [--quiet-hours HH:mm-HH:mm] [--proactive-cadence off|light|standard] [--non-interactive] [--json]
-  rho bootstrap reapply [--to pa-v1] [--dry-run] [--json]
-  rho bootstrap upgrade --to pa-v2 [--dry-run] [--json]
-  rho bootstrap diff [--to pa-v2] [--json]
+  rho bootstrap run [--force] [--json]
+  rho bootstrap reapply [--json]
+  rho bootstrap upgrade [--json]
+  rho bootstrap diff [--json]
   rho bootstrap reset --confirm ${RESET_CONFIRM_TOKEN} [--purge-managed] [--json]
   rho bootstrap audit [--limit N] [--json]
+
+Notes:
+  - Bootstrap is agentic (conversation-driven) by default.
+  - run/reapply/upgrade activate or restart in-loop identity discovery.
+  - diff reports agentic mode/phase instead of deterministic pack diffs.
 
 Options:
   --json       Output machine-readable JSON
@@ -453,9 +371,23 @@ function printStatus(jsonMode: boolean): void {
     return;
   }
 
+  const managedEntries = Array.isArray(payload.managedEntries)
+    ? payload.managedEntries.filter((value): value is string => typeof value === "string")
+    : [];
+
   console.log(`Bootstrap status: ${payload.status}`);
-  console.log(`Profile: ${payload.profile}`);
+  console.log(`Bootstrap ID: ${payload.bootstrapId}`);
   console.log(`Version: ${payload.version ?? "(none)"}`);
+  if (payload.mode) console.log(`Mode: ${payload.mode}`);
+  if (payload.phase) console.log(`Phase: ${payload.phase}`);
+  if (typeof payload.active === "boolean") console.log(`Active injection: ${payload.active ? "on" : "off"}`);
+  console.log(`Managed entries: ${payload.managedCount ?? 0}`);
+  if (managedEntries.length > 0) {
+    console.log("Managed entry keys/paths:");
+    for (const item of managedEntries) {
+      console.log(`  - ${item}`);
+    }
+  }
   if (payload.completedAt) console.log(`Completed at: ${payload.completedAt}`);
   if (payload.lastOperation) {
     console.log(`Last op: ${payload.lastOperation} (${payload.lastResult ?? "unknown"}) at ${payload.lastOperationAt}`);
@@ -468,51 +400,34 @@ async function runBootstrap(args: string[]): Promise<void> {
 
   const current = readBrainEntries();
   const state = getBootstrapState(current);
-  const version = resolveVersionForOperation(getOption(args, "--to"), state.version ?? undefined);
-
-  try {
-    assertKnownPackOrThrow(version);
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    console.error(msg);
-    process.exitCode = 1;
-    appendAudit({
-      op: "run",
-      phase: "fail",
-      profileId: DEFAULT_PROFILE,
-      toVersion: version,
-      result: "error",
-      errorCode: "BOOTSTRAP_PROFILE_NOT_FOUND",
-      message: msg,
-    });
-    return;
-  }
 
   appendAudit({
     op: "run",
     phase: "start",
-    profileId: DEFAULT_PROFILE,
+    bootstrapId: BOOTSTRAP_ID,
     fromVersion: state.version ?? null,
-    toVersion: version,
+    toVersion: AGENTIC_BOOTSTRAP_VERSION,
     result: "ok",
   });
 
-  if (state.status === "completed" && !force) {
+  const alreadyCompleted = state.status === "completed";
+  if (alreadyCompleted && !force) {
     const payload = {
       ok: true,
-      message: `Bootstrap already completed at version ${state.version ?? "unknown"}.`,
       status: state.status,
       version: state.version ?? null,
-      planCounts: normalizePlanCounts({ NOOP: 1 }),
+      mode: "agentic",
+      active: false,
+      message: "Bootstrap is completed. Re-run with --force to reopen identity discovery.",
     };
 
     appendAudit({
       op: "run",
       phase: "complete",
-      profileId: DEFAULT_PROFILE,
+      bootstrapId: BOOTSTRAP_ID,
       fromVersion: state.version ?? null,
       toVersion: state.version ?? null,
-      counts: payload.planCounts,
+      counts: { NOOP: 1 },
       result: "ok",
       message: "already-completed",
     });
@@ -522,83 +437,30 @@ async function runBootstrap(args: string[]): Promise<void> {
     return;
   }
 
-  const onboardingBase = baseOnboardingAnswers(args, current);
-  const onboardingAnswers = await maybePromptOnboardingAnswers(args, onboardingBase);
-  const onboardingValidation = validateOnboardingAnswers(onboardingAnswers);
-
-  if (!onboardingValidation.ok) {
-    const msg = `Invalid onboarding answers: ${onboardingValidation.errors.join("; ")}`;
-    console.error(msg);
-    process.exitCode = 1;
-    appendAudit({
-      op: "run",
-      phase: "fail",
-      profileId: DEFAULT_PROFILE,
-      fromVersion: state.version ?? null,
-      toVersion: version,
-      result: "error",
-      errorCode: "BOOTSTRAP_INVALID_ONBOARDING",
-      message: msg,
-    });
-    return;
-  }
-
-  const planned = planProfile({
-    currentRawEntries: current,
-    profileId: DEFAULT_PROFILE,
-    version,
-    mode: state.status === "completed" ? "reapply" : "run",
-  });
-
-  appendAudit({
-    op: "run",
-    phase: "plan",
-    profileId: DEFAULT_PROFILE,
-    fromVersion: state.version ?? null,
-    toVersion: version,
-    counts: normalizePlanCounts(planned.plan.counts),
-    result: "ok",
-  });
-
   const now = nowIso();
-  const applied = applyProfilePlan({
-    currentRawEntries: current,
-    plan: planned.plan,
-    nowIso: now,
-  });
-
-  const mappedOnboarding = mapOnboardingAnswersToEntries(onboardingAnswers);
-  const onboardingEntries = materializeOnboardingEntries(mappedOnboarding as Record<string, Array<Record<string, unknown>>>, now, version);
-
-  let nextEntries = [...applied.nextRawEntries, ...onboardingEntries];
-  if (shouldMarkBootstrapComplete("applied")) {
-    nextEntries = markBootstrapCompleted(nextEntries, version, now);
-  }
-
+  const nextEntries = activateAgenticBootstrap(current, now, { resetPhase: force || alreadyCompleted });
   writeBrainEntries(nextEntries);
 
   const nextState = getBootstrapState(nextEntries);
+  const phase = getLatestMetaValue(nextEntries, "bootstrap.phase");
+
   const payload = {
     ok: true,
-    message: "Bootstrap applied and marked as completed.",
     status: nextState.status,
-    version: nextState.version ?? null,
-    completedAt: nextState.completedAt ?? null,
-    onboardingApplied: onboardingEntries.length,
-    planCounts: normalizePlanCounts(planned.plan.counts),
-    appliedCounts: normalizePlanCounts(applied.appliedCounts),
+    version: nextState.version ?? AGENTIC_BOOTSTRAP_VERSION,
+    mode: "agentic",
+    active: true,
+    phase: typeof phase === "string" ? phase : "identity_discovery",
+    message: "Agentic bootstrap activated. Continue the conversation and I will resolve behavior/identity/user/learning/preference in-loop.",
   };
 
   appendAudit({
     op: "run",
     phase: "complete",
-    profileId: DEFAULT_PROFILE,
+    bootstrapId: BOOTSTRAP_ID,
     fromVersion: state.version ?? null,
-    toVersion: nextState.version ?? null,
-    counts: {
-      ...payload.appliedCounts,
-      ONBOARDING: onboardingEntries.length,
-    },
+    toVersion: payload.version,
+    counts: { ACTIVATE: 1 },
     result: "ok",
   });
 
@@ -608,283 +470,86 @@ async function runBootstrap(args: string[]): Promise<void> {
 
 function runReapply(args: string[]): void {
   const jsonMode = hasFlag(args, "--json");
-  const dryRun = hasFlag(args, "--dry-run");
-
   const current = readBrainEntries();
   const state = getBootstrapState(current);
-  const version = resolveVersionForOperation(getOption(args, "--to"), state.version ?? undefined);
-
-  try {
-    assertKnownPackOrThrow(version);
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    console.error(msg);
-    process.exitCode = 1;
-    appendAudit({
-      op: "reapply",
-      phase: "fail",
-      profileId: DEFAULT_PROFILE,
-      toVersion: version,
-      result: "error",
-      errorCode: "BOOTSTRAP_PROFILE_NOT_FOUND",
-      message: msg,
-    });
-    return;
-  }
-
-  appendAudit({
-    op: "reapply",
-    phase: "start",
-    profileId: DEFAULT_PROFILE,
-    fromVersion: state.version ?? null,
-    toVersion: version,
-    result: "ok",
-  });
-
-  const planned = planProfile({
-    currentRawEntries: current,
-    profileId: DEFAULT_PROFILE,
-    version,
-    mode: "reapply",
-  });
-
-  const planCounts = normalizePlanCounts(planned.plan.counts);
-
-  appendAudit({
-    op: "reapply",
-    phase: "plan",
-    profileId: DEFAULT_PROFILE,
-    fromVersion: state.version ?? null,
-    toVersion: version,
-    counts: planCounts,
-    result: "ok",
-  });
-
-  if (dryRun) {
-    const payload = {
-      ok: true,
-      status: "planned",
-      profile: DEFAULT_PROFILE,
-      version,
-      dryRun: true,
-      planCounts,
-      actions: planned.plan.actions,
-    };
-
-    appendAudit({
-      op: "reapply",
-      phase: "complete",
-      profileId: DEFAULT_PROFILE,
-      fromVersion: state.version ?? null,
-      toVersion: version,
-      counts: planCounts,
-      result: "ok",
-      message: "dry-run",
-    });
-
-    if (jsonMode) console.log(JSON.stringify(payload, null, 2));
-    else console.log("Reapply dry-run complete.");
-    return;
-  }
-
   const now = nowIso();
-  const applied = applyProfilePlan({
-    currentRawEntries: current,
-    plan: planned.plan,
-    nowIso: now,
-  });
-
-  const withMeta = markBootstrapCompleted(applied.nextRawEntries, version, now);
-  writeBrainEntries(withMeta);
-
-  const nextState = getBootstrapState(withMeta);
-  const appliedCounts = normalizePlanCounts(applied.appliedCounts);
+  const nextEntries = activateAgenticBootstrap(current, now, { resetPhase: true });
+  writeBrainEntries(nextEntries);
 
   const payload = {
     ok: true,
-    status: nextState.status,
-    profile: DEFAULT_PROFILE,
-    version: nextState.version ?? null,
-    completedAt: nextState.completedAt ?? null,
-    dryRun: false,
-    planCounts,
-    appliedCounts,
+    status: getBootstrapState(nextEntries).status,
+    version: AGENTIC_BOOTSTRAP_VERSION,
+    mode: "agentic",
+    active: true,
+    phase: "identity_discovery",
+    message: "Agentic bootstrap restarted from identity discovery.",
   };
 
   appendAudit({
     op: "reapply",
     phase: "complete",
-    profileId: DEFAULT_PROFILE,
+    bootstrapId: BOOTSTRAP_ID,
     fromVersion: state.version ?? null,
-    toVersion: nextState.version ?? null,
-    counts: appliedCounts,
+    toVersion: AGENTIC_BOOTSTRAP_VERSION,
+    counts: { RESTART: 1 },
     result: "ok",
   });
 
   if (jsonMode) console.log(JSON.stringify(payload, null, 2));
-  else console.log("Reapply complete.");
+  else console.log(payload.message);
 }
 
 function runUpgrade(args: string[]): void {
   const jsonMode = hasFlag(args, "--json");
-  const toVersion = getOption(args, "--to");
-  const dryRun = hasFlag(args, "--dry-run");
-
-  if (!toVersion) {
-    const msg = "Missing required option: --to <version>";
-    console.error(msg);
-    process.exitCode = 1;
-    return;
-  }
-
-  try {
-    assertKnownPackOrThrow(toVersion);
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    console.error(msg);
-    process.exitCode = 1;
-    appendAudit({
-      op: "upgrade",
-      phase: "fail",
-      profileId: DEFAULT_PROFILE,
-      toVersion,
-      result: "error",
-      errorCode: "BOOTSTRAP_PROFILE_NOT_FOUND",
-      message: msg,
-    });
-    return;
-  }
-
   const current = readBrainEntries();
   const state = getBootstrapState(current);
-
-  appendAudit({
-    op: "upgrade",
-    phase: "start",
-    profileId: DEFAULT_PROFILE,
-    fromVersion: state.version ?? null,
-    toVersion,
-    result: "ok",
-  });
-
-  const planned = planProfile({
-    currentRawEntries: current,
-    profileId: DEFAULT_PROFILE,
-    version: toVersion,
-    mode: "upgrade",
-  });
-
-  const planCounts = normalizePlanCounts(planned.plan.counts);
-
-  appendAudit({
-    op: "upgrade",
-    phase: "plan",
-    profileId: DEFAULT_PROFILE,
-    fromVersion: state.version ?? null,
-    toVersion,
-    counts: planCounts,
-    result: "ok",
-  });
-
-  if (dryRun) {
-    const payload = {
-      ok: true,
-      status: "planned",
-      profile: DEFAULT_PROFILE,
-      fromVersion: state.version ?? null,
-      toVersion,
-      dryRun: true,
-      planCounts,
-      actions: planned.plan.actions,
-    };
-
-    appendAudit({
-      op: "upgrade",
-      phase: "complete",
-      profileId: DEFAULT_PROFILE,
-      fromVersion: state.version ?? null,
-      toVersion,
-      counts: planCounts,
-      result: "ok",
-      message: "dry-run",
-    });
-
-    if (jsonMode) console.log(JSON.stringify(payload, null, 2));
-    else console.log("Upgrade dry-run complete.");
-    return;
-  }
-
   const now = nowIso();
-  const applied = applyProfilePlan({
-    currentRawEntries: current,
-    plan: planned.plan,
-    nowIso: now,
-  });
-
-  const withMeta = markBootstrapCompleted(applied.nextRawEntries, toVersion, now);
-  writeBrainEntries(withMeta);
-
-  const nextState = getBootstrapState(withMeta);
-  const appliedCounts = normalizePlanCounts(applied.appliedCounts);
+  const nextEntries = activateAgenticBootstrap(current, now, { resetPhase: true });
+  writeBrainEntries(nextEntries);
 
   const payload = {
     ok: true,
-    status: nextState.status,
-    profile: DEFAULT_PROFILE,
-    fromVersion: state.version ?? null,
-    toVersion: nextState.version ?? null,
-    completedAt: nextState.completedAt ?? null,
-    dryRun: false,
-    planCounts,
-    appliedCounts,
+    status: getBootstrapState(nextEntries).status,
+    version: AGENTIC_BOOTSTRAP_VERSION,
+    mode: "agentic",
+    active: true,
+    phase: "identity_discovery",
+    message: "Bootstrap is fully agentic now. Upgrade maps to restarting the bootstrap conversation.",
   };
 
   appendAudit({
     op: "upgrade",
     phase: "complete",
-    profileId: DEFAULT_PROFILE,
+    bootstrapId: BOOTSTRAP_ID,
     fromVersion: state.version ?? null,
-    toVersion: nextState.version ?? null,
-    counts: appliedCounts,
+    toVersion: AGENTIC_BOOTSTRAP_VERSION,
+    counts: { RESTART: 1 },
     result: "ok",
   });
 
   if (jsonMode) console.log(JSON.stringify(payload, null, 2));
-  else console.log(`Upgrade complete: ${state.version ?? "(none)"} -> ${nextState.version ?? "(none)"}`);
+  else console.log(payload.message);
 }
 
 function runDiff(args: string[]): void {
   const jsonMode = hasFlag(args, "--json");
 
-  const current = readBrainEntries();
-  const state = getBootstrapState(current);
-  const toVersion = resolveVersionForOperation(getOption(args, "--to"), state.version ?? undefined);
-
-  try {
-    assertKnownPackOrThrow(toVersion);
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    console.error(msg);
-    process.exitCode = 1;
-    return;
-  }
-
-  const mode = state.version && state.version !== toVersion ? "upgrade" : "reapply";
-  const planned = planProfile({
-    currentRawEntries: current,
-    profileId: DEFAULT_PROFILE,
-    version: toVersion,
-    mode,
-  });
+  const entries = readBrainEntries();
+  const state = getBootstrapState(entries);
+  const modeRaw = getLatestMetaValue(entries, "bootstrap.mode");
+  const phaseRaw = getLatestMetaValue(entries, "bootstrap.phase");
+  const injectRaw = getLatestMetaValue(entries, "bootstrap.inject");
 
   const payload = {
     ok: true,
-    profile: DEFAULT_PROFILE,
-    fromVersion: state.version ?? null,
-    toVersion,
-    mode,
-    planCounts: normalizePlanCounts(planned.plan.counts),
-    actions: planned.plan.actions,
+    bootstrapId: BOOTSTRAP_ID,
+    deterministic: false,
+    mode: typeof modeRaw === "string" ? modeRaw : null,
+    phase: typeof phaseRaw === "string" ? phaseRaw : null,
+    inject: parseMetaBool(injectRaw),
+    status: state.status,
+    message: "Bootstrap is agentic; no deterministic diff is computed.",
   };
 
   if (jsonMode) {
@@ -892,9 +557,10 @@ function runDiff(args: string[]): void {
     return;
   }
 
-  console.log(`Diff target version: ${toVersion}`);
-  console.log(`Mode: ${mode}`);
-  console.log(`Actions: ${planned.plan.actions.length}`);
+  console.log(payload.message);
+  console.log(`Mode: ${payload.mode ?? "(unset)"}`);
+  console.log(`Phase: ${payload.phase ?? "(unset)"}`);
+  console.log(`Inject: ${payload.inject ? "on" : "off"}`);
 }
 
 function runReset(args: string[]): void {
@@ -909,7 +575,7 @@ function runReset(args: string[]): void {
     appendAudit({
       op: "reset",
       phase: "fail",
-      profileId: DEFAULT_PROFILE,
+      bootstrapId: BOOTSTRAP_ID,
       result: "error",
       errorCode: "BOOTSTRAP_CONFIRM_REQUIRED",
       message: msg,
@@ -920,7 +586,7 @@ function runReset(args: string[]): void {
   appendAudit({
     op: "reset",
     phase: "start",
-    profileId: DEFAULT_PROFILE,
+    bootstrapId: BOOTSTRAP_ID,
     result: "ok",
   });
 
@@ -932,15 +598,24 @@ function runReset(args: string[]): void {
       if (
         entry.key === BOOTSTRAP_META_KEYS.completed ||
         entry.key === BOOTSTRAP_META_KEYS.version ||
-        entry.key === BOOTSTRAP_META_KEYS.completedAt
+        entry.key === BOOTSTRAP_META_KEYS.completedAt ||
+        entry.key === "bootstrap.mode" ||
+        entry.key === "bootstrap.phase" ||
+        entry.key === "bootstrap.inject" ||
+        entry.key === "bootstrap.startedAt" ||
+        entry.key === "bootstrap.lastActivatedAt"
       ) {
         return false;
       }
     }
 
+    if (entry.type === "context" && entry.path === AGENTIC_BOOTSTRAP_SEED_PATH) {
+      return false;
+    }
+
     if (purgeManaged) {
       if (entry.managed === true) return false;
-      if (typeof entry.source === "string" && entry.source.startsWith("profile:")) return false;
+      if (typeof entry.source === "string" && entry.source.startsWith("bootstrap:")) return false;
     }
 
     return true;
@@ -960,7 +635,7 @@ function runReset(args: string[]): void {
   appendAudit({
     op: "reset",
     phase: "complete",
-    profileId: DEFAULT_PROFILE,
+    bootstrapId: BOOTSTRAP_ID,
     counts: { removed },
     result: "ok",
   });

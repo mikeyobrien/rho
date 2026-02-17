@@ -50,17 +50,14 @@ console.log("-- buildBootstrapCliArgs --");
 }
 
 {
-  const a = buildBootstrapCliArgs("run --to pa-v1");
+  const a = buildBootstrapCliArgs("run --force");
   assertEq(a.command, "run", "run command parsed");
-  assert(a.args.includes("--non-interactive"), "run adds --non-interactive by default");
   assert(a.args.includes("--json"), "run adds --json");
 }
 
 {
-  const a = buildBootstrapCliArgs("run --to pa-v1 --non-interactive --json");
-  const niCount = a.args.filter((x) => x === "--non-interactive").length;
+  const a = buildBootstrapCliArgs("run --json");
   const jsonCount = a.args.filter((x) => x === "--json").length;
-  assertEq(niCount, 1, "run does not duplicate --non-interactive");
   assertEq(jsonCount, 1, "run does not duplicate --json");
 }
 
@@ -77,8 +74,16 @@ console.log("\n-- handleBootstrapSlash success paths --");
     stdout: JSON.stringify({
       ok: true,
       status: "completed",
-      version: "pa-v1",
+      version: "agentic-v1",
+      mode: "agentic",
+      phase: "completed",
+      active: false,
       managedCount: 7,
+      managedEntries: [
+        "identity:agent.role",
+        "user:timezone",
+        "context:bootstrap/workflow.approvalGate",
+      ],
       lastOperation: "upgrade",
       lastResult: "ok",
       lastOperationAt: "2026-02-16T12:00:00.000Z",
@@ -90,7 +95,9 @@ console.log("\n-- handleBootstrapSlash success paths --");
   assertEq(r.ok, true, "status success => ok");
   assertEq(r.command, "status", "status command captured");
   assert(r.notify.text.includes("completed"), "status notify includes state");
+  assert(r.notify.text.includes("Mode: agentic"), "status notify includes mode");
   assert(r.notify.text.includes("Managed entries: 7"), "status notify includes managed count");
+  assert(r.notify.text.includes("identity:agent.role"), "status notify includes managed entry preview");
   assert(r.notify.text.includes("Last op: upgrade"), "status notify includes last op summary");
 }
 
@@ -111,22 +118,17 @@ console.log("\n-- handleBootstrapSlash success paths --");
     code: 0,
     stdout: JSON.stringify({
       ok: true,
-      planCounts: {
-        ADD: 1,
-        UPDATE: 2,
-        NOOP: 3,
-        SKIP_USER_EDITED: 4,
-        SKIP_CONFLICT: 5,
-        DEPRECATE: 6,
-      },
+      mode: "agentic",
+      phase: "identity_discovery",
+      inject: true,
     }),
     stderr: "",
   });
 
-  const r = handleBootstrapSlash("diff --to pa-v2", runner);
+  const r = handleBootstrapSlash("diff", runner);
   assertEq(r.ok, true, "diff success => ok");
-  assert(r.notify.text.includes("+1"), "diff notify includes ADD count");
-  assert(r.notify.text.includes("~2"), "diff notify includes UPDATE count");
+  assert(r.notify.text.includes("mode=agentic"), "diff notify includes mode");
+  assert(r.notify.text.includes("phase=identity_discovery"), "diff notify includes phase");
 }
 
 {
@@ -135,7 +137,7 @@ console.log("\n-- handleBootstrapSlash success paths --");
     stdout: [
       "mise WARN {not-json}",
       "something noisy before payload",
-      JSON.stringify({ ok: true, status: "completed", version: "pa-v2" }),
+      JSON.stringify({ ok: true, status: "completed", version: "agentic-v1" }),
       "trailer {still-not-json}",
     ].join("\n"),
     stderr: "",
@@ -144,7 +146,7 @@ console.log("\n-- handleBootstrapSlash success paths --");
   const r = handleBootstrapSlash("status", runner);
   assertEq(r.ok, true, "noisy output still parsed as success");
   assert(r.notify.text.includes("completed"), "noisy output parsing keeps status details");
-  assert(r.notify.text.includes("pa-v2"), "noisy output parsing keeps version details");
+  assert(r.notify.text.includes("agentic-v1"), "noisy output parsing keeps version details");
 }
 
 console.log("\n-- handleBootstrapSlash error path --");

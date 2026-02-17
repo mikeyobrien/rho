@@ -2,15 +2,14 @@
 
 ## Unreleased
 
-### Brain-native bootstrap (personal assistant profile)
+### Brain-native bootstrap (agentic)
 
-- Added a full brain-native bootstrap lifecycle:
+- Bootstrap is now fully agentic (conversation-driven):
   - `rho bootstrap status|run|reapply|upgrade|diff|reset|audit`
-- Added onboarding-aware bootstrap run flow with validated user preferences:
-  - name, timezone, style, external-action policy, coding-task-first, quiet hours, proactive cadence
-- Added managed profile packs (`personal-assistant@pa-v1`, `@pa-v2`) with merge planning and safe upgrade behavior.
-- Added user-protection semantics in merge planning:
-  - preserves user-edited managed entries (`SKIP_USER_EDITED`)
+- `bootstrap run` activates in-loop identity discovery by writing bootstrap meta/context state:
+  - `bootstrap.mode=agentic`, `bootstrap.phase=identity_discovery`, `bootstrap.inject=on`
+- `bootstrap reapply` and `bootstrap upgrade` restart the agentic bootstrap flow.
+- `bootstrap diff` now reports agentic state (mode/phase/inject) instead of deterministic merge plans.
 - Added in-session slash parity:
   - `/bootstrap status|run|reapply|upgrade|diff|reset|audit`
 - Improved slash bridge robustness:
