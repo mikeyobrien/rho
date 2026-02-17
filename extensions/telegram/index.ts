@@ -50,6 +50,102 @@ type TelegramLogContext = {
 };
 
 export default function (pi: ExtensionAPI) {
+  // ── telegram_send: always registered, even in subagent contexts ──────────
+  // Heartbeat and other subagents need to send Telegram messages but the
+  // full control-plane (polling, commands, outbound queue) is gated behind
+  // the RHO_SUBAGENT guard below.  This lightweight tool reads settings
+  // fresh on each call so it is completely self-contained.
+  pi.registerTool({
+    name: "telegram_send",
+    label: "Telegram Send",
+    description:
+      "Send a message to a Telegram chat. Works in all contexts including subagents.",
+    parameters: Type.Object({
+      chat_id: Type.Integer(),
+      text: Type.String(),
+      reply_to_message_id: Type.Optional(Type.Integer()),
+      message_thread_id: Type.Optional(Type.Integer()),
+    }),
+    async execute(_toolCallId, params, _signal) {
+      const tgSettings = readTelegramSettings();
+      if (!tgSettings.enabled) {
+        return { content: [{ type: "text", text: "Telegram is disabled in init.toml" }] };
+      }
+      const tgToken = (process.env[tgSettings.botTokenEnv] || "").trim();
+      if (!tgToken) {
+        return {
+          content: [{ type: "text", text: `Missing token env: ${tgSettings.botTokenEnv}` }],
+        };
+      }
+
+      if (!Number.isInteger(params.chat_id)) {
+        return { content: [{ type: "text", text: "chat_id must be a valid integer" }] };
+      }
+
+      const text = (params.text ?? "").trim();
+      if (text.length === 0) {
+        return { content: [{ type: "text", text: "text must be non-empty" }] };
+      }
+
+      const opConfig = loadOperatorConfig();
+      const allowedChatIds = opConfig?.allowedChatIds ?? tgSettings.allowedChatIds;
+      if (allowedChatIds.length > 0 && !allowedChatIds.includes(params.chat_id)) {
+        return {
+          content: [
+            { type: "text", text: `chat_id ${params.chat_id} is not in the allowed list` },
+          ],
+        };
+      }
+
+      const client = new Api(tgToken);
+      client.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
+
+      const chunks = renderTelegramOutboundChunks(text);
+      const errors: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        try {
+          try {
+            await client.sendMessage(params.chat_id, chunk.text, {
+              parse_mode: chunk.parseMode,
+              link_preview_options: { is_disabled: true },
+              message_thread_id: params.message_thread_id,
+              ...replyParams(i === 0 ? params.reply_to_message_id : undefined),
+            });
+          } catch (error) {
+            if (chunk.parseMode && isTelegramParseModeError(error)) {
+              await client.sendMessage(params.chat_id, chunk.fallbackText, {
+                link_preview_options: { is_disabled: true },
+                message_thread_id: params.message_thread_id,
+                ...replyParams(i === 0 ? params.reply_to_message_id : undefined),
+              });
+            } else {
+              throw error;
+            }
+          }
+        } catch (error) {
+          errors.push(`chunk ${i}: ${(error as Error)?.message || String(error)}`);
+          break;
+        }
+      }
+
+      if (errors.length > 0) {
+        return {
+          content: [{ type: "text", text: `send failed: ${errors.join("; ")}` }],
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `sent to ${params.chat_id} (${chunks.length} chunk${chunks.length === 1 ? "" : "s"})`,
+          },
+        ],
+      };
+    },
+  });
+
   // Keep telegram controls available in RPC sessions (get_commands, /telegram)
   // so headless/web/worker surfaces can execute command passthrough consistently.
   // Only hard-disable inside explicit subagent contexts.
