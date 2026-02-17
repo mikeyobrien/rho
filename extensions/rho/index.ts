@@ -2009,6 +2009,8 @@ export default function (pi: ExtensionAPI) {
     }
 
     const fullPrompt = `You are rho performing a ${force ? "manual" : "scheduled"} check-in.
+This is a background process — no user is watching. Output is a log, not a conversation.
+Write concise English. No greetings, no conversational tone.
 
 ## ${force ? "Active" : "Due"} Reminders
 ${remindersSection}
