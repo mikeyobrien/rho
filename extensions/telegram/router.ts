@@ -1,7 +1,39 @@
 import type { Update, Message } from "./api.ts";
+import type { PhotoSize } from "@grammyjs/types";
 import type { TelegramSettings } from "./lib.ts";
 
-export type TelegramInboundMediaKind = "voice" | "audio" | "document_audio";
+export type TelegramInboundMediaKind = "voice" | "audio" | "document_audio" | "photo" | "document_image";
+
+export const IMAGE_MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+/**
+ * Pick the largest photo variant under 4MB from Telegram's photo[] array.
+ * Walk from largest to smallest. If all known sizes exceed cap, return null.
+ * If all sizes are unknown, pick second-to-last (medium resolution) as safe default.
+ */
+export function selectBestPhoto(photos: PhotoSize[]): PhotoSize | null {
+  if (photos.length === 0) return null;
+
+  let allUnknown = true;
+  let hasUnknown = false;
+  for (let i = photos.length - 1; i >= 0; i--) {
+    const p = photos[i]!;
+    if (typeof p.file_size === "number") {
+      allUnknown = false;
+      if (p.file_size < IMAGE_MAX_FILE_SIZE) return p;
+    } else {
+      hasUnknown = true;
+    }
+  }
+
+  // All sizes unknown or mixed with some unknown - pick medium resolution as safe default
+  if (allUnknown || hasUnknown) {
+    return photos.length >= 2 ? photos[photos.length - 2]! : photos[0]!;
+  }
+
+  // All known sizes exceed cap
+  return null;
+}
 
 export interface TelegramInboundMedia {
   kind: TelegramInboundMediaKind;
@@ -50,6 +82,30 @@ function extractInboundMedia(message: Message): TelegramInboundMedia | undefined
   if (message.document?.file_id && message.document.mime_type?.toLowerCase().startsWith("audio/")) {
     return {
       kind: "document_audio",
+      fileId: message.document.file_id,
+      mimeType: message.document.mime_type,
+      fileName: message.document.file_name,
+      fileSize: typeof message.document.file_size === "number" ? message.document.file_size : undefined,
+    };
+  }
+
+  if (Array.isArray(message.photo) && message.photo.length > 0) {
+    const best = selectBestPhoto(message.photo);
+    if (best) {
+      return {
+        kind: "photo",
+        fileId: best.file_id,
+        mimeType: "image/jpeg",
+        fileSize: typeof best.file_size === "number" ? best.file_size : undefined,
+      };
+    }
+    // All photos over cap - return undefined (caption-only or drop)
+    return undefined;
+  }
+
+  if (message.document?.file_id && message.document.mime_type?.toLowerCase().startsWith("image/")) {
+    return {
+      kind: "document_image",
       fileId: message.document.file_id,
       mimeType: message.document.mime_type,
       fileName: message.document.file_name,

@@ -26,7 +26,7 @@ import {
   isRetryableAfterAutoRetry,
   queueRetryDelayMs,
 } from "../extensions/telegram/api.ts";
-import { authorizeInbound, normalizeInboundUpdate } from "../extensions/telegram/router.ts";
+import { authorizeInbound, normalizeInboundUpdate, selectBestPhoto } from "../extensions/telegram/router.ts";
 import { loadSessionMap, resolveSessionFile, sessionKeyForEnvelope } from "../extensions/telegram/session-map.ts";
 import { TelegramRpcRunner } from "../extensions/telegram/rpc.ts";
 import { chunkTelegramText, renderOutboundText, renderTelegramOutboundChunks } from "../extensions/telegram/outbound.ts";
@@ -1590,6 +1590,243 @@ try {
     assert(chunks.length === 1 && chunks[0] === "telegram e2e ok", "pipeline: outbound chunk ready");
 
     runner.dispose();
+  }
+
+  console.log("\n-- selectBestPhoto picks largest under 4MB --");
+  {
+    const photos = [
+      { file_id: "small", file_unique_id: "s1", width: 90, height: 90, file_size: 1000 },
+      { file_id: "medium", file_unique_id: "s2", width: 320, height: 320, file_size: 50_000 },
+      { file_id: "large", file_unique_id: "s3", width: 800, height: 800, file_size: 200_000 },
+      { file_id: "xlarge", file_unique_id: "s4", width: 1280, height: 1280, file_size: 3_000_000 },
+    ];
+
+    const best = selectBestPhoto(photos);
+    assert(best !== null && best.file_id === "xlarge", "selectBestPhoto picks largest under 4MB");
+  }
+
+  console.log("\n-- selectBestPhoto skips oversized, picks next largest --");
+  {
+    const photos = [
+      { file_id: "small", file_unique_id: "s1", width: 90, height: 90, file_size: 1000 },
+      { file_id: "medium", file_unique_id: "s2", width: 320, height: 320, file_size: 50_000 },
+      { file_id: "oversized", file_unique_id: "s3", width: 2560, height: 2560, file_size: 6_000_000 },
+    ];
+
+    const best = selectBestPhoto(photos);
+    assert(best !== null && best.file_id === "medium", "selectBestPhoto skips oversized, picks next largest");
+  }
+
+  console.log("\n-- selectBestPhoto returns null when all over cap --");
+  {
+    const photos = [
+      { file_id: "big1", file_unique_id: "b1", width: 800, height: 800, file_size: 6_000_000 },
+      { file_id: "big2", file_unique_id: "b2", width: 1600, height: 1600, file_size: 8_000_000 },
+    ];
+
+    const best = selectBestPhoto(photos);
+    assert(best === null, "selectBestPhoto returns null when all known sizes exceed cap");
+  }
+
+  console.log("\n-- selectBestPhoto picks second-to-last when all sizes unknown --");
+  {
+    const photos = [
+      { file_id: "a", file_unique_id: "a1", width: 90, height: 90 },
+      { file_id: "b", file_unique_id: "b1", width: 320, height: 320 },
+      { file_id: "c", file_unique_id: "c1", width: 800, height: 800 },
+    ];
+
+    const best = selectBestPhoto(photos);
+    assert(best !== null && best.file_id === "b", "selectBestPhoto picks second-to-last when all sizes unknown");
+  }
+
+  console.log("\n-- selectBestPhoto handles single element with unknown size --");
+  {
+    const photos = [
+      { file_id: "only", file_unique_id: "o1", width: 320, height: 320 },
+    ];
+
+    const best = selectBestPhoto(photos);
+    assert(best !== null && best.file_id === "only", "selectBestPhoto returns single photo when size unknown");
+  }
+
+  console.log("\n-- selectBestPhoto handles empty array --");
+  {
+    const best = selectBestPhoto([]);
+    assert(best === null, "selectBestPhoto returns null for empty array");
+  }
+
+  console.log("\n-- selectBestPhoto mixed known/unknown picks fallback --");
+  {
+    // All known sizes exceed cap, but one variant has unknown size.
+    // Should fall back to second-to-last (medium) instead of returning null.
+    const photos = [
+      { file_id: "small-over", file_unique_id: "s1", width: 320, height: 320, file_size: 6_000_000 },
+      { file_id: "medium-unknown", file_unique_id: "m1", width: 800, height: 800 },
+      { file_id: "large-over", file_unique_id: "l1", width: 1600, height: 1600, file_size: 8_000_000 },
+    ];
+
+    const best = selectBestPhoto(photos);
+    assert(best !== null, "selectBestPhoto mixed known/unknown does not return null");
+    assert(best!.file_id === "medium-unknown", "selectBestPhoto mixed case picks second-to-last (unknown size)");
+  }
+
+  console.log("\n-- normalize photo update --");
+  {
+    const photoUpdate = {
+      update_id: 2001,
+      message: {
+        message_id: 201,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        photo: [
+          { file_id: "thumb", file_unique_id: "t1", width: 90, height: 90, file_size: 1200 },
+          { file_id: "medium", file_unique_id: "t2", width: 320, height: 320, file_size: 25000 },
+          { file_id: "full", file_unique_id: "t3", width: 800, height: 800, file_size: 120000 },
+        ],
+      },
+    };
+
+    const normalized = normalizeInboundUpdate(photoUpdate);
+    assert(normalized !== null, "normalizes photo update");
+    assert(normalized?.media?.kind === "photo", "photo envelope marks media kind");
+    assert(normalized?.media?.fileId === "full", "photo envelope picks largest under cap");
+    assert(normalized?.media?.mimeType === "image/jpeg", "photo envelope hardcodes image/jpeg mime");
+  }
+
+  console.log("\n-- normalize photo with caption --");
+  {
+    const captionPhotoUpdate = {
+      update_id: 2002,
+      message: {
+        message_id: 202,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        caption: "Check this out",
+        photo: [
+          { file_id: "thumb2", file_unique_id: "t4", width: 90, height: 90, file_size: 1200 },
+          { file_id: "full2", file_unique_id: "t5", width: 800, height: 800, file_size: 120000 },
+        ],
+      },
+    };
+
+    const normalized = normalizeInboundUpdate(captionPhotoUpdate);
+    assert(normalized !== null, "normalizes photo with caption");
+    assert(normalized?.text === "Check this out", "photo with caption extracts caption text");
+    assert(normalized?.media?.kind === "photo", "photo with caption includes media envelope");
+  }
+
+  console.log("\n-- normalize document_image update --");
+  {
+    const docImageUpdate = {
+      update_id: 2003,
+      message: {
+        message_id: 203,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        document: {
+          file_id: "doc-image-1",
+          file_name: "screenshot.png",
+          mime_type: "image/png",
+          file_size: 350000,
+        },
+      },
+    };
+
+    const normalized = normalizeInboundUpdate(docImageUpdate);
+    assert(normalized !== null, "normalizes document image update");
+    assert(normalized?.media?.kind === "document_image", "document image marks media kind");
+    assert(normalized?.media?.mimeType === "image/png", "document image uses document mime type");
+    assert(normalized?.media?.fileName === "screenshot.png", "document image captures file name");
+  }
+
+  console.log("\n-- non-image document still ignored without text --");
+  {
+    const pdfDoc = normalizeInboundUpdate({
+      update_id: 2004,
+      message: {
+        message_id: 204,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        document: {
+          file_id: "doc-pdf-1",
+          file_name: "report.pdf",
+          mime_type: "application/pdf",
+        },
+      },
+    });
+
+    assert(pdfDoc === null, "non-image/non-audio documents without text are still ignored");
+  }
+
+  console.log("\n-- oversized photo with caption falls back to text-only --");
+  {
+    const oversizedPhotoUpdate = {
+      update_id: 2005,
+      message: {
+        message_id: 205,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        caption: "huge photo caption",
+        photo: [
+          { file_id: "big1", file_unique_id: "b1", width: 800, height: 800, file_size: 6_000_000 },
+          { file_id: "big2", file_unique_id: "b2", width: 1600, height: 1600, file_size: 8_000_000 },
+        ],
+      },
+    };
+
+    const normalized = normalizeInboundUpdate(oversizedPhotoUpdate);
+    assert(normalized !== null, "oversized photo with caption still produces envelope");
+    assert(normalized?.text === "huge photo caption", "oversized photo preserves caption text");
+    assert(normalized?.media === undefined, "oversized photo drops media envelope");
+  }
+
+  console.log("\n-- oversized captionless photo is dropped --");
+  {
+    const oversizedNoCaptionUpdate = {
+      update_id: 2006,
+      message: {
+        message_id: 206,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        photo: [
+          { file_id: "big1", file_unique_id: "b1", width: 800, height: 800, file_size: 6_000_000 },
+        ],
+      },
+    };
+
+    const normalized = normalizeInboundUpdate(oversizedNoCaptionUpdate);
+    assert(normalized === null, "oversized captionless photo is dropped");
+  }
+
+  console.log("\n-- mixed known/unknown sizes: all known over cap but unknown exists --");
+  {
+    // All known file_sizes exceed 4MB but one variant has unknown size.
+    // Before fix this returned null (drop). Now it falls back to medium resolution.
+    const mixedSizesUpdate = {
+      update_id: 2007,
+      message: {
+        message_id: 207,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        date: 1,
+        photo: [
+          { file_id: "small-over", file_unique_id: "s", width: 320, height: 320, file_size: 6_000_000 },
+          { file_id: "medium-unknown", file_unique_id: "m", width: 800, height: 800 },
+          { file_id: "large-over", file_unique_id: "l", width: 1600, height: 1600, file_size: 8_000_000 },
+        ],
+      },
+    };
+
+    const normalized = normalizeInboundUpdate(mixedSizesUpdate);
+    assert(normalized !== null, "mixed sizes with unknown fallback still produces envelope");
+    assert(normalized?.media?.fileId === "medium-unknown", "mixed sizes picks unknown variant (second-to-last) when all known exceed cap");
   }
 } finally {
   rmSync(tmp, { recursive: true, force: true });

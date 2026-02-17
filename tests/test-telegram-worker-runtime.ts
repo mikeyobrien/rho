@@ -1327,6 +1327,296 @@ try {
     globalThis.fetch = ttsSendFailureOriginalFetch;
   }
 
+  console.log("\n-- inbound photo media downloads image and sends as vision prompt --");
+  const photoStatePath = join(tmp, "telegram", "state.photo.json");
+  const photoMapPath = join(tmp, "telegram", "session-map.photo.json");
+  const photoSessionDir = join(tmp, "sessions-photo");
+
+  const photoUpdates = [
+    {
+      update_id: 1401,
+      message: {
+        message_id: 401,
+        from: { id: 2222 },
+        chat: { id: 1111, type: "private" as const },
+        date: 1,
+        caption: "What is this?",
+        photo: [
+          { file_id: "thumb-photo-1", file_unique_id: "tp1", width: 90, height: 90, file_size: 1200 },
+          { file_id: "full-photo-1", file_unique_id: "tp2", width: 800, height: 800, file_size: 120000 },
+        ],
+      },
+    },
+  ];
+
+  const photoSent: Array<{ chat_id: number; text: string }> = [];
+  const photoGetFileCalls: string[] = [];
+  const photoDownloadUrls: string[] = [];
+  let photoRpcCalls = 0;
+  const photoRpcPrompts: Array<{ message: string; images?: unknown[] }> = [];
+
+  const photoClient = {
+    async getUpdates() {
+      return photoUpdates;
+    },
+    async sendMessage(chat_id: number, text: string) {
+      photoSent.push({ chat_id, text });
+      return { message_id: 12, chat: { id: chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction() {
+      return true;
+    },
+    async getFile(file_id: string) {
+      photoGetFileCalls.push(file_id);
+      return {
+        file_id,
+        file_path: "photos/photo-from-telegram.jpg",
+        file_size: 120000,
+      };
+    },
+  };
+
+  const photoRpcRunner = {
+    async runPrompt(_sessionFile: string, message: string, _timeoutMs?: number, images?: unknown[]) {
+      photoRpcCalls++;
+      photoRpcPrompts.push({ message, images: images ?? [] });
+      return "I see a cat in this image.";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  {
+    const photoOriginalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (url: string) => {
+        photoDownloadUrls.push(String(url));
+        return {
+          ok: true,
+          status: 200,
+          async arrayBuffer() {
+            return new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0]).buffer;
+          },
+        } as any;
+      }) as any;
+
+      const photoRuntime = createTelegramWorkerRuntime({
+        settings,
+        client: photoClient as any,
+        rpcRunner: photoRpcRunner as any,
+        botToken: "photo-test-token",
+        statePath: photoStatePath,
+        mapPath: photoMapPath,
+        sessionDir: photoSessionDir,
+        checkTriggerPath: join(tmp, "telegram", "check.trigger.photo.json"),
+        operatorConfigPath: join(tmp, "telegram", "config.photo.json"),
+        botUsername: "",
+        logPath: join(tmp, "telegram", "log.photo.jsonl"),
+      });
+
+      const photoResult = await photoRuntime.pollOnce(false);
+      assert(photoResult.ok === true, "photo scenario poll succeeds");
+      assert(photoResult.accepted === 1, "photo scenario accepts inbound photo update");
+      assert(photoRpcCalls === 1, "photo scenario calls rpc prompt exactly once");
+      assert(photoGetFileCalls.length === 1 && photoGetFileCalls[0] === "full-photo-1", "photo scenario resolves file metadata from selected photo file id");
+      assert(
+        photoDownloadUrls.length === 1 && photoDownloadUrls[0]?.includes("/file/botphoto-test-token/photos/photo-from-telegram.jpg"),
+        "photo scenario downloads telegram photo file",
+      );
+      assert(photoRpcPrompts[0]?.message === "What is this?", "photo scenario uses caption as prompt text");
+
+      const promptImages = photoRpcPrompts[0]?.images as Array<{ type: string; data: string; mimeType: string }>;
+      assert(Array.isArray(promptImages) && promptImages.length === 1, "photo scenario passes one image to rpc prompt");
+      assert(promptImages[0]?.type === "image", "photo scenario image has type 'image'");
+      assert(promptImages[0]?.mimeType === "image/jpeg", "photo scenario image has jpeg mime type");
+      assert(typeof promptImages[0]?.data === "string" && promptImages[0].data.length > 0, "photo scenario image has base64 data");
+
+      assert(photoSent.length === 1, "photo scenario sends assistant reply");
+      assert(photoSent[0]?.text.includes("cat"), "photo scenario reply contains vision response");
+
+      photoRuntime.dispose();
+    } finally {
+      globalThis.fetch = photoOriginalFetch;
+    }
+  }
+
+  console.log("\n-- captionless photo uses default prompt --");
+  const captionlessPhotoStatePath = join(tmp, "telegram", "state.photo.captionless.json");
+  const captionlessPhotoMapPath = join(tmp, "telegram", "session-map.photo.captionless.json");
+  const captionlessPhotoSessionDir = join(tmp, "sessions-photo-captionless");
+
+  const captionlessPhotoUpdates = [
+    {
+      update_id: 1402,
+      message: {
+        message_id: 402,
+        from: { id: 2222 },
+        chat: { id: 1111, type: "private" as const },
+        date: 1,
+        photo: [
+          { file_id: "captionless-photo-1", file_unique_id: "cp1", width: 800, height: 800, file_size: 100000 },
+        ],
+      },
+    },
+  ];
+
+  const captionlessPhotoPrompts: Array<{ message: string }> = [];
+  const captionlessPhotoClient = {
+    async getUpdates() {
+      return captionlessPhotoUpdates;
+    },
+    async sendMessage(chat_id: number, text: string) {
+      return { message_id: 13, chat: { id: chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction() {
+      return true;
+    },
+    async getFile(file_id: string) {
+      return { file_id, file_path: "photos/captionless.jpg", file_size: 100000 };
+    },
+  };
+
+  const captionlessPhotoRpcRunner = {
+    async runPrompt(_sessionFile: string, message: string) {
+      captionlessPhotoPrompts.push({ message });
+      return "image description";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  {
+    const captionlessOriginalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        async arrayBuffer() { return new Uint8Array([1, 2, 3]).buffer; },
+      })) as any;
+
+      const captionlessPhotoRuntime = createTelegramWorkerRuntime({
+        settings,
+        client: captionlessPhotoClient as any,
+        rpcRunner: captionlessPhotoRpcRunner as any,
+        botToken: "photo-test-token",
+        statePath: captionlessPhotoStatePath,
+        mapPath: captionlessPhotoMapPath,
+        sessionDir: captionlessPhotoSessionDir,
+        checkTriggerPath: join(tmp, "telegram", "check.trigger.photo.captionless.json"),
+        operatorConfigPath: join(tmp, "telegram", "config.photo.captionless.json"),
+        botUsername: "",
+        logPath: join(tmp, "telegram", "log.photo.captionless.jsonl"),
+      });
+
+      await captionlessPhotoRuntime.pollOnce(false);
+      assert(captionlessPhotoPrompts.length === 1, "captionless photo calls rpc prompt once");
+      assert(captionlessPhotoPrompts[0]?.message === "Describe this image.", "captionless photo uses default prompt");
+      captionlessPhotoRuntime.dispose();
+    } finally {
+      globalThis.fetch = captionlessOriginalFetch;
+    }
+  }
+
+  console.log("\n-- inbound queue schema preserves photo envelope fields --");
+  const photoInboundDir = join(tmp, "telegram-durable-inbound-photo");
+  const photoInboundStatePath = join(photoInboundDir, "state.json");
+  const photoInboundMapPath = join(photoInboundDir, "session-map.json");
+  const photoInboundSessionDir = join(tmp, "sessions-durable-inbound-photo");
+  const photoInboundQueuePath = join(photoInboundDir, "inbound.queue.json");
+
+  loadRuntimeState(photoInboundStatePath);
+  writeFileSync(
+    photoInboundQueuePath,
+    JSON.stringify([
+      {
+        updateId: 1501,
+        chatId: 1111,
+        chatType: "private",
+        userId: 2222,
+        messageId: 501,
+        text: "",
+        isReplyToBot: false,
+        media: {
+          kind: "photo",
+          fileId: "photo-file-queue-1",
+          mimeType: "image/jpeg",
+          fileSize: 50000,
+        },
+        sessionKey: "chat-1111-user-2222",
+        sessionFile: join(photoInboundSessionDir, "chat-1111-user-2222.jsonl"),
+      },
+    ], null, 2),
+  );
+
+  let photoInboundRpcCalls = 0;
+  const photoInboundSent: Array<{ chat_id: number; text: string }> = [];
+  const photoInboundClient = {
+    async getUpdates() {
+      return [];
+    },
+    async sendMessage(chat_id: number, text: string) {
+      photoInboundSent.push({ chat_id, text });
+      return { message_id: 14, chat: { id: chat_id, type: "private" as const }, date: 1 };
+    },
+    async sendChatAction() {
+      return true;
+    },
+    async getFile(file_id: string) {
+      return { file_id, file_path: "photos/queued.jpg", file_size: 50000 };
+    },
+  };
+
+  const photoInboundRpcRunner = {
+    async runPrompt(_sessionFile: string, _message: string, _timeoutMs?: number, _images?: unknown[]) {
+      photoInboundRpcCalls++;
+      return "queued photo response";
+    },
+    dispose() {
+      // no-op
+    },
+  };
+
+  {
+    const photoInboundOriginalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        async arrayBuffer() { return new Uint8Array([1, 2]).buffer; },
+      })) as any;
+
+      const photoInboundRuntime = createTelegramWorkerRuntime({
+        settings,
+        client: photoInboundClient as any,
+        rpcRunner: photoInboundRpcRunner as any,
+        botToken: "photo-test-token",
+        statePath: photoInboundStatePath,
+        mapPath: photoInboundMapPath,
+        sessionDir: photoInboundSessionDir,
+        checkTriggerPath: join(photoInboundDir, "check.trigger.json"),
+        operatorConfigPath: join(photoInboundDir, "config.json"),
+        botUsername: "",
+        logPath: join(photoInboundDir, "log.jsonl"),
+      });
+
+      const photoInboundResult = await photoInboundRuntime.pollOnce(false);
+      assert(photoInboundResult.ok === true, "photo inbound queue scenario poll succeeds");
+      assert(photoInboundRpcCalls === 1, "photo inbound queue scenario processes persisted photo item via rpc");
+      assert(photoInboundSent.length === 1, "photo inbound queue scenario sends response for queued photo item");
+
+      const drainedPhotoQueue = existsSync(photoInboundQueuePath)
+        ? JSON.parse(readFileSync(photoInboundQueuePath, "utf-8")) as any[]
+        : null;
+      assert(Array.isArray(drainedPhotoQueue) && drainedPhotoQueue.length === 0, "photo inbound queue scenario drains persisted queue file");
+
+      photoInboundRuntime.dispose();
+    } finally {
+      globalThis.fetch = photoInboundOriginalFetch;
+    }
+  }
+
   failingRuntime.dispose();
   runtime.dispose();
 } finally {
