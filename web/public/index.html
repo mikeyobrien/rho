@@ -20,11 +20,17 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <style>
+      /* Iosevka — narrow monospace for mobile density */
+      @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 400; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-400-normal.woff2) format('woff2'); }
+      @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 500; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-500-normal.woff2) format('woff2'); }
+      @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 700; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-700-normal.woff2) format('woff2'); }
+    </style>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260218v17" />
+    <link rel="stylesheet" href="/css/style.css?v=20260218v22" />
     <!-- Preload CDN scripts for faster initial render -->
     <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
     <link rel="preload" href="https://cdn.jsdelivr.net/npm/marked/marked.min.js" as="script" />
@@ -35,9 +41,10 @@
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
     <script src="/js/app.js?v=20260211v" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
-    <script src="/js/chat.js?v=20260218v6" defer></script>
+    <script src="/js/chat.js?v=20260218v7" defer></script>
     <script src="/js/config.js?v=20260211v" defer></script>
     <script src="/js/memory.js?v=20260211v" defer></script>
+    <script src="/js/pull-to-refresh.js?v=20260218v" defer></script>
 
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
@@ -72,12 +79,11 @@
               class="nav-tab"
               href="/review"
               role="tab"
-              x-show="activeReviewCount > 0"
-              x-cloak
             >
               Review
               <span
                 class="nav-tab-badge"
+                x-show="activeReviewCount > 0"
                 x-text="activeReviewCount"
               ></span>
             </a>
@@ -378,15 +384,22 @@
                         </template>
                       </select>
                     </div>
-                    <button
-                      class="btn btn-ghost chat-control-btn"
-                      type="button"
-                      @click="cycleThinkingLevel()"
-                      :disabled="!canChangeThinking()"
-                      :title="`Thinking level: ${thinkingLevelLabel()}`"
-                    >
-                      Thinking: <span x-text="thinkingLevelLabel()"></span>
-                    </button>
+                    <div class="chat-control-group">
+                      <label class="chat-control-label">Thinking</label>
+                      <select
+                        class="chat-control-select"
+                        @change="setThinkingLevel($event.target.value)"
+                        :disabled="!canChangeThinking()"
+                      >
+                        <template x-for="level in thinkingLevels" :key="level">
+                          <option
+                            :value="level"
+                            :selected="level === currentThinkingLevel"
+                            x-text="level"
+                          ></option>
+                        </template>
+                      </select>
+                    </div>
                   </div>
                   <div class="chat-controls-right">
                     <button

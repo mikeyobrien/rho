@@ -857,6 +857,7 @@ document.addEventListener("alpine:init", () => {
 
 		// Chat controls state
 		availableModels: [],
+		thinkingLevels: THINKING_LEVELS,
 		currentModel: null,
 		currentThinkingLevel: "medium",
 		isStreaming: false,
@@ -909,6 +910,7 @@ document.addEventListener("alpine:init", () => {
 			await this.loadSessions();
 			this.startPolling();
 			this.setupKeyboardShortcuts();
+			this.setupPullToRefresh();
 			// Sync hash on back/forward
 			window.addEventListener("hashchange", () => {
 				const id = window.location.hash.replace("#", "").trim();
@@ -919,6 +921,21 @@ document.addEventListener("alpine:init", () => {
 				if (id !== this.activeSessionId) {
 					this.selectSession(id, { updateHash: false });
 				}
+			});
+		},
+
+		setupPullToRefresh() {
+			this.$nextTick(() => {
+				const app = this.$root;
+				if (!app || typeof PullToRefresh === "undefined") return;
+				this._ptr = new PullToRefresh(app, {
+					onRefresh: async () => {
+						if (this.activeSessionId) {
+							await this.reloadActiveSession();
+						}
+						await this.loadSessions();
+					},
+				});
 			});
 		},
 
@@ -2869,25 +2886,29 @@ document.addEventListener("alpine:init", () => {
 			this.updateFooter();
 		},
 
+		setThinkingLevel(level) {
+			if (!this.activeRpcSessionId || this.isStreaming) {
+				return;
+			}
+			this.sendWs({
+				type: "rpc_command",
+				sessionId: this.activeRpcSessionId,
+				command: {
+					type: "set_thinking_level",
+					level,
+				},
+			});
+			this.currentThinkingLevel = level;
+			this.updateFooter();
+		},
+
 		cycleThinkingLevel() {
 			if (!this.activeRpcSessionId || this.isStreaming) {
 				return;
 			}
 			const currentIndex = THINKING_LEVELS.indexOf(this.currentThinkingLevel);
 			const nextIndex = (currentIndex + 1) % THINKING_LEVELS.length;
-			const nextLevel = THINKING_LEVELS[nextIndex];
-
-			this.sendWs({
-				type: "rpc_command",
-				sessionId: this.activeRpcSessionId,
-				command: {
-					type: "set_thinking_level",
-					level: nextLevel,
-				},
-			});
-			// Optimistically update
-			this.currentThinkingLevel = nextLevel;
-			this.updateFooter();
+			this.setThinkingLevel(THINKING_LEVELS[nextIndex]);
 		},
 
 		abort() {
