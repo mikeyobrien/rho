@@ -1,5 +1,9 @@
-// Rho PWA Service Worker — network-first with offline shell fallback
+// Rho PWA Service Worker — network-first with offline fallback
+// Strategy: always try network first so code changes propagate immediately.
+// Cache responses as a fallback for when the server is unreachable.
 const CACHE_NAME = "rho-v1";
+
+// Pre-cache the app shell on install for offline cold-start
 const SHELL_ASSETS = [
 	"/",
 	"/css/style.css",
@@ -12,7 +16,6 @@ const SHELL_ASSETS = [
 	"/manifest.json",
 ];
 
-// Pre-cache the app shell on install
 self.addEventListener("install", (event) => {
 	event.waitUntil(
 		caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)),
@@ -20,7 +23,6 @@ self.addEventListener("install", (event) => {
 	self.skipWaiting();
 });
 
-// Clean up old caches on activate
 self.addEventListener("activate", (event) => {
 	event.waitUntil(
 		caches
@@ -34,47 +36,25 @@ self.addEventListener("activate", (event) => {
 	self.clients.claim();
 });
 
-// Network-first for API/dynamic, cache-first for static assets
 self.addEventListener("fetch", (event) => {
 	const url = new URL(event.request.url);
 
-	// Skip non-GET and API requests
+	// Skip non-GET, API calls, and WebSocket upgrades
 	if (event.request.method !== "GET" || url.pathname.startsWith("/api/")) {
 		return;
 	}
 
-	// Static assets: cache-first
-	if (
-		url.pathname.startsWith("/css/") ||
-		url.pathname.startsWith("/js/") ||
-		url.pathname.startsWith("/assets/") ||
-		url.pathname.endsWith(".svg") ||
-		url.pathname.endsWith(".png")
-	) {
-		event.respondWith(
-			caches.match(event.request).then(
-				(cached) =>
-					cached ||
-					fetch(event.request).then((response) => {
-						const clone = response.clone();
-						caches
-							.open(CACHE_NAME)
-							.then((cache) => cache.put(event.request, clone));
-						return response;
-					}),
-			),
-		);
-		return;
-	}
-
-	// Navigation/HTML: network-first, fall back to cache
+	// Everything else: network-first, cache as fallback
 	event.respondWith(
 		fetch(event.request)
 			.then((response) => {
-				const clone = response.clone();
-				caches
-					.open(CACHE_NAME)
-					.then((cache) => cache.put(event.request, clone));
+				// Only cache successful responses
+				if (response.ok) {
+					const clone = response.clone();
+					caches
+						.open(CACHE_NAME)
+						.then((cache) => cache.put(event.request, clone));
+				}
 				return response;
 			})
 			.catch(() => caches.match(event.request)),
