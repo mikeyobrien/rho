@@ -2249,7 +2249,16 @@ document.addEventListener("alpine:init", () => {
 			if (!session) {
 				return "";
 			}
-			const count = session.messageCount ?? session.messages?.length ?? 0;
+			// For the active session, prefer the live rendered count since
+			// activeSession metadata goes stale during streaming
+			const isActive =
+				session === this.activeSession && this.renderedMessages.length > 0;
+			const count = isActive
+				? this.renderedMessages.length
+				: (session.messageCount ??
+					session.stats?.messageCount ??
+					session.messages?.length ??
+					0);
 			return `${count} message${count === 1 ? "" : "s"}`;
 		},
 
