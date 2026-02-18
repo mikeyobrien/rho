@@ -779,6 +779,14 @@ document.addEventListener("alpine:init", () => {
     showReconnectBanner: false,
     theme: "dark",
 
+    // Idle detection state
+    lastActivityTime: Date.now(),
+    isIdle: false,
+    idleCheckInterval: null,
+
+    // Visibility state
+    isPageVisible: true,
+
     async init() {
       // Load theme preference
       this.theme = localStorage.getItem("rho-theme") || "dark";
@@ -800,6 +808,9 @@ document.addEventListener("alpine:init", () => {
         this.chatMaximized = true;
         document.body.classList.add("chat-maximized");
       }
+      // Setup idle and visibility detection
+      this.setupIdleDetection();
+      this.setupVisibilityDetection();
       await this.loadSessions();
       this.startPolling();
       this.setupKeyboardShortcuts();
@@ -1713,6 +1724,54 @@ document.addEventListener("alpine:init", () => {
         clearInterval(this.poller);
         this.poller = null;
       }
+    },
+
+    setupIdleDetection() {
+      // Track user activity
+      const updateActivity = () => {
+        this.lastActivityTime = Date.now();
+        if (this.isIdle) {
+          this.isIdle = false;
+          // Resume polling when becoming active
+          if (this.isPageVisible) {
+            this.startPolling();
+          }
+        }
+      };
+
+      // Listen for user interactions
+      document.addEventListener("mousemove", updateActivity);
+      document.addEventListener("mousedown", updateActivity);
+      document.addEventListener("keydown", updateActivity);
+      document.addEventListener("touchstart", updateActivity);
+      document.addEventListener("scroll", updateActivity);
+
+      // Check for idle every 30 seconds
+      this.idleCheckInterval = setInterval(() => {
+        const idleTimeout = 5 * 60 * 1000; // 5 minutes
+        if (Date.now() - this.lastActivityTime > idleTimeout) {
+          if (!this.isIdle) {
+            this.isIdle = true;
+            this.stopPolling(); // Stop polling when idle
+          }
+        }
+      }, 30000);
+    },
+
+    setupVisibilityDetection() {
+      // Pause polling when tab is hidden
+      const handleVisibilityChange = () => {
+        this.isPageVisible = !document.hidden;
+        if (document.hidden) {
+          this.stopPolling();
+        } else if (!this.isIdle) {
+          // Resume polling when tab becomes visible (if not idle)
+          this.loadSessions(false); // Fetch immediately
+          this.startPolling();
+        }
+      };
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
     },
 
     sessionsTotal: 0,
