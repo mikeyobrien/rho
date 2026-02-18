@@ -1838,17 +1838,17 @@ body.theme-light .chat-text blockquote {
 	}
 
 	.chat-text {
-		font-size: 0.78rem;
+		font-size: 0.82rem;
 	}
 
 	.chat-usage {
-		font-size: 0.58rem;
+		font-size: 0.6rem;
 	}
 
 	/* Compact message meta — inline role + time */
 	.chat-message-meta {
 		margin-bottom: 0.25rem;
-		font-size: 0.58rem;
+		font-size: 0.6rem;
 	}
 
 	/* Hide composer hints on mobile */
@@ -2510,9 +2510,8 @@ body.theme-light .chat-text blockquote {
 		min-height: 32px;
 	}
 
-	/* Even smaller message text */
 	.chat-text {
-		font-size: 0.72rem;
+		font-size: 0.78rem;
 	}
 
 	/* Config responsive */
