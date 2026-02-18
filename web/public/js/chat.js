@@ -36,9 +36,9 @@ function clampString(value, max) {
 }
 
 function generateOutputPreview(output, maxLen = 80) {
-  if (!output) return '';
-  const oneLine = output.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-  return oneLine.length > maxLen ? oneLine.substring(0, maxLen) + '...' : oneLine;
+  if (!output) return "";
+  const oneLine = output.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+  return oneLine.length > maxLen ? `${oneLine.substring(0, maxLen)}...` : oneLine;
 }
 
 function extractText(content) {
@@ -69,27 +69,9 @@ function extractText(content) {
 }
 
 function normalizeToolCall(item) {
-  const name =
-    item.name ??
-    item.tool_name ??
-    item.toolName ??
-    item.function?.name ??
-    item.functionName ??
-    "tool";
-  const args =
-    item.arguments ??
-    item.args ??
-    item.input ??
-    item.function?.arguments ??
-    item.parameters ??
-    "";
-  const output =
-    item.output ??
-    item.result ??
-    item.response ??
-    item.tool_output ??
-    item.toolResult ??
-    "";
+  const name = item.name ?? item.tool_name ?? item.toolName ?? item.function?.name ?? item.functionName ?? "tool";
+  const args = item.arguments ?? item.args ?? item.input ?? item.function?.arguments ?? item.parameters ?? "";
+  const output = item.output ?? item.result ?? item.response ?? item.tool_output ?? item.toolResult ?? "";
 
   const argsText = typeof args === "string" ? args : safeString(args);
   const outputText = typeof output === "string" ? output : safeString(output);
@@ -102,7 +84,7 @@ function normalizeToolCall(item) {
     argsSummary: clampString(argsText.replace(/\s+/g, " ").trim(), 120),
     output: outputText,
     outputPreview: generateOutputPreview(outputText),
-    status: item.isError ? "error" : item.status ?? "done",
+    status: item.isError ? "error" : (item.status ?? "done"),
     duration: item.duration ?? "",
   };
 }
@@ -177,6 +159,20 @@ function normalizeContentItem(item) {
     return [{ type: "text", text: item.text ?? item.content ?? "" }];
   }
 
+  if (itemType === "image") {
+    // Reconstruct dataUrl from base64 data + mimeType (stored in session JSONL)
+    const mimeType = item.mimeType ?? item.media_type ?? "image/png";
+    const data = item.data ?? item.source?.data ?? "";
+    if (data) {
+      return [{ type: "image", dataUrl: `data:${mimeType};base64,${data}` }];
+    }
+    // Already has a dataUrl (live rendering)
+    if (item.dataUrl) {
+      return [{ type: "image", dataUrl: item.dataUrl }];
+    }
+    return [];
+  }
+
   if ("tool_calls" in item && Array.isArray(item.tool_calls)) {
     return item.tool_calls.map(normalizeToolCall);
   }
@@ -220,16 +216,16 @@ function normalizeParts(content) {
   if (Array.isArray(content)) {
     const rawParts = content.flatMap((item) => normalizeContentItem(item));
     // Merge tool_result into matching tool_call parts
-    const toolCalls = rawParts.filter(p => p.type === "tool_call");
-    const toolResults = rawParts.filter(p => p.type === "tool_result");
-    const otherParts = rawParts.filter(p => p.type !== "tool_call" && p.type !== "tool_result");
+    const toolCalls = rawParts.filter((p) => p.type === "tool_call");
+    const toolResults = rawParts.filter((p) => p.type === "tool_result");
+    const otherParts = rawParts.filter((p) => p.type !== "tool_call" && p.type !== "tool_result");
 
     // Match results to calls by toolCallId/toolUseId or by name+position
     for (const result of toolResults) {
       let matched = false;
       // Try to match by ID first
       if (result.toolUseId) {
-        const call = toolCalls.find(c => c.toolCallId === result.toolUseId && !c.output);
+        const call = toolCalls.find((c) => c.toolCallId === result.toolUseId && !c.output);
         if (call) {
           call.output = result.output;
           call.outputPreview = generateOutputPreview(result.output);
@@ -239,7 +235,7 @@ function normalizeParts(content) {
       }
       // Fallback: match by name (first unmatched call with same name)
       if (!matched && result.name) {
-        const call = toolCalls.find(c => c.name === result.name && !c.output);
+        const call = toolCalls.find((c) => c.name === result.name && !c.output);
         if (call) {
           call.output = result.output;
           call.outputPreview = generateOutputPreview(result.output);
@@ -249,7 +245,7 @@ function normalizeParts(content) {
       }
       // If still not matched, match to any call without output
       if (!matched) {
-        const call = toolCalls.find(c => !c.output);
+        const call = toolCalls.find((c) => !c.output);
         if (call) {
           call.output = result.output;
           call.outputPreview = generateOutputPreview(result.output);
@@ -357,21 +353,11 @@ function formatUsage(usage, model) {
   const input = Number(usageObj.input ?? usageObj.promptTokens ?? usageObj.inputTokens ?? 0);
   const output = Number(usageObj.output ?? usageObj.completionTokens ?? usageObj.outputTokens ?? 0);
   const totalTokens = Number(
-    usageObj.totalTokens ??
-      usageObj.total ??
-      usageObj.total_tokens ??
-      usageObj.tokens ??
-      (input || output ? input + output : 0)
+    usageObj.totalTokens ?? usageObj.total ?? usageObj.total_tokens ?? usageObj.tokens ?? (input || output ? input + output : 0),
   );
   const cacheRead = Number(usageObj.cacheRead ?? usageObj.cache_read ?? usageObj.cacheReadTokens ?? 0);
   const cacheWrite = Number(usageObj.cacheWrite ?? usageObj.cache_write ?? usageObj.cacheCreation ?? 0);
-  const cost =
-    usageObj.cost?.total ??
-    usageObj.costTotal ??
-    usageObj.totalCost ??
-    usageObj.usd ??
-    usageObj.cost ??
-    null;
+  const cost = usageObj.cost?.total ?? usageObj.costTotal ?? usageObj.totalCost ?? usageObj.usd ?? usageObj.cost ?? null;
 
   const parts = [];
   if (model) {
@@ -402,7 +388,7 @@ function formatTimestamp(value) {
   return parsed.toLocaleString();
 }
 
-function formatTimestampShort(value) {
+function _formatTimestampShort(value) {
   if (!value) {
     return "";
   }
@@ -429,7 +415,7 @@ function renderMarkdown(text) {
   try {
     return marked.parse(text);
   } catch {
-    return text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    return text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
   }
 }
 
@@ -618,10 +604,6 @@ const TOAST_LEVELS = {
 // Default toast duration
 const TOAST_DEFAULT_DURATION = 5000;
 
-function isMobileViewport() {
-  return window.innerWidth <= 720;
-}
-
 document.addEventListener("alpine:init", () => {
   Alpine.data("rhoChat", () => ({
     sessions: [],
@@ -650,11 +632,14 @@ document.addEventListener("alpine:init", () => {
     slashAcIndex: 0,
     streamMessageId: "",
     markdownRenderQueue: new Map(),
-    markdownFrame: null,
+    markdownTimeout: null,
     toolCallPartById: new Map(),
 
-    // Mobile collapsible panel state
-    showSessionsPanel: true,
+    // Sessions panel state (slide-out overlay, hidden by default)
+    showSessionsPanel: false,
+
+    // Queued prompt: message typed during streaming, auto-sent on agent_end
+    queuedPrompt: null,
 
     // Maximized chat mode
     chatMaximized: false,
@@ -788,8 +773,8 @@ document.addEventListener("alpine:init", () => {
 
     handleComposerInput(event) {
       const el = event.target;
-      el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
       this.updateSlashAutocomplete();
     },
 
@@ -936,10 +921,7 @@ document.addEventListener("alpine:init", () => {
       this.showReconnectBanner = true;
 
       // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
-      const delay = Math.min(
-        this.wsBaseReconnectDelay * Math.pow(2, this.wsReconnectAttempts - 1),
-        this.wsMaxReconnectDelay
-      );
+      const delay = Math.min(this.wsBaseReconnectDelay * 2 ** (this.wsReconnectAttempts - 1), this.wsMaxReconnectDelay);
 
       this.wsReconnectTimer = setTimeout(() => {
         this.connectWebSocket();
@@ -967,7 +949,7 @@ document.addEventListener("alpine:init", () => {
           () => {
             this.ws?.send(JSON.stringify(payload));
           },
-          { once: true }
+          { once: true },
         );
         return true;
       }
@@ -1085,6 +1067,13 @@ document.addEventListener("alpine:init", () => {
         this.updateFooter();
         // Refresh stats after agent completes
         this.requestSessionStats();
+        // Auto-send any message queued during streaming
+        if (this.queuedPrompt) {
+          const queued = this.queuedPrompt;
+          this.queuedPrompt = null;
+          this.promptText = queued;
+          this.$nextTick(() => this.sendPrompt());
+        }
         return;
       }
 
@@ -1234,13 +1223,13 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       const hasContent = normalized.parts.some((p) => {
-        if (p.type === 'text') return Boolean(p.content);
-        if (p.type === 'thinking') return Boolean(p.content);
-        if (p.type === 'tool_call') return Boolean(p.name || p.args);
-        if (p.type === 'tool_result') return Boolean(p.output);
-        if (p.type === 'bash') return Boolean(p.command || p.output);
-        if (p.type === 'error') return Boolean(p.text);
-        if (p.type === 'compaction' || p.type === 'summary' || p.type === 'retry') return Boolean(p.summary);
+        if (p.type === "text") return Boolean(p.content);
+        if (p.type === "thinking") return Boolean(p.content);
+        if (p.type === "tool_call") return Boolean(p.name || p.args);
+        if (p.type === "tool_result") return Boolean(p.output);
+        if (p.type === "bash") return Boolean(p.command || p.output);
+        if (p.type === "error") return Boolean(p.text);
+        if (p.type === "compaction" || p.type === "summary" || p.type === "retry") return Boolean(p.summary);
         return true;
       });
       if (!hasContent) {
@@ -1313,13 +1302,16 @@ document.addEventListener("alpine:init", () => {
       }
       this.markdownRenderQueue.get(messageId).add(key);
 
-      if (this.markdownFrame != null) {
+      // Use 150ms debounced setTimeout instead of requestAnimationFrame
+      // to batch rapid streaming token deltas
+      if (this.markdownTimeout != null) {
         return;
       }
 
-      this.markdownFrame = window.requestAnimationFrame(() => {
+      this.markdownTimeout = setTimeout(() => {
+        this.markdownTimeout = null;
         this.flushMarkdownRender();
-      });
+      }, 150);
     },
 
     flushMarkdownRender() {
@@ -1450,11 +1442,11 @@ document.addEventListener("alpine:init", () => {
         }));
 
         const fullToolCall =
-          delta.toolCall ??
-          delta.partial?.content?.[Number(contentIndex)] ??
-          findToolCallInMessage(event.message, contentIndex);
+          delta.toolCall ?? delta.partial?.content?.[Number(contentIndex)] ?? findToolCallInMessage(event.message, contentIndex);
 
-        const argsText = fullToolCall?.arguments ? safeString(fullToolCall.arguments) : message.stream.toolCallBuffers[contentIndex] ?? "";
+        const argsText = fullToolCall?.arguments
+          ? safeString(fullToolCall.arguments)
+          : (message.stream.toolCallBuffers[contentIndex] ?? "");
 
         part.name = fullToolCall?.name ?? part.name ?? "tool";
         part.toolCallId = fullToolCall?.id ?? part.toolCallId;
@@ -1694,13 +1686,13 @@ document.addEventListener("alpine:init", () => {
           this.allSessionsLoaded = true;
         } else {
           // Deduplicate by ID
-          const existingIds = new Set(this.sessions.map(s => s.id));
-          const newSessions = more.filter(s => !existingIds.has(s.id));
+          const existingIds = new Set(this.sessions.map((s) => s.id));
+          const newSessions = more.filter((s) => !existingIds.has(s.id));
           this.sessions = [...this.sessions, ...newSessions];
           this.sessionsLoaded += more.length;
           this.allSessionsLoaded = this.sessionsLoaded >= this.sessionsTotal;
         }
-      } catch (error) {
+      } catch (_error) {
         // Silent fail on load-more
       } finally {
         this.isLoadingMore = false;
@@ -1742,6 +1734,7 @@ document.addEventListener("alpine:init", () => {
       this.error = "";
       this.isLoadingSession = false;
       this.userScrolledUp = false;
+      this.queuedPrompt = null;
       this.toolCallPartById.clear();
 
       // Clear stale RPC + exit fullscreen
@@ -1755,7 +1748,7 @@ document.addEventListener("alpine:init", () => {
         history.replaceState(null, "", window.location.pathname + window.location.search);
       }
 
-      // Keep sessions panel visible
+      // Open sessions panel so user can pick one
       this.showSessionsPanel = true;
     },
 
@@ -1783,10 +1776,8 @@ document.addEventListener("alpine:init", () => {
         history.replaceState(null, "", `#${sessionId}`);
       }
 
-      // Auto-collapse sessions panel on mobile after selection
-      if (isMobileViewport()) {
-        this.showSessionsPanel = false;
-      }
+      // Close sessions panel after selection
+      this.showSessionsPanel = false;
 
       try {
         const session = await fetchJson(`/api/sessions/${sessionId}`);
@@ -1829,13 +1820,13 @@ document.addEventListener("alpine:init", () => {
               const content = mergedMessages[j].content;
               if (Array.isArray(content)) {
                 // Find first tool_call without merged output
-                const call = content.find(
-                  (c) => (c.type === "toolCall" || c.type === "tool_call" || c.type === "tool_use") && !c._merged
-                );
+                const call = content.find((c) => (c.type === "toolCall" || c.type === "tool_call" || c.type === "tool_use") && !c._merged);
                 if (call) {
                   const resultText = Array.isArray(msg.content)
                     ? msg.content.map((c) => c.text ?? c.output ?? "").join("\n")
-                    : typeof msg.content === "string" ? msg.content : "";
+                    : typeof msg.content === "string"
+                      ? msg.content
+                      : "";
                   call.output = resultText;
                   call._merged = true;
                 }
@@ -1850,33 +1841,31 @@ document.addEventListener("alpine:init", () => {
 
       // Normalize messages, filter empty ones, and deduplicate by ID
       const seenIds = new Set();
-      this.renderedMessages = mergedMessages
-        .map(normalizeMessage)
-        .filter((msg) => {
-          // Skip empty messages (no parts or all parts empty)
-          if (!msg.parts || msg.parts.length === 0) {
-            return false;
-          }
-          const hasContent = msg.parts.some((p) => {
-            if (p.type === 'text') return Boolean(p.content);
-            if (p.type === 'thinking') return Boolean(p.content);
-            if (p.type === 'tool_call') return Boolean(p.name || p.args);
-            if (p.type === 'tool_result') return Boolean(p.output);
-            if (p.type === 'bash') return Boolean(p.command || p.output);
-            if (p.type === 'error') return Boolean(p.text);
-            if (p.type === 'compaction' || p.type === 'summary' || p.type === 'retry') return Boolean(p.summary);
-            return true; // Unknown part types pass through
-          });
-          if (!hasContent) {
-            return false;
-          }
-          // Deduplicate by ID
-          if (seenIds.has(msg.id)) {
-            return false;
-          }
-          seenIds.add(msg.id);
-          return true;
+      this.renderedMessages = mergedMessages.map(normalizeMessage).filter((msg) => {
+        // Skip empty messages (no parts or all parts empty)
+        if (!msg.parts || msg.parts.length === 0) {
+          return false;
+        }
+        const hasContent = msg.parts.some((p) => {
+          if (p.type === "text") return Boolean(p.content);
+          if (p.type === "thinking") return Boolean(p.content);
+          if (p.type === "tool_call") return Boolean(p.name || p.args);
+          if (p.type === "tool_result") return Boolean(p.output);
+          if (p.type === "bash") return Boolean(p.command || p.output);
+          if (p.type === "error") return Boolean(p.text);
+          if (p.type === "compaction" || p.type === "summary" || p.type === "retry") return Boolean(p.summary);
+          return true; // Unknown part types pass through
         });
+        if (!hasContent) {
+          return false;
+        }
+        // Deduplicate by ID
+        if (seenIds.has(msg.id)) {
+          return false;
+        }
+        seenIds.add(msg.id);
+        return true;
+      });
 
       this.userScrolledUp = false;
       this.$nextTick(() => {
@@ -1892,7 +1881,7 @@ document.addEventListener("alpine:init", () => {
       // Show session name, first prompt, or truncated ID
       const rawId = session.header?.id ?? session.id ?? "";
       const firstPrompt = session.firstPrompt;
-      const title = session.name || (firstPrompt ? clampString(firstPrompt, 50) : (rawId ? rawId.substring(0, 8) : "session"));
+      const title = session.name || (firstPrompt ? clampString(firstPrompt, 50) : rawId ? rawId.substring(0, 8) : "session");
       const timestamp = formatTimestamp(session.header?.timestamp ?? session.timestamp);
       return `${title}${timestamp ? ` · ${timestamp}` : ""}`;
     },
@@ -2042,10 +2031,8 @@ document.addEventListener("alpine:init", () => {
       this.closeSlashAutocomplete();
 
       // Capture and clear pending images
-      const images = hasImages
-        ? this.pendingImages.map(img => ({ type: "image", data: img.data, mimeType: img.mimeType }))
-        : undefined;
-      const imageDataUrls = hasImages ? this.pendingImages.map(img => img.dataUrl) : [];
+      const images = hasImages ? this.pendingImages.map((img) => ({ type: "image", data: img.data, mimeType: img.mimeType })) : undefined;
+      const imageDataUrls = hasImages ? this.pendingImages.map((img) => img.dataUrl) : [];
       this.pendingImages = [];
 
       // Add user message locally before sending to RPC
@@ -2135,13 +2122,11 @@ document.addEventListener("alpine:init", () => {
       const query = text.slice(1).toLowerCase();
       const MAX_ITEMS = 15;
 
-      const filtered = this.slashCommands
-        .filter((cmd) => cmd.name.toLowerCase().includes(query))
-        .slice(0, MAX_ITEMS);
+      const filtered = this.slashCommands.filter((cmd) => cmd.name.toLowerCase().includes(query)).slice(0, MAX_ITEMS);
 
       if (filtered.length === 0) {
         this.slashAcItems = [];
-        this.slashAcVisible = query.length > 0 ? true : (this.slashCommands.length > 0);
+        this.slashAcVisible = query.length > 0 ? true : this.slashCommands.length > 0;
         this.slashAcIndex = -1;
         if (!this.slashAcVisible) this.closeSlashAutocomplete();
         return;
@@ -2187,7 +2172,7 @@ document.addEventListener("alpine:init", () => {
           input.selectionStart = input.selectionEnd = input.value.length;
           // Reset textarea height
           input.style.height = "auto";
-          input.style.height = Math.min(input.scrollHeight, 200) + "px";
+          input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
         }
       });
     },
@@ -2423,28 +2408,6 @@ document.addEventListener("alpine:init", () => {
       });
     },
 
-    sendSteer() {
-      const message = this.promptText.trim();
-      if (!message || !this.activeRpcSessionId || !this.isStreaming) {
-        return;
-      }
-
-      this.error = "";
-      this.promptText = "";
-      this.pendingSlashClassification = null;
-
-      this.sendWs({
-        type: "rpc_command",
-        sessionId: this.activeRpcSessionId,
-        command: {
-          type: "steer",
-          message,
-        },
-      });
-
-      this.focusComposer();
-    },
-
     sendFollowUp() {
       const message = this.promptText.trim();
       if (!message || !this.activeRpcSessionId || !this.isStreaming) {
@@ -2491,8 +2454,12 @@ document.addEventListener("alpine:init", () => {
       }
 
       if (this.isStreaming) {
-        // During streaming, submit as steer
-        this.sendSteer();
+        // During streaming, queue the message — it will auto-send when agent finishes.
+        // This avoids the race where a steer is sent but the agent already completed,
+        // silently discarding the user's message.
+        this.queuedPrompt = this.promptText.trim();
+        this.promptText = "";
+        this.focusComposer();
       } else {
         // Normal prompt submission
         this.sendPrompt();
@@ -2549,16 +2516,14 @@ document.addEventListener("alpine:init", () => {
         return "Fork a session to start chatting...";
       }
       if (this.isStreaming) {
-        return "Type to steer the response...";
+        return this.queuedPrompt ? "Message queued — will send when done" : "Type a message (queued until done)...";
       }
       return "Type a prompt...";
     },
 
     submitButtonLabel() {
-      const message = this.promptText.trim();
-      const slashClassification = message ? this.classifySlashPrompt(message) : null;
-      if (this.isStreaming && !slashClassification?.isSlash) {
-        return "Steer";
+      if (this.isStreaming) {
+        return this.queuedPrompt ? "Queued" : "Queue";
       }
       return "Send";
     },
@@ -2603,9 +2568,9 @@ document.addEventListener("alpine:init", () => {
         title,
         description,
         options: options.map((opt, idx) => ({
-          value: typeof opt === "string" ? opt : opt.value ?? opt.label ?? String(idx),
-          label: typeof opt === "string" ? opt : opt.label ?? opt.value ?? String(idx),
-          description: typeof opt === "object" ? opt.description ?? "" : "",
+          value: typeof opt === "string" ? opt : (opt.value ?? opt.label ?? String(idx)),
+          label: typeof opt === "string" ? opt : (opt.label ?? opt.value ?? String(idx)),
+          description: typeof opt === "object" ? (opt.description ?? "") : "",
         })),
         selectedValue: null,
         timeoutId: null,

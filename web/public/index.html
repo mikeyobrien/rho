@@ -14,13 +14,13 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260218v" />
+    <link rel="stylesheet" href="/css/style.css?v=20260218v3" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
     <script src="/js/app.js?v=20260211v" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
-    <script src="/js/chat.js?v=20260214v" defer></script>
+    <script src="/js/chat.js?v=20260218v3" defer></script>
     <script src="/js/config.js?v=20260211v" defer></script>
     <script src="/js/memory.js?v=20260211v" defer></script>
 
@@ -82,25 +82,15 @@
 
       <main class="main">
         <section class="view chat-view" x-show="view === 'chat'" x-cloak role="tabpanel">
-          <div class="view-header">// chat</div>
-          <div class="view-title">Session viewer</div>
           <div class="view-body" x-data="rhoChat()" x-init="init()">
             <div class="chat-layout">
-              <!-- Mobile toggle for sessions -->
-              <button
-                class="mobile-panel-toggle"
-               
-                type="button"
-                @click="toggleSessionsPanel()"
-                :aria-expanded="showSessionsPanel"
-              >
-                <span class="mobile-panel-toggle-label">
-                  <span x-text="activeSession ? (activeSession.name || 'Session') : 'Sessions'"></span>
-                  <span class="mobile-panel-toggle-count" x-text="sessionsTotal + ' session' + (sessionsTotal === 1 ? '' : 's')"></span>
-                </span>
-                <span class="mobile-panel-toggle-arrow">&#x25BC;</span>
-              </button>
-              <aside class="chat-sessions" :class="{ collapsed: !showSessionsPanel }">
+              <!-- Sessions backdrop (click to close) -->
+              <div
+                class="chat-sessions-backdrop"
+                :class="{ visible: showSessionsPanel }"
+                @click="showSessionsPanel = false"
+              ></div>
+              <aside class="chat-sessions" :class="{ open: showSessionsPanel }" @keydown.escape.window="showSessionsPanel = false">
                 <div class="chat-section-header">
                   <div class="chat-section-title">Sessions</div>
                   <button class="btn btn-sm btn-green" type="button" @click="newSession()" :disabled="isForking">+ New</button>
@@ -164,7 +154,15 @@
                 </div>
 
                 <div class="chat-thread-header">
-                  <div>
+                  <button
+                    class="chat-sessions-toggle"
+                    type="button"
+                    @click="showSessionsPanel = !showSessionsPanel"
+                    title="Toggle sessions"
+                  >
+                    ☰ <span x-text="sessionsTotal + ' sessions'"></span>
+                  </button>
+                  <div class="chat-thread-info">
                     <div class="chat-thread-title" x-text="activeSession ? sessionLabel(activeSession) : 'Select a session'"></div>
                     <div class="chat-thread-meta" x-show="activeSession" x-text="messageCountLabel(activeSession)"></div>
                   </div>
@@ -443,7 +441,7 @@
                       >
                         Follow-up
                       </button>
-                      <button class="btn" type="submit" :disabled="(!promptText.trim() && pendingImages.length === 0) || isSendingPrompt || isForking">
+                      <button class="btn" type="submit" :disabled="(!promptText.trim() && pendingImages.length === 0) || isSendingPrompt || isForking || (isStreaming && queuedPrompt)">
                         <span x-text="submitButtonLabel()"></span>
                       </button>
                     </div>
