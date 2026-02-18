@@ -1522,10 +1522,12 @@ document.addEventListener("alpine:init", () => {
     scrollThreadToBottom() {
       if (this.userScrolledUp) return;
       this.$nextTick(() => {
-        const thread = this.$refs.thread;
-        if (!thread) return;
-        this._programmaticScroll = true;
-        thread.scrollTop = thread.scrollHeight;
+        requestAnimationFrame(() => {
+          const thread = this.$refs.thread;
+          if (!thread) return;
+          this._programmaticScroll = true;
+          thread.scrollTop = thread.scrollHeight;
+        });
       });
     },
 
