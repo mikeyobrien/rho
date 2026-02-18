@@ -1614,7 +1614,16 @@ app.put("/api/memory/:id", async (c) => {
 		}
 
 		const all = await readMemoryEntries();
-		const allMemory = [...all.learnings, ...all.preferences];
+		const allMemory = [
+			...all.behaviors,
+			...all.identity,
+			...all.user,
+			...all.learnings,
+			...all.preferences,
+			...all.contexts,
+			...all.tasks,
+			...all.reminders,
+		];
 		const target = allMemory.find((e) => e.id === entryId);
 		if (!target) return c.json({ error: "Entry not found" }, 404);
 
