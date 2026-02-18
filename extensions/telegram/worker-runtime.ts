@@ -133,6 +133,31 @@ type PendingOutboundItem = {
 
 type PendingBackgroundItem = TelegramJobRecord;
 
+function formatMessagePrefix(item: PendingInboundItem): string {
+  const msgTag = `[msg:${item.chatId}:${item.messageId}]`;
+  if (!item.date) {
+    return `${msgTag}\n`;
+  }
+  const tz = (process.env.TELEGRAM_TIMESTAMP_TZ || "").trim() || "UTC";
+  const dt = new Date(item.date * 1000);
+  const formatted = dt.toLocaleString("sv-SE", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${msgTag} [${formatted}]\n`;
+}
+
+/** Prepend metadata prefix unless prompt is a slash command (would break RPC slash parsing). */
+function prefixPrompt(item: PendingInboundItem, promptText: string): string {
+  if (promptText.trimStart().startsWith("/")) return promptText;
+  return formatMessagePrefix(item) + promptText;
+}
+
 const DEFAULT_ELEVENLABS_TTS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
 const DEFAULT_ELEVENLABS_TTS_MODEL_ID = "eleven_multilingual_v2";
 
@@ -195,6 +220,7 @@ function loadInboundQueue(path: string): PendingInboundItem[] {
         && (candidate.chatType === "private" || candidate.chatType === "group" || candidate.chatType === "supergroup" || candidate.chatType === "channel")
         && (typeof candidate.userId === "number" || candidate.userId === null)
         && typeof candidate.messageId === "number"
+        && (candidate.date === undefined || (typeof candidate.date === "number" && Number.isFinite(candidate.date)))
         && typeof candidate.text === "string"
         && hasMedia
         && hasReplyTo
@@ -1087,7 +1113,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           try {
             const rawResponse = await withTypingIndicator(
               item.chatId,
-              () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs, images),
+              () => rpcRunner.runPrompt(item.sessionFile, prefixPrompt(item, promptText), foregroundPromptTimeoutMs, images),
               item.messageThreadId,
             );
             const response = requireNonEmptyPromptResponse(rawResponse);
@@ -1200,7 +1226,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           try {
             const rawResponse = await withTypingIndicator(
               item.chatId,
-              () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs),
+              () => rpcRunner.runPrompt(item.sessionFile, prefixPrompt(item, promptText), foregroundPromptTimeoutMs),
               item.messageThreadId,
             );
             const response = requireNonEmptyPromptResponse(rawResponse);
@@ -1231,7 +1257,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           } catch (error) {
             const msg = (error as Error)?.message || String(error);
             if (shouldDeferPromptToBackground(promptText, msg)) {
-              const queued = forkPromptToBackgroundJob(item, promptText);
+              const queued = forkPromptToBackgroundJob(item, prefixPrompt(item, promptText));
               pendingOutbound.push({
                 chatId: item.chatId,
                 replyToMessageId: item.messageId,
@@ -1459,7 +1485,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
         try {
           const rawResponse = await withTypingIndicator(
             item.chatId,
-            () => rpcRunner.runPrompt(item.sessionFile, promptText, foregroundPromptTimeoutMs),
+            () => rpcRunner.runPrompt(item.sessionFile, prefixPrompt(item, promptText), foregroundPromptTimeoutMs),
             item.messageThreadId,
           );
           const response = requireNonEmptyPromptResponse(rawResponse);
@@ -1487,7 +1513,7 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
           const msg = (error as Error)?.message || String(error);
 
           if (shouldDeferPromptToBackground(promptText, msg)) {
-            const queued = forkPromptToBackgroundJob(item, promptText);
+            const queued = forkPromptToBackgroundJob(item, prefixPrompt(item, promptText));
             pendingOutbound.push({
               chatId: item.chatId,
               replyToMessageId: item.messageId,
