@@ -1094,6 +1094,17 @@ document.addEventListener("alpine:init", () => {
 				this.showReconnectBanner = false;
 				this.wsReconnectAttempts = 0;
 				this.error = "";
+
+				// Re-establish RPC session after reconnect.
+				// The server killed the old session when the previous socket closed,
+				// so we need to send switch_session again on the new socket.
+				const sessionFile =
+					this.activeRpcSessionFile ||
+					this.getSessionFile(this.activeSessionId);
+				if (sessionFile) {
+					this.activeRpcSessionId = "";
+					this.startRpcSession(sessionFile);
+				}
 			});
 
 			ws.addEventListener("message", (event) => {
@@ -1948,6 +1959,11 @@ document.addEventListener("alpine:init", () => {
 					// Resume polling when tab becomes visible (if not idle)
 					this.loadSessions(false); // Fetch immediately
 					this.startPolling();
+					// Reconnect WebSocket immediately if it died while hidden
+					// (browsers throttle timers in background tabs)
+					if (!this.isWsConnected) {
+						this.manualReconnect();
+					}
 				}
 			};
 
