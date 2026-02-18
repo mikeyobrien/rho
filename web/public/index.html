@@ -6,6 +6,8 @@
     <title>Rho Web UI</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
@@ -15,6 +17,11 @@
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
     <link rel="stylesheet" href="/css/style.css?v=20260218v3" />
+    <!-- Preload CDN scripts for faster initial render -->
+    <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/marked/marked.min.js" as="script" />
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js" as="script" />
+    <link rel="preload" href="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" as="script" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
@@ -213,6 +220,16 @@
                     <span class="empty-icon">&#x1F4C2;</span>
                     <span>Select a session from the sidebar to view messages.</span>
                   </div>
+
+                  <!-- Load earlier messages button -->
+                  <button
+                    x-show="hasEarlierMessages"
+                    @click="loadEarlierMessages()"
+                    class="load-earlier-btn"
+                    type="button"
+                  >
+                    Load earlier messages
+                  </button>
 
                   <!-- Streaming indicator (dots removed — composer border pulses instead) -->
 
