@@ -134,11 +134,52 @@
       font-size: 12px;
       color: var(--text-dim);
     }
+
+    h1 a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    h1 a:hover {
+      color: var(--text);
+    }
+
+    h1 .home-link {
+      color: var(--green);
+      text-decoration: none;
+    }
+
+    h1 .home-link:hover {
+      text-decoration: underline;
+    }
+
+    .session-cancel {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: var(--text-dim);
+      font-size: 14px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+    }
+
+    .session-cancel:hover {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--red);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
   </style>
 </head>
 <body>
   <div class="container" id="app">
-    <h1><span>review</span> · sessions</h1>
+    <h1><a href="/" class="home-link">rho</a> · <span>review</span> · sessions</h1>
     <div id="content"><div class="empty">loading...</div></div>
     <div class="refresh-hint">auto-refreshes every 5s</div>
   </div>
@@ -177,6 +218,10 @@
         const url = '/review/' + s.id + '?token=' + encodeURIComponent(s.token);
         const doneClass = s.done ? ' session--done' : '';
 
+        const cancelBtn = !s.done
+          ? '<button class="session-cancel" onclick="cancelSession(\'' + escapeHtml(s.id) + '\', \'' + escapeHtml(s.token) + '\', event)" title="Cancel review">✕</button>'
+          : '';
+
         return '<a class="session' + doneClass + '" href="' + url + '">'
           + '<div class="session-status status--' + status + '"></div>'
           + '<div class="session-info">'
@@ -188,6 +233,7 @@
           + '</div>'
           + (s.message ? '<div class="session-message">' + escapeHtml(s.message) + '</div>' : '')
           + '</div>'
+          + cancelBtn
           + '<span class="session-badge badge--' + status + '">' + label + '</span>'
           + '</a>';
       }).join('') + '</div>';
@@ -205,6 +251,17 @@
       try {
         const res = await fetch('/api/review/sessions');
         if (res.ok) renderSessions(await res.json());
+      } catch {}
+    }
+
+    async function cancelSession(id, token, event) {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        const res = await fetch('/api/review/sessions/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(token), {
+          method: 'DELETE'
+        });
+        if (res.ok) refresh();
       } catch {}
     }
 
