@@ -73,11 +73,33 @@ body {
 
 .nav-toggle:hover { color: var(--text); background: var(--border); }
 
+.nav-home {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+.nav-home:hover {
+  color: var(--text);
+}
+
+.nav-sep {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
 .nav-title {
   font-weight: 600;
   color: var(--green);
   font-size: 14px;
   letter-spacing: 0.02em;
+  text-decoration: none;
+}
+
+.nav-title:hover {
+  text-decoration: underline;
 }
 
 .nav-count {
@@ -422,6 +444,7 @@ body {
   border: 1px solid var(--border-bright);
   border-left: 3px solid var(--green);
   border-radius: 2px;
+  white-space: normal;
 }
 
 .comment-form-header {
@@ -548,6 +571,7 @@ body {
   border: 1px solid var(--border);
   border-left: 3px solid var(--cyan);
   border-radius: 2px;
+  white-space: normal;
 }
 
 .saved-comment-header {
