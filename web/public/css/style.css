@@ -82,7 +82,7 @@ body.theme-light ::selection {
 }
 
 html {
-	font-size: 15px;
+	font-size: 18px;
 }
 
 /* Terminal-style text selection */
@@ -305,8 +305,19 @@ button {
 	min-height: 0;
 }
 
+.config-view {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
 .config-view .view-body {
 	max-width: none;
+	flex: 1;
+	overflow-y: auto;
+	min-height: 0;
 }
 
 .btn {
@@ -745,9 +756,9 @@ button {
 
 .chat-message.user {
 	align-self: flex-end;
-	background: rgba(34, 197, 94, 0.08);
-	border-color: rgba(34, 197, 94, 0.25);
-	width: 82%;
+	background: rgba(34, 197, 94, 0.15);
+	border-color: rgba(34, 197, 94, 0.35);
+	width: 100%;
 	text-align: right;
 }
 
@@ -761,7 +772,7 @@ button {
 
 .chat-message.assistant {
 	align-self: flex-start;
-	width: 90%;
+	width: 100%;
 	border-color: rgba(94, 234, 212, 0.2);
 }
 
@@ -848,6 +859,7 @@ button {
 
 .chat-message-role {
 	color: var(--text);
+	font-weight: 700;
 }
 
 .chat-message-body {
@@ -1077,17 +1089,348 @@ body.theme-light .chat-text blockquote {
 	margin-left: 0.5rem;
 	font-size: 0.7rem;
 }
+.sem-diff-stats {
+	font-family: var(--mono);
+	font-size: 0.7rem;
+	margin-left: auto;
+	display: flex;
+	gap: 0.35rem;
+	align-items: center;
+}
+.diff-pill {
+	font-family: var(--mono);
+	font-size: 0.65rem;
+	font-weight: 600;
+	padding: 0.1rem 0.4rem;
+	border-radius: 3px;
+	letter-spacing: 0.02em;
+}
+.diff-pill-add {
+	color: var(--green);
+	background: rgba(34, 197, 94, 0.12);
+}
+.diff-pill-remove {
+	color: var(--red);
+	background: rgba(239, 68, 68, 0.12);
+}
 .diff-add {
 	color: var(--green);
+	font-weight: 600;
 }
 .diff-remove {
 	color: var(--red);
+	font-weight: 600;
+}
+.tool-preview-diff {
+	display: flex;
+	gap: 0.35rem;
+	align-items: center;
 }
 .diff-hunk {
 	color: var(--blue);
 }
 .diff-content {
 	margin: 0.5rem 0;
+}
+
+/* ─── Semantic Tool Views ─── */
+
+/* Collapsed header variants */
+.tool-path-badge-wrap {
+	margin-left: 0.5rem;
+	overflow: hidden;
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 60%;
+}
+
+.tool-path-badge {
+	color: var(--cyan);
+	font-size: 0.65rem;
+	font-family: var(--mono);
+	padding: 0.1rem 0.4rem;
+	background: rgba(0, 255, 255, 0.08);
+	border-radius: 3px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	display: block;
+}
+
+.tool-path-short {
+	display: none;
+}
+.tool-command-hint {
+	color: var(--text-muted);
+	font-size: 0.65rem;
+	font-family: var(--mono);
+	margin-left: 0.5rem;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-action-hint {
+	color: var(--text-muted);
+	font-size: 0.65rem;
+	margin-left: 0.5rem;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Raw toggle button */
+.sem-raw-toggle {
+	display: inline-block;
+	background: none;
+	border: 1px solid var(--border);
+	color: var(--text-dim);
+	font-size: 0.6rem;
+	padding: 0.1rem 0.4rem;
+	border-radius: 3px;
+	cursor: pointer;
+	margin-bottom: 0.5rem;
+	float: right;
+}
+.sem-raw-toggle:hover {
+	color: var(--text);
+	border-color: var(--text-dim);
+}
+
+/* Shared file header */
+.sem-file-header {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.3rem 0;
+	margin-bottom: 0.4rem;
+	border-bottom: 1px solid var(--border);
+	flex-wrap: wrap;
+}
+.sem-file-icon {
+	font-size: 0.75rem;
+	flex-shrink: 0;
+}
+.sem-file-path {
+	font-family: var(--mono);
+	font-size: 0.7rem;
+	color: var(--cyan);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+	min-width: 0;
+}
+.sem-file-range {
+	font-size: 0.6rem;
+	color: var(--text-dim);
+	flex-shrink: 0;
+}
+.sem-file-lines {
+	font-size: 0.6rem;
+	color: var(--text-dim);
+	flex-shrink: 0;
+}
+
+/* Success/error badges */
+.sem-badge {
+	font-size: 0.6rem;
+	padding: 0.1rem 0.35rem;
+	border-radius: 3px;
+	flex-shrink: 0;
+	font-weight: 500;
+}
+.sem-badge-success {
+	color: var(--green);
+	background: rgba(16, 185, 129, 0.1);
+}
+.sem-badge-error {
+	color: var(--red);
+	background: rgba(239, 68, 68, 0.1);
+}
+
+/* Edit tool: inline diff */
+.sem-diff {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+}
+.sem-diff-section {
+	border-radius: 4px;
+	overflow: hidden;
+}
+.sem-diff-label {
+	font-size: 0.6rem;
+	padding: 0.15rem 0.5rem;
+	font-weight: 500;
+	font-family: var(--mono);
+}
+.sem-diff-remove {
+	background: rgba(239, 68, 68, 0.06);
+	border-left: 3px solid var(--red);
+}
+.sem-diff-remove .sem-diff-label {
+	color: var(--red);
+}
+.sem-diff-add {
+	background: rgba(16, 185, 129, 0.06);
+	border-left: 3px solid var(--green);
+}
+.sem-diff-add .sem-diff-label {
+	color: var(--green);
+}
+.sem-diff-code {
+	margin: 0;
+	padding: 0.3rem 0.5rem;
+	font-size: 0.7rem;
+	line-height: 1.4;
+	background: transparent;
+	overflow-x: auto;
+	white-space: pre;
+	border: none;
+}
+.sem-diff-code code {
+	background: transparent;
+	padding: 0;
+}
+
+/* Write / Read: file content */
+.sem-file-content {
+	font-size: 0.7rem;
+	line-height: 1.4;
+	background: var(--bg-secondary);
+	border-radius: 4px;
+	padding: 0.5rem;
+	overflow-x: auto;
+	margin: 0;
+	max-height: 500px;
+	overflow-y: auto;
+	border: none;
+}
+.sem-file-content code {
+	background: transparent;
+	padding: 0;
+}
+
+/* Bash tool */
+.sem-bash-cmd {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.4rem;
+	background: var(--bg-secondary);
+	padding: 0.4rem 0.6rem;
+	border-radius: 4px;
+	margin-bottom: 0.4rem;
+	overflow-x: auto;
+}
+.sem-bash-prompt {
+	color: var(--green);
+	font-family: var(--mono);
+	font-weight: bold;
+	flex-shrink: 0;
+	font-size: 0.75rem;
+}
+.sem-bash-cmd code {
+	font-size: 0.7rem;
+	line-height: 1.4;
+	white-space: pre-wrap;
+	word-break: break-all;
+	background: transparent;
+	padding: 0;
+}
+.sem-bash-output pre {
+	font-size: 0.7rem;
+	line-height: 1.35;
+	background: var(--bg-secondary);
+	border-radius: 4px;
+	padding: 0.4rem 0.6rem;
+	overflow-x: auto;
+	margin: 0;
+	border: none;
+}
+.sem-bash-output pre code {
+	background: transparent;
+	padding: 0;
+}
+.sem-bash-error {
+	border-left: 3px solid var(--red);
+}
+.sem-bash-error .sem-bash-output pre {
+	background: rgba(239, 68, 68, 0.04);
+}
+
+/* Show hidden lines / show all buttons */
+.sem-show-hidden,
+.sem-show-all {
+	display: block;
+	width: 100%;
+	background: var(--bg-hover);
+	border: 1px dashed var(--border);
+	color: var(--text-dim);
+	font-size: 0.65rem;
+	padding: 0.3rem;
+	text-align: center;
+	cursor: pointer;
+	border-radius: 3px;
+	margin: 0.2rem 0;
+	font-family: var(--mono);
+}
+.sem-show-hidden:hover,
+.sem-show-all:hover {
+	color: var(--text);
+	border-color: var(--text-dim);
+}
+
+/* Brain / Vault / Email: action header */
+.sem-action-header {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.3rem 0;
+	margin-bottom: 0.4rem;
+	border-bottom: 1px solid var(--border);
+}
+.sem-action-badge {
+	font-size: 0.75rem;
+	flex-shrink: 0;
+}
+.sem-action-label {
+	font-size: 0.7rem;
+	color: var(--text);
+	font-weight: 500;
+}
+.sem-action-id,
+.sem-action-slug {
+	font-family: var(--mono);
+	font-size: 0.6rem;
+	color: var(--text-dim);
+	margin-left: auto;
+}
+.sem-structured-output {
+	font-size: 0.7rem;
+	line-height: 1.35;
+	background: var(--bg-secondary);
+	border-radius: 4px;
+	padding: 0.4rem 0.6rem;
+	overflow-x: auto;
+	margin: 0;
+	max-height: 400px;
+	overflow-y: auto;
+	border: none;
+}
+.sem-structured-output code {
+	background: transparent;
+	padding: 0;
+}
+
+/* Email subject line */
+.sem-email-subject {
+	font-size: 0.7rem;
+	color: var(--text-muted);
+	padding: 0.2rem 0;
+	margin-bottom: 0.3rem;
+	font-style: italic;
 }
 
 /* Thinking block styles */
@@ -1323,6 +1666,19 @@ body.theme-light .chat-text blockquote {
 	color: var(--text-muted);
 }
 
+.chat-usage-mobile {
+	display: none;
+}
+
+@media (max-width: 720px) {
+	.chat-usage-desktop {
+		display: none;
+	}
+	.chat-usage-mobile {
+		display: block;
+	}
+}
+
 /* Chat controls */
 .chat-controls {
 	display: flex;
@@ -1505,11 +1861,128 @@ body.theme-light .chat-text blockquote {
 	padding: 0.3rem 0.5rem;
 }
 
+/* ─── Queue bar ─── */
+.chat-queue-bar {
+	border: 1px dashed var(--border-bright);
+	border-radius: 4px;
+	background: var(--bg-alt);
+	margin-bottom: 0.5rem;
+	overflow: hidden;
+}
+
+.chat-queue-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	padding: 0.35rem 0.6rem;
+	background: none;
+	border: none;
+	color: var(--yellow);
+	font-family: var(--mono);
+	font-size: 0.7rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.chat-queue-header:hover {
+	background: rgba(251, 191, 36, 0.05);
+}
+
+.chat-queue-count {
+	letter-spacing: 0.02em;
+}
+
+.chat-queue-chevron {
+	color: var(--text-dim);
+	font-size: 0.65rem;
+}
+
+.chat-queue-items {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	padding: 0 0.5rem 0.5rem;
+}
+
+.chat-queue-item {
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	background: var(--bg);
+	padding: 0.35rem 0.45rem;
+}
+
+.chat-queue-item-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 0.25rem;
+}
+
+.chat-queue-item-num {
+	font-size: 0.6rem;
+	color: var(--text-dim);
+	font-family: var(--mono);
+}
+
+.chat-queue-item-actions {
+	display: flex;
+	gap: 0.25rem;
+	align-items: center;
+}
+
+.chat-queue-remove,
+.chat-queue-attach {
+	font-size: 0.7rem;
+	padding: 0.1rem 0.3rem;
+	cursor: pointer;
+}
+
+.chat-queue-item-text {
+	width: 100%;
+	resize: none;
+	border: 1px solid var(--border);
+	background: var(--bg-alt);
+	color: var(--text);
+	font-family: var(--mono);
+	font-size: 0.75rem;
+	line-height: 1.4;
+	padding: 0.3rem 0.45rem;
+	min-height: 1.6em;
+}
+
+.chat-queue-item-text:focus {
+	border-color: var(--yellow-dim, var(--yellow));
+	outline: none;
+}
+
+.chat-queue-item-images {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.3rem;
+	margin-top: 0.3rem;
+}
+
+.chat-queue-item-images .chat-attachment-thumb {
+	width: 2.5rem;
+	height: 2.5rem;
+}
+
+.btn-xs {
+	font-size: 0.65rem;
+	padding: 0.1rem 0.25rem;
+	min-height: auto;
+}
+
+.chat-composer-actions .btn[type="submit"] {
+	padding-left: 1.8rem;
+	padding-right: 1.8rem;
+}
+
 .chat-composer-row {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
-	gap: 0.75rem;
-	align-items: stretch;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
 }
 
 .chat-composer {
@@ -1541,8 +2014,10 @@ body.theme-light .chat-text blockquote {
 
 .chat-composer-actions {
 	display: flex;
-	flex-direction: column;
-	gap: 0.35rem;
+	flex-direction: row;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.5rem;
 }
 
 .chat-composer-input {
@@ -1554,7 +2029,7 @@ body.theme-light .chat-text blockquote {
 	background: var(--bg-alt);
 	color: var(--text);
 	font-family: var(--mono);
-	font-size: 0.8rem;
+	font-size: 0.95rem;
 	line-height: 1.45;
 	padding: 0.55rem 0.65rem;
 	caret-color: var(--green);
@@ -1746,11 +2221,6 @@ body.theme-light .chat-text blockquote {
 		font-size: 0.7rem;
 	}
 
-	/* Hide "web ui" title segment — logo is enough */
-	.nav-title {
-		display: none;
-	}
-
 	.nav-tab {
 		padding: 0 0.5rem;
 		font-size: 0.65rem;
@@ -1778,9 +2248,8 @@ body.theme-light .chat-text blockquote {
 		z-index: 10;
 	}
 
-	/* Stack composer: full-width textarea, buttons below */
+	/* Tighter gap on mobile */
 	.chat-composer-row {
-		grid-template-columns: 1fr;
 		gap: 0.35rem;
 	}
 
@@ -1789,13 +2258,6 @@ body.theme-light .chat-text blockquote {
 		min-height: 2.5rem;
 		max-height: 8rem;
 		font-size: 14px;
-	}
-
-	.chat-composer-actions {
-		flex-direction: row;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 0.5rem;
 	}
 
 	/* Touch targets (M4) - 44px minimum for interactive elements */
@@ -1823,14 +2285,6 @@ body.theme-light .chat-text blockquote {
 		max-width: none;
 	}
 
-	/* Full-width bubbles on mobile — maximize reading space */
-	.chat-message.assistant {
-		width: 100%;
-	}
-
-	.chat-message.user {
-		width: 100%;
-	}
 
 	/* Tighter message padding + smaller text */
 	.chat-message {
@@ -1856,10 +2310,7 @@ body.theme-light .chat-text blockquote {
 		display: none;
 	}
 
-	/* Hide footer on mobile — status visible in thread header */
-	.footer {
-		display: none;
-	}
+
 
 	/* Safe area insets */
 	.nav {
@@ -1890,10 +2341,6 @@ body.theme-light .chat-text blockquote {
 		flex-wrap: nowrap;
 		gap: 0.35rem;
 		padding-bottom: 0.25rem;
-	}
-
-	.chat-thread-meta {
-		display: none;
 	}
 
 	/* Compact input area — merge controls into a slim bar above composer */
@@ -1927,10 +2374,6 @@ body.theme-light .chat-text blockquote {
 		white-space: nowrap;
 	}
 
-	.chat-composer-actions {
-		flex-direction: row;
-		align-items: center;
-	}
 
 	/* Tighter thread body gap */
 	.chat-thread-body {
@@ -2579,8 +3022,22 @@ body.theme-light .chat-text blockquote {
 		gap: 0.3rem;
 	}
 
-	.tool-args-hint {
+	.tool-args-hint,
+	.tool-command-hint,
+	.tool-action-hint {
 		max-width: 120px;
+		font-size: 0.6rem;
+	}
+
+	.tool-path-full {
+		display: none;
+	}
+	.tool-path-short {
+		display: block;
+		font-size: 0.6rem;
+	}
+	.tool-path-badge-wrap {
+		max-width: 140px;
 	}
 
 	.tool-preview {
@@ -2596,12 +3053,43 @@ body.theme-light .chat-text blockquote {
 	.chat-block-body pre {
 		font-size: 0.6rem;
 	}
+
+	.sem-file-header {
+		gap: 0.25rem;
+	}
+	.sem-file-path {
+		font-size: 0.6rem;
+	}
+	.sem-diff-code,
+	.sem-file-content,
+	.sem-bash-cmd code,
+	.sem-bash-output pre,
+	.sem-structured-output {
+		font-size: 0.6rem;
+	}
+	.sem-bash-cmd {
+		padding: 0.3rem 0.4rem;
+	}
+	.sem-raw-toggle {
+		font-size: 0.55rem;
+	}
 }
 
 /* ---- Memory view ---- */
 
+.memory-view {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
 .memory-view .view-body {
 	max-width: none;
+	flex: 1;
+	overflow-y: auto;
+	min-height: 0;
 }
 
 .memory-stats {

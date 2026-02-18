@@ -4,6 +4,7 @@
   "description": "Persistent coding agent and technical copilot",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["standalone"],
   "background_color": "#0c0c0c",
   "theme_color": "#161b22",
   "orientation": "any",

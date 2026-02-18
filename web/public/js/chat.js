@@ -53,7 +53,293 @@ function generateOutputPreview(output, maxLen = 80) {
 		: oneLine;
 }
 
-// Detect if a tool is an edit or write tool
+// ─── Semantic Tool Parser Infrastructure ───
+// Registry of native pi tools with argument/output parsers.
+// Each parser receives (parsedArgs, outputString) and returns structured data.
+
+function safeJsonParse(str) {
+	if (!str) return null;
+	try {
+		return typeof str === "string" ? JSON.parse(str) : str;
+	} catch {
+		return null;
+	}
+}
+
+function extractFilename(filePath) {
+	if (!filePath) return "";
+	return filePath.split("/").pop() || filePath;
+}
+
+function fileExtension(filePath) {
+	if (!filePath) return "";
+	const name = extractFilename(filePath);
+	const dot = name.lastIndexOf(".");
+	return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+const EXT_TO_LANG = {
+	ts: "typescript",
+	tsx: "typescript",
+	js: "javascript",
+	jsx: "javascript",
+	css: "css",
+	html: "html",
+	htm: "html",
+	md: "markdown",
+	json: "json",
+	py: "python",
+	sh: "bash",
+	bash: "bash",
+	zsh: "bash",
+	fish: "fish",
+	yml: "yaml",
+	yaml: "yaml",
+	toml: "toml",
+	rs: "rust",
+	go: "go",
+	rb: "ruby",
+	java: "java",
+	c: "c",
+	cpp: "cpp",
+	h: "c",
+	hpp: "cpp",
+	sql: "sql",
+	xml: "xml",
+	svg: "xml",
+	nix: "nix",
+};
+
+function langFromPath(filePath) {
+	return EXT_TO_LANG[fileExtension(filePath)] || "";
+}
+
+const TOOL_REGISTRY = {
+	edit(args, output) {
+		const a = safeJsonParse(args) || {};
+		const path = a.path || "";
+		const oldText = a.oldText || "";
+		const newText = a.newText || "";
+		const oldLines = oldText ? oldText.split("\n").length : 0;
+		const newLines = newText ? newText.split("\n").length : 0;
+		const success =
+			!output || /successfully/i.test(output) || /replaced/i.test(output);
+		return {
+			tool: "edit",
+			path,
+			filename: extractFilename(path),
+			lang: langFromPath(path),
+			hasOldNew: Boolean(oldText && newText),
+			oldText,
+			newText,
+			linesRemoved: oldLines,
+			linesAdded: newLines,
+			success,
+		};
+	},
+
+	write(args, output) {
+		const a = safeJsonParse(args) || {};
+		const path = a.path || "";
+		const success =
+			!output ||
+			/successfully/i.test(output) ||
+			/wrote/i.test(output) ||
+			/created/i.test(output);
+		return {
+			tool: "write",
+			path,
+			filename: extractFilename(path),
+			lang: langFromPath(path),
+			content: a.content || "",
+			success,
+		};
+	},
+
+	read(args, output) {
+		const a = safeJsonParse(args) || {};
+		const path = a.path || "";
+		const offset = a.offset != null ? Number(a.offset) : null;
+		const limit = a.limit != null ? Number(a.limit) : null;
+		const lines = output ? output.split("\n") : [];
+		return {
+			tool: "read",
+			path,
+			filename: extractFilename(path),
+			lang: langFromPath(path),
+			offset,
+			limit,
+			fileExtension: fileExtension(path),
+			content: output || "",
+			lineCount: lines.length,
+		};
+	},
+
+	bash(args, output) {
+		const a = safeJsonParse(args) || {};
+		const command = a.command || "";
+		const timeout = a.timeout != null ? Number(a.timeout) : null;
+		const lines = output ? output.split("\n") : [];
+		const isError =
+			/error|FAIL|fatal|panic|exception/i.test(output || "") &&
+			!/0 error/i.test(output || "");
+		return {
+			tool: "bash",
+			command,
+			timeout,
+			output: output || "",
+			lineCount: lines.length,
+			isError,
+		};
+	},
+
+	brain(args, output) {
+		const a = safeJsonParse(args) || {};
+		const action = a.action || "";
+		const type = a.type || null;
+		const id = a.id || null;
+		const parts = [action, type].filter(Boolean);
+		return {
+			tool: "brain",
+			action,
+			type,
+			id,
+			query: a.query || null,
+			filter: a.filter || null,
+			summary: parts.join(" ") || "brain",
+			rawOutput: output || "",
+		};
+	},
+
+	vault(args, output) {
+		const a = safeJsonParse(args) || {};
+		const action = a.action || "";
+		const slug = a.slug || null;
+		const query = a.query || null;
+		return {
+			tool: "vault",
+			action,
+			slug,
+			query,
+			type: a.type || null,
+			summary: query
+				? `${action}: "${clampString(query, 40)}"`
+				: action || "vault",
+			rawOutput: output || "",
+		};
+	},
+
+	vault_search(args, output) {
+		const a = safeJsonParse(args) || {};
+		const query = a.query || "";
+		return {
+			tool: "vault",
+			action: "search",
+			slug: null,
+			query,
+			type: a.type || null,
+			summary: query ? `search: "${clampString(query, 40)}"` : "search",
+			rawOutput: output || "",
+		};
+	},
+
+	email(args, output) {
+		const a = safeJsonParse(args) || {};
+		const action = a.action || "";
+		const to = a.to || null;
+		const subject = a.subject || null;
+		let summary = action;
+		if (action === "send" && to) {
+			summary = `send → ${to}`;
+		} else if (subject) {
+			summary = `${action}: ${clampString(subject, 40)}`;
+		}
+		return {
+			tool: "email",
+			action,
+			to,
+			subject,
+			body: a.body || null,
+			summary,
+			rawOutput: output || "",
+		};
+	},
+};
+
+// Aliases for alternate tool names
+TOOL_REGISTRY["multi-edit"] = TOOL_REGISTRY.edit;
+TOOL_REGISTRY.multi_edit = TOOL_REGISTRY.edit;
+TOOL_REGISTRY.str_replace_browser = TOOL_REGISTRY.edit;
+TOOL_REGISTRY.Read = TOOL_REGISTRY.read;
+TOOL_REGISTRY.Edit = TOOL_REGISTRY.edit;
+TOOL_REGISTRY.Write = TOOL_REGISTRY.write;
+TOOL_REGISTRY.Bash = TOOL_REGISTRY.bash;
+
+function parseToolSemantic(name, argsString, outputString) {
+	const parser = TOOL_REGISTRY[name];
+	if (!parser) return null;
+	try {
+		return parser(argsString, outputString);
+	} catch {
+		return null;
+	}
+}
+
+function semanticHeaderSummary(name, semantic) {
+	if (!semantic) return "";
+	switch (semantic.tool) {
+		case "edit":
+			return semantic.path || semantic.filename || name;
+		case "write":
+			return semantic.path || semantic.filename || name;
+		case "read": {
+			let s = semantic.path || semantic.filename || name;
+			if (semantic.offset != null) {
+				const end =
+					semantic.limit != null ? semantic.offset + semantic.limit - 1 : "";
+				s += `:${semantic.offset}${end ? `-${end}` : ""}`;
+			}
+			return s;
+		}
+		case "bash":
+			return semantic.command ? clampString(semantic.command, 80) : name;
+		case "brain":
+			return semantic.summary || name;
+		case "vault":
+			return semantic.summary || name;
+		case "email":
+			return semantic.summary || name;
+		default:
+			return "";
+	}
+}
+
+function semanticOutputSummary(_name, semantic, output) {
+	if (!semantic) return generateOutputPreview(output);
+	switch (semantic.tool) {
+		case "edit":
+			if (semantic.success && semantic.hasOldNew) {
+				return `+${semantic.linesAdded} | −${semantic.linesRemoved}`;
+			}
+			return semantic.success ? "✓ Applied" : generateOutputPreview(output);
+		case "write":
+			return semantic.success ? "✓ Written" : generateOutputPreview(output);
+		case "read":
+			return semantic.lineCount
+				? `${semantic.lineCount} lines`
+				: generateOutputPreview(output);
+		case "bash":
+			return generateOutputPreview(output);
+		case "brain":
+		case "vault":
+		case "email":
+			return generateOutputPreview(output);
+		default:
+			return generateOutputPreview(output);
+	}
+}
+
+// Legacy compat wrappers (used by existing diffInfo code path — will be removed when semantic views replace it)
 function isFileEditTool(toolName) {
 	if (!toolName) return false;
 	const name = toolName.toLowerCase();
@@ -66,12 +352,8 @@ function isFileEditTool(toolName) {
 	);
 }
 
-// Parse edit/write tool output to extract diff information
 function parseToolOutput(output, toolName) {
-	if (!output || !isFileEditTool(toolName)) {
-		return null;
-	}
-
+	if (!output || !isFileEditTool(toolName)) return null;
 	const result = {
 		hasDiff: false,
 		filePath: null,
@@ -79,50 +361,9 @@ function parseToolOutput(output, toolName) {
 		linesRemoved: 0,
 		diffLines: [],
 	};
-
-	// Try to extract file path from output
-	const fileMatch = output.match(
-		/[Ee]dited\s+(\d+)\s+lines?\s+(?:at|in|of)\s+[`"']?([^`"'\n]+)[`"']?/,
-	);
-	const writeMatch = output.match(
-		/[Ww]rote\s+(\d+)\s+bytes?\s+to\s+[`"']?([^`"'\n]+)[`"']?/,
-	);
-	const pathMatch = output.match(/([~\/]?[\w\-.\/]+\.[a-zA-Z0-9]+)/);
-
-	if (fileMatch) {
-		result.filePath = fileMatch[2];
-	} else if (writeMatch) {
-		result.filePath = writeMatch[2];
-	} else if (pathMatch) {
-		result.filePath = pathMatch[1];
-	}
-
-	// Try to extract line counts
-	const addedMatch = output.match(/(\d+)\s+lines?\s+added/);
-	const removedMatch = output.match(/(\d+)\s+lines?\s+removed/);
-	const diffMatch = output.match(/[+-]\d+/g);
-
-	if (addedMatch) result.linesAdded = parseInt(addedMatch[1], 10);
-	if (removedMatch) result.linesRemoved = parseInt(removedMatch[1], 10);
-
-	// Look for diff-like lines (+line, -line)
-	const diffLines = output
-		.split("\n")
-		.filter(
-			(line) =>
-				line.startsWith("+") || line.startsWith("-") || line.startsWith("@@"),
-		);
-
-	if (diffLines.length > 0) {
-		result.hasDiff = true;
-		result.diffLines = diffLines.slice(0, 50); // Limit to 50 lines
-	}
-
-	// If we found file path or diff, return the result
-	if (result.filePath || result.hasDiff) {
-		return result;
-	}
-
+	const pathMatch = output.match(/([~/]?[\w\-./]+\.[a-zA-Z0-9]+)/);
+	if (pathMatch) result.filePath = pathMatch[1];
+	if (result.filePath) return result;
 	return null;
 }
 
@@ -179,16 +420,22 @@ function normalizeToolCall(item) {
 	const argsText = typeof args === "string" ? args : safeString(args);
 	const outputText = typeof output === "string" ? output : safeString(output);
 
+	const semantic = parseToolSemantic(name, argsText, outputText);
+	const headerSummary = semanticHeaderSummary(name, semantic);
+	const outputSummary = semanticOutputSummary(name, semantic, outputText);
+
 	return {
 		type: "tool_call",
 		name,
 		toolCallId: item.id ?? item.tool_use_id ?? item.toolUseId ?? "",
 		args: argsText,
-		argsSummary: clampString(argsText.replace(/\s+/g, " ").trim(), 120),
+		argsSummary:
+			headerSummary || clampString(argsText.replace(/\s+/g, " ").trim(), 120),
 		output: outputText,
-		outputPreview: generateOutputPreview(outputText),
+		outputPreview: outputSummary || generateOutputPreview(outputText),
 		status: item.isError ? "error" : (item.status ?? "done"),
 		duration: item.duration ?? "",
+		semantic,
 	};
 }
 
@@ -494,9 +741,47 @@ function formatModel(model) {
 	return modelId || provider || safeString(model);
 }
 
+// Context window sizes (input tokens) for common models
+const MODEL_CONTEXT_WINDOWS = {
+	"claude-opus-4": 200000,
+	"claude-sonnet-4": 200000,
+	"claude-3.5-sonnet": 200000,
+	"claude-3-opus": 200000,
+	"claude-3-sonnet": 200000,
+	"claude-3-haiku": 200000,
+	"gpt-4o": 128000,
+	"gpt-4o-mini": 128000,
+	"gpt-4-turbo": 128000,
+	"gpt-4": 8192,
+	o1: 200000,
+	"o1-mini": 128000,
+	"o1-pro": 200000,
+	o3: 200000,
+	"o3-mini": 200000,
+	"o4-mini": 200000,
+	"gemini-2.5-pro": 1048576,
+	"gemini-2.5-flash": 1048576,
+	"gemini-2.0-flash": 1048576,
+	"deepseek-r1": 131072,
+	"deepseek-v3": 131072,
+};
+
+function guessContextWindow(modelStr) {
+	if (!modelStr) return null;
+	const lower = modelStr.toLowerCase();
+	for (const [key, size] of Object.entries(MODEL_CONTEXT_WINDOWS)) {
+		if (lower.includes(key)) return size;
+	}
+	// Fallback heuristics
+	if (lower.includes("claude")) return 200000;
+	if (lower.includes("gpt-4")) return 128000;
+	if (lower.includes("gemini")) return 1048576;
+	return null;
+}
+
 function formatUsage(usage, model) {
 	if (!usage && !model) {
-		return "";
+		return { desktop: "", mobile: "" };
 	}
 
 	const usageObj = usage ?? {};
@@ -527,22 +812,50 @@ function formatUsage(usage, model) {
 		usageObj.cost ??
 		null;
 
-	const parts = [];
+	// Compute context usage percentage
+	const contextWindow = guessContextWindow(model);
+	const contextTokens = input || totalTokens;
+	let pct = null;
+	if (contextWindow && contextTokens) {
+		pct = Math.round((contextTokens / contextWindow) * 100);
+	}
+
+	// Desktop: model, ctx %, tokens, cost, cache
+	const desktopParts = [];
 	if (model) {
-		parts.push(`model: ${model}`);
+		desktopParts.push(`model: ${model}`);
+	}
+	if (pct != null) {
+		desktopParts.push(`ctx: ${pct}%`);
 	}
 	if (totalTokens) {
-		parts.push(`tokens: ${totalTokens}`);
+		desktopParts.push(`tokens: ${totalTokens}`);
 	} else if (input || output) {
-		parts.push(`tokens: ${input}/${output}`);
-	}
-	if (cacheRead || cacheWrite) {
-		parts.push(`cache: ${cacheRead}/${cacheWrite}`);
+		desktopParts.push(`tokens: ${input}/${output}`);
 	}
 	if (cost != null && cost !== "" && Number.isFinite(Number(cost))) {
-		parts.push(`cost: $${Number(cost).toFixed(4)}`);
+		desktopParts.push(`cost: $${Number(cost).toFixed(4)}`);
 	}
-	return parts.join(" · ");
+	if (cacheRead || cacheWrite) {
+		desktopParts.push(`cache: ${cacheRead}/${cacheWrite}`);
+	}
+
+	// Mobile: model + percentage only
+	const mobileParts = [];
+	if (model) {
+		mobileParts.push(model);
+	}
+	if (pct != null) {
+		mobileParts.push(`${pct}% ctx`);
+	}
+	if (cost != null && cost !== "" && Number.isFinite(Number(cost))) {
+		mobileParts.push(`$${Number(cost).toFixed(4)}`);
+	}
+
+	return {
+		desktop: desktopParts.join(" · "),
+		mobile: mobileParts.join(" · "),
+	};
 }
 
 function formatTimestamp(value) {
@@ -609,18 +922,21 @@ function highlightCodeBlocks(root) {
 	});
 }
 
-function normalizeMessage(message) {
+function normalizeMessage(message, isLazy = false) {
 	const role = message.role ?? "assistant";
 	const parts = normalizeParts(message.content ?? message);
 
 	const normalizedParts = parts.map((part, index) => {
 		if (part.type === "text") {
 			const text = String(part.text ?? "");
+			const isHtml = role === "assistant";
 			return {
 				...part,
 				key: `${message.id}-text-${index}`,
-				render: role === "assistant" ? "html" : "text",
-				content: role === "assistant" ? renderMarkdown(text) : text,
+				render: isHtml ? "html" : "text",
+				rawContent: text,
+				content: isHtml && !isLazy ? renderMarkdown(text) : text,
+				isRendered: !isLazy,
 			};
 		}
 		if (part.type === "thinking") {
@@ -628,8 +944,10 @@ function normalizeMessage(message) {
 			return {
 				...part,
 				key: `${message.id}-thinking-${index}`,
-				content: renderMarkdown(thinkingText),
+				rawContent: thinkingText,
+				content: !isLazy ? renderMarkdown(thinkingText) : thinkingText,
 				preview: generateOutputPreview(thinkingText, 100),
+				isRendered: !isLazy,
 			};
 		}
 		if (part.type === "tool_call") {
@@ -641,17 +959,30 @@ function normalizeMessage(message) {
 					: safeString(part.output ?? "");
 			const toolName = part.name ?? "";
 			const parsedOutput = parseToolOutput(output, toolName);
+			const semantic =
+				part.semantic ?? parseToolSemantic(toolName, args, output);
+			const headerSummary = semanticHeaderSummary(toolName, semantic);
+			const outputSummaryText = semanticOutputSummary(
+				toolName,
+				semantic,
+				output,
+			);
 			return {
 				...part,
 				key: `${message.id}-tool-${index}`,
 				args,
-				argsSummary: part.argsSummary ?? clampString(args, 120),
+				argsSummary:
+					headerSummary || part.argsSummary || clampString(args, 120),
 				output,
-				outputPreview: part.outputPreview ?? generateOutputPreview(output),
+				outputPreview:
+					outputSummaryText ||
+					part.outputPreview ||
+					generateOutputPreview(output),
 				status: part.status ?? "done",
 				duration: part.duration ?? "",
 				isFileEdit: isFileEditTool(toolName),
 				diffInfo: parsedOutput,
+				semantic,
 			};
 		}
 		if (part.type === "bash") {
@@ -690,10 +1021,10 @@ function normalizeMessage(message) {
 		roleLabel: role === "assistant" ? "assistant" : role,
 		timestamp: formatTimestamp(message.timestamp ?? ""),
 		parts: normalizedParts,
-		usageLine:
+		usageData:
 			role === "assistant"
 				? formatUsage(message.usage, formatModel(message.model))
-				: "",
+				: { desktop: "", mobile: "" },
 		canFork: role === "user",
 	};
 }
@@ -836,8 +1167,10 @@ document.addEventListener("alpine:init", () => {
 		// Sessions panel state (slide-out overlay, hidden by default)
 		showSessionsPanel: false,
 
-		// Queued prompt: message typed during streaming, auto-sent on agent_end
-		queuedPrompt: null,
+		// Queued prompts: messages typed during streaming, auto-sent in order on agent_end
+		// Each item: { id, text, images: [{ data, mimeType, dataUrl }] }
+		promptQueue: [],
+		showQueue: true,
 
 		toggleTheme() {
 			this.theme = this.theme === "light" ? "dark" : "light";
@@ -937,6 +1270,61 @@ document.addEventListener("alpine:init", () => {
 					onRefresh: () => {
 						window.location.reload();
 					},
+				});
+			});
+		},
+
+		// Lazy markdown rendering via IntersectionObserver
+		setupLazyRendering() {
+			this.$nextTick(() => {
+				const thread = this.$refs.thread;
+				if (!thread) return;
+
+				// Guard against double-init
+				if (this._lazyObserver) {
+					this._lazyObserver.disconnect();
+				}
+
+				this._lazyObserver = new IntersectionObserver(
+					(entries) => {
+						entries.forEach((entry) => {
+							if (!entry.isIntersecting) return;
+							const msgEl = entry.target;
+							const msgId = msgEl.dataset.messageId;
+							if (!msgId) return;
+
+							// Find and render the message
+							const msg = this.renderedMessages.find((m) => m.id === msgId);
+							if (!msg || !msg.parts) return;
+
+							let modified = false;
+							msg.parts.forEach((part) => {
+								if (part.isRendered) return;
+								if (part.type === "text" || part.type === "thinking") {
+									part.content = renderMarkdown(
+										part.rawContent || part.content,
+									);
+									part.isRendered = true;
+									modified = true;
+								}
+							});
+
+							if (modified) {
+								this.$nextTick(() => {
+									highlightCodeBlocks(msgEl);
+								});
+							}
+
+							// Stop observing once rendered
+							this._lazyObserver?.unobserve(msgEl);
+						});
+					},
+					{ rootMargin: "200px" }, // Pre-render 200px before visible
+				);
+
+				// Observe all message elements
+				thread.querySelectorAll("[data-message-id]").forEach((el) => {
+					this._lazyObserver?.observe(el);
 				});
 			});
 		},
@@ -1312,11 +1700,11 @@ document.addEventListener("alpine:init", () => {
 				this.updateFooter();
 				// Refresh stats after agent completes
 				this.requestSessionStats();
-				// Auto-send any message queued during streaming
-				if (this.queuedPrompt) {
-					const queued = this.queuedPrompt;
-					this.queuedPrompt = null;
-					this.promptText = queued;
+				// Auto-send next queued message
+				if (this.promptQueue.length > 0) {
+					const next = this.promptQueue.shift();
+					this.promptText = next.text;
+					this.pendingImages = next.images || [];
 					this.$nextTick(() => this.sendPrompt());
 				}
 				return;
@@ -1470,6 +1858,52 @@ document.addEventListener("alpine:init", () => {
 
 			const role = String(rawMessage.role ?? "");
 			if (role === "assistant") {
+				return;
+			}
+
+			// Merge toolResult into the last assistant message's tool_call parts
+			// instead of displaying as a standalone message
+			if (role === "toolResult" || role === "tool_result" || role === "tool") {
+				const resultOutput = extractToolOutput(rawMessage);
+				const toolCallId =
+					rawMessage.toolCallId ?? rawMessage.tool_use_id ?? "";
+				if (resultOutput) {
+					// Find last assistant message and merge into matching tool_call
+					for (let j = this.renderedMessages.length - 1; j >= 0; j--) {
+						const msg = this.renderedMessages[j];
+						if (msg.role !== "assistant") continue;
+						// Match by toolCallId or first tool_call without output
+						const part =
+							msg.parts.find(
+								(p) =>
+									p.type === "tool_call" &&
+									!p.output &&
+									(toolCallId ? p.toolCallId === toolCallId : true),
+							) ?? msg.parts.find((p) => p.type === "tool_call" && !p.output);
+						if (part) {
+							part.output = resultOutput;
+							part.outputPreview = generateOutputPreview(resultOutput);
+							part.status = rawMessage.isError ? "error" : "done";
+							const semantic = parseToolSemantic(
+								part.name,
+								part.args,
+								resultOutput,
+							);
+							if (semantic) {
+								part.semantic = semantic;
+								const hs = semanticHeaderSummary(part.name, semantic);
+								if (hs) part.argsSummary = hs;
+								const os = semanticOutputSummary(
+									part.name,
+									semantic,
+									resultOutput,
+								);
+								if (os) part.outputPreview = os;
+							}
+						}
+						break;
+					}
+				}
 				return;
 			}
 
@@ -1831,6 +2265,22 @@ document.addEventListener("alpine:init", () => {
 			part.output = output;
 			part.outputPreview = generateOutputPreview(output);
 
+			// Compute semantic view now that we have output
+			const argsText = part.args ?? "";
+			const toolName = part.name ?? "";
+			const semantic = parseToolSemantic(toolName, argsText, output);
+			if (semantic) {
+				part.semantic = semantic;
+				const headerSummary = semanticHeaderSummary(toolName, semantic);
+				if (headerSummary) {
+					part.argsSummary = headerSummary;
+				}
+				const outputSummary = semanticOutputSummary(toolName, semantic, output);
+				if (outputSummary) {
+					part.outputPreview = outputSummary;
+				}
+			}
+
 			// Calculate duration
 			if (part.startTime) {
 				const elapsed = Date.now() - part.startTime;
@@ -1856,11 +2306,51 @@ document.addEventListener("alpine:init", () => {
 					timestamp: toIsoTimestamp(message?.timestamp),
 				});
 
+				// Carry over tool outputs, durations, and semantic data from
+				// streaming parts — the server's final message doesn't include
+				// tool results (those arrive as separate toolResult messages).
 				const idx = this.renderedMessages.findIndex(
 					(item) =>
 						item.id === finalMessage.id || item.id === this.streamMessageId,
 				);
 				if (idx >= 0) {
+					const streamMsg = this.renderedMessages[idx];
+					const streamToolParts = (streamMsg.parts ?? []).filter(
+						(p) => p.type === "tool_call" && p.output,
+					);
+					for (const streamPart of streamToolParts) {
+						// Match by toolCallId or by name+position
+						const finalPart = finalMessage.parts.find(
+							(p) =>
+								p.type === "tool_call" &&
+								!p.output &&
+								((p.toolCallId && p.toolCallId === streamPart.toolCallId) ||
+									p.name === streamPart.name),
+						);
+						if (finalPart) {
+							finalPart.output = streamPart.output;
+							finalPart.outputPreview = streamPart.outputPreview;
+							finalPart.duration = streamPart.duration || finalPart.duration;
+							finalPart.status = streamPart.status || finalPart.status;
+							// Recompute semantic with the actual output
+							const semantic = parseToolSemantic(
+								finalPart.name,
+								finalPart.args,
+								finalPart.output,
+							);
+							if (semantic) {
+								finalPart.semantic = semantic;
+								const hs = semanticHeaderSummary(finalPart.name, semantic);
+								if (hs) finalPart.argsSummary = hs;
+								const os = semanticOutputSummary(
+									finalPart.name,
+									semantic,
+									finalPart.output,
+								);
+								if (os) finalPart.outputPreview = os;
+							}
+						}
+					}
 					this.renderedMessages[idx] = finalMessage;
 				} else {
 					this.renderedMessages.push(finalMessage);
@@ -1898,7 +2388,7 @@ document.addEventListener("alpine:init", () => {
 									summary: text,
 								},
 				],
-				usageLine: "",
+				usageData: { desktop: "", mobile: "" },
 				canFork: false,
 			};
 
@@ -2091,7 +2581,7 @@ document.addEventListener("alpine:init", () => {
 			this.error = "";
 			this.isLoadingSession = false;
 			this.userScrolledUp = false;
-			this.queuedPrompt = null;
+			this.promptQueue = [];
 			this.toolCallPartById.clear();
 
 			// Clear stale RPC
@@ -2216,36 +2706,38 @@ document.addEventListener("alpine:init", () => {
 
 			// Normalize messages, filter empty ones, and deduplicate by ID
 			const seenIds = new Set();
-			const allMessages = mergedMessages.map(normalizeMessage).filter((msg) => {
-				// Skip empty messages (no parts or all parts empty)
-				if (!msg.parts || msg.parts.length === 0) {
-					return false;
-				}
-				const hasContent = msg.parts.some((p) => {
-					if (p.type === "text") return Boolean(p.content);
-					if (p.type === "thinking") return Boolean(p.content);
-					if (p.type === "tool_call") return Boolean(p.name || p.args);
-					if (p.type === "tool_result") return Boolean(p.output);
-					if (p.type === "bash") return Boolean(p.command || p.output);
-					if (p.type === "error") return Boolean(p.text);
-					if (
-						p.type === "compaction" ||
-						p.type === "summary" ||
-						p.type === "retry"
-					)
-						return Boolean(p.summary);
-					return true; // Unknown part types pass through
+			const allMessages = mergedMessages
+				.map((msg) => normalizeMessage(msg, true))
+				.filter((msg) => {
+					// Skip empty messages (no parts or all parts empty)
+					if (!msg.parts || msg.parts.length === 0) {
+						return false;
+					}
+					const hasContent = msg.parts.some((p) => {
+						if (p.type === "text") return Boolean(p.content);
+						if (p.type === "thinking") return Boolean(p.content);
+						if (p.type === "tool_call") return Boolean(p.name || p.args);
+						if (p.type === "tool_result") return Boolean(p.output);
+						if (p.type === "bash") return Boolean(p.command || p.output);
+						if (p.type === "error") return Boolean(p.text);
+						if (
+							p.type === "compaction" ||
+							p.type === "summary" ||
+							p.type === "retry"
+						)
+							return Boolean(p.summary);
+						return true; // Unknown part types pass through
+					});
+					if (!hasContent) {
+						return false;
+					}
+					// Deduplicate by ID
+					if (seenIds.has(msg.id)) {
+						return false;
+					}
+					seenIds.add(msg.id);
+					return true;
 				});
-				if (!hasContent) {
-					return false;
-				}
-				// Deduplicate by ID
-				if (seenIds.has(msg.id)) {
-					return false;
-				}
-				seenIds.add(msg.id);
-				return true;
-			});
 
 			// Cap to last ~100 messages, track if there are more
 			const MESSAGE_CAP = 100;
@@ -2257,6 +2749,7 @@ document.addEventListener("alpine:init", () => {
 			this.$nextTick(() => {
 				highlightCodeBlocks(this.$refs.thread);
 				this.scrollThreadToBottom();
+				this.setupLazyRendering();
 			});
 		},
 
@@ -2351,6 +2844,11 @@ document.addEventListener("alpine:init", () => {
 
 			// Update hasEarlierMessages flag
 			this.hasEarlierMessages = start > 0;
+
+			// Set up lazy rendering for newly added messages
+			this.$nextTick(() => {
+				this.setupLazyRendering();
+			});
 		},
 
 		latestForkPointId() {
@@ -2926,30 +3424,56 @@ document.addEventListener("alpine:init", () => {
 			// immediately. The agent_end event will arrive later to confirm.
 			this.isStreaming = false;
 			this.isSendingPrompt = false;
-			this.queuedPrompt = null;
+			this.promptQueue = [];
 			this.updateFooter();
 		},
 
-		sendFollowUp() {
-			const message = this.promptText.trim();
-			if (!message || !this.activeRpcSessionId || !this.isStreaming) {
-				return;
+		// ─── Queue management ───
+
+		removeQueueItem(id) {
+			this.promptQueue = this.promptQueue.filter((item) => item.id !== id);
+		},
+
+		updateQueueItemText(id, text) {
+			const item = this.promptQueue.find((item) => item.id === id);
+			if (item) item.text = text;
+		},
+
+		addQueueItemImage(id, event) {
+			const item = this.promptQueue.find((item) => item.id === id);
+			if (!item) return;
+			const files = event.target?.files;
+			if (!files) return;
+			for (const file of files) {
+				if (!file.type.startsWith("image/")) continue;
+				const reader = new FileReader();
+				reader.onload = (e) => {
+					const dataUrl = e.target.result;
+					const base64 = dataUrl.split(",")[1];
+					item.images.push({
+						data: base64,
+						mimeType: file.type,
+						dataUrl,
+					});
+				};
+				reader.readAsDataURL(file);
 			}
+			// Reset file input so same file can be re-selected
+			event.target.value = "";
+		},
 
-			this.error = "";
-			this.promptText = "";
-			this.pendingSlashClassification = null;
+		removeQueueItemImage(id, imageIndex) {
+			const item = this.promptQueue.find((item) => item.id === id);
+			if (item) item.images.splice(imageIndex, 1);
+		},
 
-			this.sendWs({
-				type: "rpc_command",
-				sessionId: this.activeRpcSessionId,
-				command: {
-					type: "follow_up",
-					message,
-				},
-			});
-
-			this.focusComposer();
+		mergeQueueItemDown(idx) {
+			if (idx >= this.promptQueue.length - 1) return;
+			const current = this.promptQueue[idx];
+			const next = this.promptQueue[idx + 1];
+			current.text = [current.text, next.text].filter(Boolean).join("\n");
+			current.images = [...current.images, ...next.images];
+			this.promptQueue.splice(idx + 1, 1);
 		},
 
 		handlePromptSubmit() {
@@ -2978,11 +3502,18 @@ document.addEventListener("alpine:init", () => {
 			}
 
 			if (this.isStreaming) {
-				// During streaming, queue the message — it will auto-send when agent finishes.
-				// This avoids the race where a steer is sent but the agent already completed,
-				// silently discarding the user's message.
-				this.queuedPrompt = this.promptText.trim();
+				// During streaming, queue the message with any pending images
+				const text = this.promptText.trim();
+				const images =
+					this.pendingImages.length > 0 ? [...this.pendingImages] : [];
+				this.promptQueue.push({
+					id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+					text,
+					images,
+				});
 				this.promptText = "";
+				this.pendingImages = [];
+				this.showQueue = true;
 				this.focusComposer();
 			} else {
 				// Normal prompt submission
@@ -3040,8 +3571,8 @@ document.addEventListener("alpine:init", () => {
 				return "Fork a session to start chatting...";
 			}
 			if (this.isStreaming) {
-				return this.queuedPrompt
-					? "Message queued — will send when done"
+				return this.promptQueue.length > 0
+					? `${this.promptQueue.length} queued — type another or wait`
 					: "Type a message (queued until done)...";
 			}
 			return "Type a prompt...";
@@ -3049,7 +3580,9 @@ document.addEventListener("alpine:init", () => {
 
 		submitButtonLabel() {
 			if (this.isStreaming) {
-				return this.queuedPrompt ? "Queued" : "Queue";
+				return this.promptQueue.length > 0
+					? `Queue (${this.promptQueue.length})`
+					: "Queue";
 			}
 			return "Send";
 		},
