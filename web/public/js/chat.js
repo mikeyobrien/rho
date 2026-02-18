@@ -848,6 +848,7 @@ document.addEventListener("alpine:init", () => {
 		// Auto-scroll state
 		userScrolledUp: false,
 		_programmaticScrollUntil: 0,
+		_prevScrollTop: 0,
 
 		// Image attachments
 		pendingImages: [],
@@ -1046,10 +1047,29 @@ document.addEventListener("alpine:init", () => {
 		handleThreadScroll() {
 			const el = this.$refs.thread;
 			if (!el) return;
-			// Ignore scroll events triggered by programmatic scrolling (150ms window)
+
+			// Always track position, even during programmatic scrolls
+			const prevTop = this._prevScrollTop;
+			this._prevScrollTop = el.scrollTop;
+
+			// Ignore events from our own programmatic scrolling
 			if (Date.now() < this._programmaticScrollUntil) return;
-			this.userScrolledUp =
-				el.scrollTop + el.clientHeight < el.scrollHeight - 50;
+
+			const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+
+			// Near the bottom → re-enable auto-scroll (also lets users
+			// scroll back down to resume without clicking "New messages")
+			if (distFromBottom <= 80) {
+				this.userScrolledUp = false;
+				return;
+			}
+
+			// Only mark scrolled-up when the user actively scrolled upward
+			// by a meaningful amount (ignores content growing below and
+			// tiny accidental trackpad impulses)
+			if (prevTop !== undefined && el.scrollTop < prevTop - 10) {
+				this.userScrolledUp = true;
+			}
 		},
 
 		connectWebSocket() {
@@ -1858,10 +1878,14 @@ document.addEventListener("alpine:init", () => {
 
 		scrollThreadToBottom() {
 			if (this.userScrolledUp) return;
+			// Set guard IMMEDIATELY so scroll events fired during Alpine's
+			// DOM rerender (before the rAF) are ignored
+			this._programmaticScrollUntil = Date.now() + 300;
 			this.$nextTick(() => {
 				requestAnimationFrame(() => {
 					const thread = this.$refs.thread;
 					if (!thread) return;
+					// Refresh guard for the actual scroll operation
 					this._programmaticScrollUntil = Date.now() + 150;
 					thread.scrollTop = thread.scrollHeight;
 				});
