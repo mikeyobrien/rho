@@ -643,6 +643,11 @@ document.addEventListener("alpine:init", () => {
     slashCommandsLoading: false,
     slashCommandsLoaded: false,
     pendingSlashClassification: null,
+
+    // Slash autocomplete state
+    slashAcVisible: false,
+    slashAcItems: [],
+    slashAcIndex: 0,
     streamMessageId: "",
     markdownRenderQueue: new Map(),
     markdownFrame: null,
@@ -692,6 +697,8 @@ document.addEventListener("alpine:init", () => {
 
     // Image attachments
     pendingImages: [],
+    isDraggingOver: false,
+    dragLeaveTimeout: null,
 
     // Chat controls state
     availableModels: [],
@@ -768,6 +775,10 @@ document.addEventListener("alpine:init", () => {
     },
 
     handleComposerKeydown(e) {
+      // Slash autocomplete intercepts first
+      if (this.handleSlashAcKeydown(e)) {
+        return;
+      }
       // Enter to send (without shift)
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -779,6 +790,7 @@ document.addEventListener("alpine:init", () => {
       const el = event.target;
       el.style.height = 'auto';
       el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      this.updateSlashAutocomplete();
     },
 
     handleComposerPaste(event) {
@@ -790,6 +802,52 @@ document.addEventListener("alpine:init", () => {
           const file = item.getAsFile();
           if (file) this.addImageFile(file);
         }
+      }
+    },
+
+    handleDragOver(event) {
+      // Only show drop zone if dragging files that include images
+      if (!event.dataTransfer?.types?.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      if (this.dragLeaveTimeout) {
+        clearTimeout(this.dragLeaveTimeout);
+        this.dragLeaveTimeout = null;
+      }
+      this.isDraggingOver = true;
+    },
+
+    handleDragLeave(event) {
+      event.preventDefault();
+      // Debounce drag leave to avoid flicker when moving between child elements
+      if (this.dragLeaveTimeout) clearTimeout(this.dragLeaveTimeout);
+      this.dragLeaveTimeout = setTimeout(() => {
+        this.isDraggingOver = false;
+        this.dragLeaveTimeout = null;
+      }, 100);
+    },
+
+    handleDrop(event) {
+      event.preventDefault();
+      this.isDraggingOver = false;
+      if (this.dragLeaveTimeout) {
+        clearTimeout(this.dragLeaveTimeout);
+        this.dragLeaveTimeout = null;
+      }
+      const files = event.dataTransfer?.files;
+      if (!files) return;
+      let addedAny = false;
+      for (const file of files) {
+        if (file.type.startsWith("image/")) {
+          this.addImageFile(file);
+          addedAny = true;
+        }
+      }
+      // Focus the composer after dropping images
+      if (addedAny) {
+        this.$nextTick(() => {
+          this.$refs.composerInput?.focus();
+        });
       }
     },
 
@@ -1673,6 +1731,7 @@ document.addEventListener("alpine:init", () => {
       this.slashCommandsLoaded = false;
       this.slashCommandsLoading = false;
       this.pendingSlashClassification = null;
+      this.closeSlashAutocomplete();
     },
 
     clearSelectedSession() {
@@ -1682,6 +1741,7 @@ document.addEventListener("alpine:init", () => {
       this.streamMessageId = "";
       this.error = "";
       this.isLoadingSession = false;
+      this.userScrolledUp = false;
       this.toolCallPartById.clear();
 
       // Clear stale RPC + exit fullscreen
@@ -1710,6 +1770,7 @@ document.addEventListener("alpine:init", () => {
       this.isLoadingSession = true;
       this.error = "";
       this.streamMessageId = "";
+      this.userScrolledUp = false;
       this.toolCallPartById.clear();
 
       // Clear stale RPC when switching sessions
@@ -1940,11 +2001,9 @@ document.addEventListener("alpine:init", () => {
         this.startRpcSession(forkResult.sessionFile);
         this.enterMaximized();
 
-        // Auto-scroll to bottom after fork
-        this.$nextTick(() => {
-          const thread = this.$refs.chatThread;
-          if (thread) thread.scrollTop = thread.scrollHeight;
-        });
+        // Reset scroll state and auto-scroll to bottom after fork
+        this.userScrolledUp = false;
+        this.scrollThreadToBottom();
       } catch (error) {
         this.error = error.message ?? "Failed to fork session";
         this.isForking = false;
@@ -1978,7 +2037,9 @@ document.addEventListener("alpine:init", () => {
       this.isSendingPrompt = true;
       this.promptText = "";
       this.streamMessageId = "";
+      this.userScrolledUp = false;
       this.pendingSlashClassification = slashClassification;
+      this.closeSlashAutocomplete();
 
       // Capture and clear pending images
       const images = hasImages
@@ -2053,6 +2114,142 @@ document.addEventListener("alpine:init", () => {
     },
 
     // Chat controls methods
+
+    // --- Slash autocomplete ---
+
+    updateSlashAutocomplete() {
+      const text = this.promptText;
+
+      // Only trigger when text starts with "/" and is on a single line
+      if (!text.startsWith("/") || text.startsWith("//") || text.includes("\n")) {
+        this.closeSlashAutocomplete();
+        return;
+      }
+
+      if (!this.slashCommandsLoaded) {
+        this.requestSlashCommands();
+        this.closeSlashAutocomplete();
+        return;
+      }
+
+      const query = text.slice(1).toLowerCase();
+      const MAX_ITEMS = 15;
+
+      const filtered = this.slashCommands
+        .filter((cmd) => cmd.name.toLowerCase().includes(query))
+        .slice(0, MAX_ITEMS);
+
+      if (filtered.length === 0) {
+        this.slashAcItems = [];
+        this.slashAcVisible = query.length > 0 ? true : (this.slashCommands.length > 0);
+        this.slashAcIndex = -1;
+        if (!this.slashAcVisible) this.closeSlashAutocomplete();
+        return;
+      }
+
+      this.slashAcItems = filtered;
+      this.slashAcVisible = true;
+
+      // Clamp index to new bounds
+      if (this.slashAcIndex >= filtered.length) {
+        this.slashAcIndex = 0;
+      }
+      if (this.slashAcIndex < 0) {
+        this.slashAcIndex = 0;
+      }
+
+      // Scroll active item into view
+      this.$nextTick(() => {
+        const dropdown = this.$refs.slashAcDropdown;
+        if (!dropdown) return;
+        const active = dropdown.querySelector(".slash-ac-item.active");
+        if (active) {
+          active.scrollIntoView({ block: "nearest" });
+        }
+      });
+    },
+
+    closeSlashAutocomplete() {
+      this.slashAcVisible = false;
+      this.slashAcItems = [];
+      this.slashAcIndex = 0;
+    },
+
+    selectSlashCommand(item) {
+      if (!item) return;
+      this.promptText = `/${item.name} `;
+      this.closeSlashAutocomplete();
+      this.$nextTick(() => {
+        const input = this.$refs.composerInput;
+        if (input) {
+          input.focus();
+          // Move cursor to end
+          input.selectionStart = input.selectionEnd = input.value.length;
+          // Reset textarea height
+          input.style.height = "auto";
+          input.style.height = Math.min(input.scrollHeight, 200) + "px";
+        }
+      });
+    },
+
+    handleSlashAcKeydown(e) {
+      if (!this.slashAcVisible) return false;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (this.slashAcItems.length > 0) {
+          this.slashAcIndex = (this.slashAcIndex + 1) % this.slashAcItems.length;
+          this.$nextTick(() => {
+            const dropdown = this.$refs.slashAcDropdown;
+            if (!dropdown) return;
+            const active = dropdown.querySelector(".slash-ac-item.active");
+            if (active) active.scrollIntoView({ block: "nearest" });
+          });
+        }
+        return true;
+      }
+
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (this.slashAcItems.length > 0) {
+          this.slashAcIndex = (this.slashAcIndex - 1 + this.slashAcItems.length) % this.slashAcItems.length;
+          this.$nextTick(() => {
+            const dropdown = this.$refs.slashAcDropdown;
+            if (!dropdown) return;
+            const active = dropdown.querySelector(".slash-ac-item.active");
+            if (active) active.scrollIntoView({ block: "nearest" });
+          });
+        }
+        return true;
+      }
+
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (this.slashAcItems.length > 0 && this.slashAcIndex >= 0) {
+          this.selectSlashCommand(this.slashAcItems[this.slashAcIndex]);
+        }
+        return true;
+      }
+
+      if (e.key === "Enter" && !e.shiftKey) {
+        if (this.slashAcItems.length > 0 && this.slashAcIndex >= 0) {
+          e.preventDefault();
+          this.selectSlashCommand(this.slashAcItems[this.slashAcIndex]);
+          return true;
+        }
+        // No items or no selection — let normal Enter/submit flow through
+        this.closeSlashAutocomplete();
+        return false;
+      }
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        this.closeSlashAutocomplete();
+        return true;
+      }
+
+      return false;
+    },
 
     requestSlashCommands(force = false) {
       if (!this.activeRpcSessionId) {

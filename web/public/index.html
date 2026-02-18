@@ -144,7 +144,16 @@
                 </div>
               </aside>
 
-              <section class="chat-thread">
+              <section class="chat-thread"
+                @dragover.prevent="handleDragOver($event)"
+                @dragleave="handleDragLeave($event)"
+                @drop.prevent="handleDrop($event)"
+              >
+                <!-- Drop zone overlay -->
+                <div class="chat-drop-overlay" x-show="isDraggingOver" x-cloak x-transition.opacity>
+                  <div class="chat-drop-label">📎 Drop image to attach</div>
+                </div>
+
                 <!-- Maximized top bar (only visible in fullscreen) -->
                 <div class="maximized-bar" x-show="chatMaximized" x-transition.opacity>
                   <div class="maximized-bar-info">
@@ -304,6 +313,19 @@
                   </template>
                 </div>
 
+                <!-- Scroll to bottom button -->
+                <button
+                  class="chat-scroll-bottom"
+                  type="button"
+                  x-show="userScrolledUp"
+                  x-cloak
+                  x-transition.opacity
+                  @click="userScrolledUp = false; scrollThreadToBottom()"
+                  title="Scroll to bottom"
+                >
+                  ↓ New messages
+                </button>
+
                 <div class="chat-controls" x-show="isForkActive()">
                   <div class="chat-controls-left">
                     <div class="chat-control-group">
@@ -361,6 +383,26 @@
                       </div>
                     </template>
                   </div>
+                  <div class="slash-ac">
+                    <!-- Slash command autocomplete dropdown -->
+                    <div class="slash-ac-dropdown"
+                         x-ref="slashAcDropdown"
+                         x-show="slashAcVisible"
+                         x-cloak
+                         @mousedown.prevent>
+                      <template x-for="(item, idx) in slashAcItems" :key="item.name">
+                        <div class="slash-ac-item"
+                             :class="{ active: idx === slashAcIndex }"
+                             @click="selectSlashCommand(item)"
+                             @mouseenter="slashAcIndex = idx">
+                          <span class="slash-ac-name" x-text="'/' + item.name"></span>
+                          <span class="slash-ac-badge" x-text="item.source"></span>
+                          <span class="slash-ac-desc" x-text="item.description"></span>
+                        </div>
+                      </template>
+                      <div class="slash-ac-empty" x-show="slashAcItems.length === 0">No matching commands</div>
+                    </div>
+                  </div>
                   <div class="chat-composer-row">
                     <textarea
                       class="chat-composer-input"
@@ -407,7 +449,7 @@
                     </div>
                   </div>
                   <div class="chat-composer-hints" x-show="isForkActive()">
-                    Enter to send · Shift+Enter for newline · Paste or 📎 to attach images
+                    Enter to send · Shift+Enter for newline · Paste, drag, or 📎 to attach images
                   </div>
                 </form>
 
