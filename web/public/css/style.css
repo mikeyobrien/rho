@@ -1810,8 +1810,20 @@ body.theme-light .chat-text blockquote {
 		display: none;
 	}
 
-	/* Task 4: Hide footer on mobile — dev metrics aren't useful on a phone */
+	/* Compact footer on mobile — show status, hide verbose metrics */
 	.footer {
+		min-height: 1.6rem;
+		font-size: 0.6rem;
+		padding: 0 0.5rem;
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+
+	.footer-inner {
+		gap: 0.75rem;
+	}
+
+	.footer-tokens,
+	.footer-cost {
 		display: none;
 	}
 
