@@ -573,7 +573,7 @@ button { font: inherit; }
   align-self: flex-end;
   background: rgba(34, 197, 94, 0.08);
   border-color: rgba(34, 197, 94, 0.25);
-  max-width: 75%;
+  width: 75%;
   text-align: right;
 }
 
@@ -1210,7 +1210,7 @@ button { font: inherit; }
   }
 
   .chat-message.user {
-    max-width: 88%;
+    width: 88%;
   }
 }
 
