@@ -114,6 +114,10 @@ button { font: inherit; }
 [x-cloak] { display: none !important; }
 
 .app {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow-x: hidden;
 }
 
@@ -2853,13 +2857,14 @@ body.chat-maximized .view {
 }
 
 body.chat-maximized .chat-layout {
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
 }
 
 body.chat-maximized .chat-thread {
   border: none;
-  height: 100vh;
-  max-height: 100vh;
+  flex: 1;
+  min-height: 0;
   padding: 0.5rem;
   padding-top: 0;
 }
