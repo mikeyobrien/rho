@@ -212,7 +212,10 @@
                   <template x-for="message in renderedMessages" :key="message.id">
                     <article class="chat-message" :class="message.role">
                       <div class="chat-message-meta">
-                        <span class="chat-message-role" x-text="message.roleLabel"></span>
+                        <div class="chat-message-meta-left">
+                          <span class="chat-message-role" x-text="message.roleLabel"></span>
+                          <span class="chat-message-time" x-text="message.timestamp"></span>
+                        </div>
                         <div class="chat-message-meta-right">
                           <button
                             class="chat-fork-button"
@@ -223,7 +226,6 @@
                           >
                             Fork from here
                           </button>
-                          <span class="chat-message-time" x-text="message.timestamp"></span>
                         </div>
                       </div>
                       <div class="chat-message-body">

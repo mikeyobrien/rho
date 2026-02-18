@@ -606,6 +606,7 @@ button { font: inherit; }
 .chat-message-meta {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.65rem;
   text-transform: uppercase;
@@ -616,6 +617,24 @@ button { font: inherit; }
 
 .chat-message.user .chat-message-meta {
   flex-direction: row-reverse;
+}
+
+.chat-message-meta-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.chat-message-time {
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  opacity: 0.7;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.chat-message.user .chat-message-meta-left {
+  align-items: flex-end;
 }
 
 .chat-message-meta-right {
