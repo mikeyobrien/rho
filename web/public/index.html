@@ -183,7 +183,7 @@
                     <div class="chat-thread-meta" x-show="activeSession" x-text="threadMetaLabel(activeSession)"></div>
                   </div>
                   <div class="chat-thread-status">
-                    <span class="chat-readonly-badge" x-show="!isForkActive() && activeSession">READ-ONLY</span>
+                    <span class="chat-readonly-badge" x-show="!isInteractiveSession() && activeSession">READ-ONLY</span>
                   </div>
                   <div class="chat-thread-actions">
                     <button
@@ -210,7 +210,7 @@
                     <span>Loading session...</span>
                   </div>
                   <div class="chat-empty" x-show="!isLoadingSession && activeSession && !hasMessages()">
-                    <span x-text="isForkActive() ? 'Type a message below to start chatting.' : 'No messages yet. Fork this session to start chatting.'"></span>
+                    <span x-text="isInteractiveSession() ? 'No messages yet. Type a message below to start chatting.' : 'No messages yet. Fork this session to start chatting.'"></span>
                   </div>
                   <div class="chat-empty" x-show="!activeSession && !isLoadingSession">
                     <span>Select a session from the sidebar to view messages.</span>
@@ -518,7 +518,7 @@
                   <button class="chat-widget-close" type="button" @click="extensionWidget = null">&times;</button>
                 </div>
 
-                <form class="chat-composer" :class="{ streaming: isStreaming }" @submit.prevent="handlePromptSubmit()" x-show="isForkActive()">
+                <form class="chat-composer" :class="{ streaming: isStreaming }" @submit.prevent="handlePromptSubmit()" x-show="isInteractiveSession()">
                   <!-- Image attachments preview -->
                   <div class="chat-composer-attachments" x-show="pendingImages.length > 0">
                     <template x-for="(img, idx) in pendingImages" :key="idx">
@@ -667,7 +667,7 @@
                       </div>
                     </div>
                   </div>
-                  <div class="chat-composer-hints" x-show="isForkActive()">
+                  <div class="chat-composer-hints" x-show="isInteractiveSession()">
                     Enter to send · Shift+Enter for newline · Paste, drag, or use Attach for images
                   </div>
                 </form>

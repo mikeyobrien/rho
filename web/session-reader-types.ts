@@ -41,6 +41,7 @@ export interface ForkPoint {
 
 export interface ParsedSession {
 	header: SessionHeader;
+	file?: string;
 	messages: ParsedMessage[];
 	forkPoints: ForkPoint[];
 	stats: { messageCount: number; tokenUsage: number; cost: number };

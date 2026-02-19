@@ -284,8 +284,11 @@ export const rhoChatModelAndExtensionMethods = {
 	},
 
 	inputPlaceholder() {
-		if (!this.isForkActive()) {
+		if (!this.isInteractiveSession()) {
 			return "Fork a session to start chatting...";
+		}
+		if (!this.isForkActive()) {
+			return "Type a prompt to start this session...";
 		}
 		if (this.isStreaming) {
 			return "Streaming… send to queue";

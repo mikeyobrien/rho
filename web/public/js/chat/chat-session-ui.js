@@ -232,7 +232,10 @@ export const rhoChatSessionUiMethods = {
 			const resp = await fetch(
 				`/api/sessions?limit=${this.sessionsPageSize}&offset=0`,
 			);
-			const total = parseInt(resp.headers.get("X-Total-Count") ?? "0", 10);
+			const total = Number.parseInt(
+				resp.headers.get("X-Total-Count") ?? "0",
+				10,
+			);
 			const sessions = await resp.json();
 			this.sessions = sessions;
 			this.sessionsTotal = total;
@@ -410,7 +413,8 @@ export const rhoChatSessionUiMethods = {
 			this.applySession(session);
 
 			// Auto-start RPC so the session is immediately usable (not read-only)
-			const sessionFile = options.sessionFile || this.getSessionFile(sessionId);
+			const sessionFile =
+				options.sessionFile || session.file || this.getSessionFile(sessionId);
 			if (sessionFile) {
 				this.activeRpcSessionFile = sessionFile;
 				this.startRpcSession(sessionFile);

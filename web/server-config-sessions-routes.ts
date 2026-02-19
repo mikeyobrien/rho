@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getRhoHome } from "./config.ts";
 import { app, loadPiSessionManagerModule } from "./server-core.ts";
@@ -43,8 +43,11 @@ app.put("/api/config", async (c) => {
 
 app.get("/api/sessions", async (c) => {
 	const cwd = c.req.query("cwd");
-	const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10) || 20, 100);
-	const offset = parseInt(c.req.query("offset") ?? "0", 10) || 0;
+	const limit = Math.min(
+		Number.parseInt(c.req.query("limit") ?? "20", 10) || 20,
+		100,
+	);
+	const offset = Number.parseInt(c.req.query("offset") ?? "0", 10) || 0;
 	try {
 		const { total, sessions } = await listSessions({
 			cwd: cwd ?? undefined,
@@ -69,7 +72,7 @@ app.get("/api/sessions/:id", async (c) => {
 			return c.json({ error: "Session not found" }, 404);
 		}
 		const session = await readSession(sessionFile);
-		return c.json(session);
+		return c.json({ ...session, file: sessionFile });
 	} catch (error) {
 		return c.json(
 			{ error: (error as Error).message ?? "Failed to read session" },

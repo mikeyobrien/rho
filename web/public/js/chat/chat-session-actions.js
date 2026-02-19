@@ -16,10 +16,7 @@ const {
 export const rhoChatSessionActionMethods = {
 	applySession(session) {
 		// Don't overwrite live streaming messages with stale disk data
-		if (
-			this.activeRpcSessionId &&
-			(this.isStreaming || this.renderedMessages.length > 0)
-		) {
+		if (this.activeRpcSessionId && (this.isStreaming || this.isSendingPrompt)) {
 			// Update metadata only
 			this.activeSession = {
 				...this.activeSession,
@@ -256,8 +253,28 @@ export const rhoChatSessionActionMethods = {
 		return s?.file ?? "";
 	},
 
+	getActiveSessionFile() {
+		return (
+			this.activeRpcSessionFile ||
+			this.activeSession?.file ||
+			this.getSessionFile(this.activeSessionId)
+		);
+	},
+
+	canStartEmptySession() {
+		return Boolean(
+			this.activeSession &&
+				this.renderedMessages.length === 0 &&
+				this.getActiveSessionFile(),
+		);
+	},
+
 	isForkActive() {
 		return Boolean(this.activeRpcSessionId);
+	},
+
+	isInteractiveSession() {
+		return this.isForkActive() || this.canStartEmptySession();
 	},
 
 	sessionForkBadge(session) {
@@ -359,11 +376,11 @@ export const rhoChatSessionActionMethods = {
 
 	sendPromptMessage(message, promptOptions = {}, slashClassification = null) {
 		const hasImages = this.pendingImages.length > 0;
-		if (
-			(!message && !hasImages) ||
-			!this.activeRpcSessionId ||
-			this.isSendingPrompt
-		) {
+		const sessionFile = this.getActiveSessionFile();
+		if ((!message && !hasImages) || this.isSendingPrompt) {
+			return;
+		}
+		if (!this.activeRpcSessionId && !sessionFile) {
 			return;
 		}
 
@@ -411,19 +428,29 @@ export const rhoChatSessionActionMethods = {
 		});
 		this.scrollThreadToBottom();
 
-		const sent = this.sendWs({
+		const rpcPayload = {
 			type: "rpc_command",
-			sessionId: this.activeRpcSessionId,
 			command: {
 				type: "prompt",
 				message: message || "Describe this image.",
 				...promptOptions,
 				...(images ? { images } : {}),
 			},
-		});
+		};
+
+		if (this.activeRpcSessionId) {
+			rpcPayload.sessionId = this.activeRpcSessionId;
+		} else if (sessionFile) {
+			rpcPayload.sessionFile = sessionFile;
+			this.activeRpcSessionFile = sessionFile;
+			this.isForking = true;
+		}
+
+		const sent = this.sendWs(rpcPayload);
 
 		if (!sent) {
 			this.isSendingPrompt = false;
+			this.isForking = false;
 		} else {
 			this.$nextTick(() => {
 				this.scrollThreadToBottom();

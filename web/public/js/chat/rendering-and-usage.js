@@ -1,13 +1,17 @@
 import {
+	clampString,
+	generateOutputPreview,
+	parseToolSemantic,
 	safeString,
 	semanticHeaderSummary,
 } from "./constants-and-primitives.js";
 import {
+	MODEL_CONTEXT_WINDOWS,
 	formatModel,
 	isFileEditTool,
-	MODEL_CONTEXT_WINDOWS,
 	normalizeParts,
 	parseToolOutput,
+	semanticOutputSummary,
 } from "./tool-semantics.js";
 
 function guessContextWindow(modelStr) {
@@ -247,9 +251,9 @@ function highlightCodeBlocks(root) {
 	if (!root || typeof hljs === "undefined") {
 		return;
 	}
-	root.querySelectorAll("pre code").forEach((block) => {
+	for (const block of root.querySelectorAll("pre code")) {
 		hljs.highlightElement(block);
-	});
+	}
 }
 
 function normalizeMessage(message, isLazy = false) {

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import * as path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import {
 	app,
@@ -52,7 +53,9 @@ app.use(
 	"/js/*",
 	async (c, next) => {
 		await next();
-		c.res.headers.set("Cache-Control", "public, max-age=300");
+		// Browser modules import each other without content hashes.
+		// Force revalidation so deploys don't run stale module graphs.
+		c.res.headers.set("Cache-Control", "no-cache");
 	},
 	serveStatic({ root: publicDir }),
 );
