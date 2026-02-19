@@ -14,20 +14,20 @@ The codebase is ~6300 lines of frontend JS + ~2300 lines of server TS. No framew
 
 ## Current Status (2026-02-18)
 
-### Phase 1: Server quick wins ✅
-- [x] 1. Add `compress()` middleware to `server.ts` - DONE
-- [x] 2. Add `Cache-Control` headers to static asset routes - DONE  
-- [x] 3. Add optional timing middleware (RHO_DEBUG=1) - DONE
-- [x] 4. Refactor `readSession()` to use streaming readline - DONE
+### Phase 1: Server quick wins ✅ DONE
+- [x] 1. Add `compress()` middleware to `server.ts` - DONE (verified)
+- [x] 2. Add `Cache-Control` headers to static asset routes - DONE (verified)
+- [x] 3. Add optional timing middleware (RHO_DEBUG=1) - DONE (verified)
+- [x] 4. Refactor `readSession()` to use streaming readline - DONE (verified: loadSessionEntries uses createReadStream + createInterface, not readFile + split)
 
-### Phase 2: Client rendering ⚠️ PARTIAL
-- [x] 5. ~~Lazy markdown rendering via IntersectionObserver~~ - NOT DONE
-- [x] 6. Batch streaming markdown renders (150ms debounce) - DONE
-- [x] 7. Cap rendered messages (~100) with "Load earlier" button - DONE
+### Phase 2: Client rendering ✅ DONE
+- [x] 5. Lazy markdown rendering via IntersectionObserver - DONE (chat.js: setupLazyRendering(), data-message-id in index.html)
+- [x] 6. Batch streaming markdown renders (150ms debounce) - DONE (verified line 1544-1550)
+- [x] 7. Cap rendered messages (~100) with "Load earlier" button - DONE (verified line 2215-2218)
 
 ### Phase 3: Network ⚠️ PARTIAL  
-- [x] 8. Add `<link rel="preload">` tags for CDN scripts - DONE
-- [x] 9. Replace polling with WebSocket push - PARTIAL: Added idle detection + Page Visibility API to pause polling when idle/hidden (commit c95ff6d). Full WebSocket push not implemented.
+- [x] 8. Add `<link rel="preload">` tags for CDN scripts - DONE (verified)
+- [ ] 9. Replace polling with WebSocket push - PARTIAL: idle detection + Page Visibility API done, full WebSocket push NOT implemented
 
 ### Server-side
 1. Add gzip/brotli compression via Hono's `compress()` middleware

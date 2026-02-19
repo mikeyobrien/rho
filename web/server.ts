@@ -640,6 +640,37 @@ function detectLang(filePath: string): string {
 	return GIT_LANG_MAP[path.extname(filePath).toLowerCase()] ?? "plaintext";
 }
 
+const MAX_REVIEW_FILE_BYTES = 500 * 1024;
+const BINARY_SNIFF_BYTES = 8192;
+
+function resolveRepoFilePath(
+	repoRoot: string,
+	relOrAbsPath: string,
+): { absPath: string; relPath: string } | null {
+	if (
+		!relOrAbsPath ||
+		relOrAbsPath.includes("\0") ||
+		relOrAbsPath.includes("..")
+	) {
+		return null;
+	}
+	if (path.isAbsolute(relOrAbsPath)) {
+		return null;
+	}
+	const absPath = path.resolve(repoRoot, relOrAbsPath);
+	const relPath = path.relative(repoRoot, absPath);
+	if (!relPath || relPath.startsWith("..") || path.isAbsolute(relPath)) {
+		return null;
+	}
+	return { absPath, relPath };
+}
+
+async function isLikelyBinaryFile(filePath: string): Promise<boolean> {
+	const content = await readFile(filePath);
+	const sample = content.subarray(0, BINARY_SNIFF_BYTES);
+	return sample.includes(0);
+}
+
 app.get("/api/git/status", async (c) => {
 	const cwd = await getGitCwd();
 	if (!cwd) return c.json({ error: "No git repository detected" }, 404);
@@ -713,22 +744,32 @@ app.get("/api/git/diff", async (c) => {
 
 	const file = c.req.query("file");
 	if (!file) return c.json({ error: "file parameter required" }, 400);
-	if (file.includes("..")) return c.json({ error: "Invalid path" }, 400);
+
+	const resolved = resolveRepoFilePath(cwd, file);
+	if (!resolved) return c.json({ error: "Invalid path" }, 400);
+	const { absPath, relPath } = resolved;
 
 	try {
 		// Try unstaged
-		const unstaged = await gitExec(["diff", "--", file], cwd);
+		const unstaged = await gitExec(["diff", "--", relPath], cwd);
 		if (unstaged.trim()) return c.text(unstaged);
 
 		// Try staged
-		const staged = await gitExec(["diff", "--cached", "--", file], cwd);
+		const staged = await gitExec(["diff", "--cached", "--", relPath], cwd);
 		if (staged.trim()) return c.text(staged);
 
 		// Untracked / new: synthetic full-add diff
-		const abs = path.join(cwd, file);
-		const content = await readFile(abs, "utf-8");
+		const fileInfo = await stat(absPath);
+		if (fileInfo.size > MAX_REVIEW_FILE_BYTES) {
+			return c.text("");
+		}
+		if (await isLikelyBinaryFile(absPath)) {
+			return c.text("");
+		}
+
+		const content = await readFile(absPath, "utf-8");
 		const lines = content.split("\n");
-		let diff = `--- /dev/null\n+++ b/${file}\n`;
+		let diff = `--- /dev/null\n+++ b/${relPath}\n`;
 		diff += `@@ -0,0 +1,${lines.length} @@\n`;
 		diff += lines.map((l) => `+${l}`).join("\n");
 		return c.text(diff);
@@ -756,18 +797,36 @@ app.post("/api/review/from-git", async (c) => {
 	const warnings: string[] = [];
 
 	for (const fp of filePaths) {
-		if (fp.includes("..")) {
-			warnings.push(`Skipped: ${fp} (path traversal)`);
+		const resolved = resolveRepoFilePath(cwd, fp);
+		if (!resolved) {
+			warnings.push(`Skipped: ${fp} (invalid path)`);
 			continue;
 		}
-		const abs = path.join(cwd, fp);
+
+		const { absPath, relPath } = resolved;
 		try {
-			const content = await readFile(abs, "utf-8");
+			const fileInfo = await stat(absPath);
+			if (!fileInfo.isFile()) {
+				warnings.push(`Skipped: ${fp} (not a file)`);
+				continue;
+			}
+			if (fileInfo.size > MAX_REVIEW_FILE_BYTES) {
+				warnings.push(
+					`Skipped: ${fp} (file too large: ${Math.round(fileInfo.size / 1024)}KB)`,
+				);
+				continue;
+			}
+			if (await isLikelyBinaryFile(absPath)) {
+				warnings.push(`Skipped: ${fp} (binary file)`);
+				continue;
+			}
+
+			const content = await readFile(absPath, "utf-8");
 			reviewFiles.push({
-				path: abs,
-				relativePath: fp,
+				path: absPath,
+				relativePath: relPath,
 				content,
-				language: detectLang(fp),
+				language: detectLang(relPath),
 			});
 		} catch (err) {
 			warnings.push(`Skipped: ${fp} (${(err as Error).message})`);
@@ -1524,7 +1583,7 @@ app.get(
 	serveStatic({ root: publicDir, path: "icon-512.png" }),
 );
 
-// Cache headers for static assets (1 year for versioned assets)
+// Cache headers for static assets (5 minutes)
 
 app.use(
 	"/css/*",

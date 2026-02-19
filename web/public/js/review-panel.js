@@ -7,19 +7,49 @@ function rhoReviewDashboard() {
 		diffs: {},
 		reviews: [],
 		error: null,
+		actionError: null,
+		isStartingReview: false,
 		_timer: null,
+		_onVisibilityChange: null,
 
 		async init() {
 			await this.refresh();
 			this.loading = false;
-			this._timer = setInterval(() => this.refresh(), 15000);
+			this._onVisibilityChange = () => {
+				if (this.isPanelVisible()) {
+					this.refresh();
+				}
+			};
+			document.addEventListener("visibilitychange", this._onVisibilityChange);
+			this._timer = setInterval(() => {
+				if (this.isPanelVisible()) {
+					this.refresh();
+				}
+			}, 15000);
 		},
 
 		destroy() {
 			if (this._timer) clearInterval(this._timer);
+			if (this._onVisibilityChange) {
+				document.removeEventListener(
+					"visibilitychange",
+					this._onVisibilityChange,
+				);
+				this._onVisibilityChange = null;
+			}
+		},
+
+		isPanelVisible() {
+			if (document.hidden) return false;
+			const reviewView = this.$root?.closest?.(".review-view");
+			if (!reviewView) return true;
+			return reviewView.offsetParent !== null;
 		},
 
 		async refresh() {
+			if (!this.loading && !this.isPanelVisible()) {
+				return;
+			}
 			try {
 				const [statusRes, reviewsRes] = await Promise.all([
 					fetch("/api/git/status"),
@@ -71,6 +101,7 @@ function rhoReviewDashboard() {
 			const i = this.selected.indexOf(path);
 			if (i >= 0) this.selected.splice(i, 1);
 			else this.selected.push(path);
+			this.actionError = null;
 		},
 
 		selectAll() {
@@ -80,6 +111,7 @@ function rhoReviewDashboard() {
 				.map((f) => f.path);
 			if (this.selected.length === allPaths.length) this.selected = [];
 			else this.selected = [...allPaths];
+			this.actionError = null;
 		},
 
 		toggleExpand(path) {
@@ -105,19 +137,38 @@ function rhoReviewDashboard() {
 		},
 
 		async startReview() {
-			if (this.selected.length === 0) return;
+			if (this.selected.length === 0) {
+				this.actionError = "Select at least one file to review.";
+				return;
+			}
+
+			this.actionError = null;
+			this.isStartingReview = true;
+
 			try {
 				const res = await fetch("/api/review/from-git", {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({ files: this.selected }),
 				});
-				if (res.ok) {
-					const data = await res.json();
-					window.location.href = data.url;
+
+				const data = await res.json().catch(() => null);
+				if (!res.ok) {
+					this.actionError =
+						data?.error ?? `Failed to start review (HTTP ${res.status})`;
+					return;
 				}
-			} catch {
-				// ignore
+
+				if (!data?.url) {
+					this.actionError = "Review started, but no URL was returned.";
+					return;
+				}
+
+				window.location.href = data.url;
+			} catch (error) {
+				this.actionError = error?.message ?? "Failed to start review.";
+			} finally {
+				this.isStartingReview = false;
 			}
 		},
 

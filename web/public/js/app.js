@@ -1,6 +1,7 @@
 document.addEventListener("alpine:init", () => {
 	Alpine.data("rhoApp", () => ({
 		view: "chat",
+		theme: "dark",
 		activeReviewCount: 0,
 		_reviewPollId: null,
 
@@ -9,15 +10,33 @@ document.addEventListener("alpine:init", () => {
 			if (qsView && ["chat", "memory", "review", "config"].includes(qsView)) {
 				this.view = qsView;
 			}
-			this._pollReviewSessions();
-			this._reviewPollId = setInterval(() => this._pollReviewSessions(), 5000);
+
+			const savedTheme = localStorage.getItem("rho-theme");
+			this.theme = savedTheme === "light" ? "light" : "dark";
+			document.body.classList.toggle("theme-light", this.theme === "light");
+
+			this._pollReviewSessions(true);
+			this._reviewPollId = setInterval(() => {
+				this._pollReviewSessions();
+			}, 15000);
 		},
 
 		destroy() {
 			if (this._reviewPollId) clearInterval(this._reviewPollId);
 		},
 
-		async _pollReviewSessions() {
+		toggleTheme() {
+			this.theme = this.theme === "light" ? "dark" : "light";
+			document.body.classList.toggle("theme-light", this.theme === "light");
+			localStorage.setItem("rho-theme", this.theme);
+		},
+
+		async _pollReviewSessions(force = false) {
+			if (!force) {
+				if (document.hidden) return;
+				// Review dashboard already polls while the review tab is active.
+				if (this.view === "review") return;
+			}
 			try {
 				const res = await fetch("/api/review/sessions");
 				if (!res.ok) return;
@@ -40,6 +59,10 @@ document.addEventListener("alpine:init", () => {
 				"",
 				`${url.pathname}${url.search}${url.hash}`,
 			);
+
+			if (nextView !== "review") {
+				this._pollReviewSessions(true);
+			}
 		},
 	}));
 });

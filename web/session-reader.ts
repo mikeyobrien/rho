@@ -1,5 +1,5 @@
 import { createReadStream, existsSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -410,38 +410,48 @@ async function loadSessionEntries(sessionFile: string): Promise<{
 	entryMap: Map<string, SessionEntryBase>;
 	name?: string;
 }> {
-	const content = await readFile(sessionFile, "utf-8");
-	const lines = content.split("\n").filter((line) => line.trim().length > 0);
-
 	const entries: SessionEntryBase[] = [];
 	let header: SessionHeader | null = null;
 	let name: string | undefined;
 	const entryMap = new Map<string, SessionEntryBase>();
 
-	for (const line of lines) {
-		let parsed: SessionEntryBase | null = null;
-		try {
-			parsed = JSON.parse(line) as SessionEntryBase;
-		} catch {
-			continue;
-		}
+	const stream = createReadStream(sessionFile, { encoding: "utf8" });
+	const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
-		if (parsed.type === "session") {
-			header = parsed as SessionHeader;
-			continue;
-		}
+	try {
+		for await (const line of rl) {
+			const trimmed = line.trim();
+			if (!trimmed) {
+				continue;
+			}
 
-		if (parsed.type === "session_info") {
-			const info = parsed as SessionInfoEntry;
-			if (info.name) {
-				name = info.name;
+			let parsed: SessionEntryBase | null = null;
+			try {
+				parsed = JSON.parse(trimmed) as SessionEntryBase;
+			} catch {
+				continue;
+			}
+
+			if (parsed.type === "session") {
+				header = parsed as SessionHeader;
+				continue;
+			}
+
+			if (parsed.type === "session_info") {
+				const info = parsed as SessionInfoEntry;
+				if (info.name) {
+					name = info.name;
+				}
+			}
+
+			entries.push(parsed);
+			if (parsed.id) {
+				entryMap.set(parsed.id, parsed);
 			}
 		}
-
-		entries.push(parsed);
-		if (parsed.id) {
-			entryMap.set(parsed.id, parsed);
-		}
+	} finally {
+		rl.close();
+		stream.destroy();
 	}
 
 	return { header, entries, entryMap, name };
@@ -582,17 +592,60 @@ function buildSessionContext(
 
 		const usage = parsed.usage as Record<string, unknown> | undefined;
 		if (usage) {
-			const totalTokens = asNumber(usage.totalTokens);
-			const fallbackTotal =
-				(asNumber(usage.input) ?? 0) +
-				(asNumber(usage.output) ?? 0) +
-				(asNumber(usage.cacheRead) ?? 0) +
-				(asNumber(usage.cacheWrite) ?? 0);
-			tokenUsage += totalTokens ?? fallbackTotal;
-			const costValue =
-				asNumber((usage.cost as Record<string, unknown> | undefined)?.total) ??
+			const input =
+				asNumber(usage.input) ??
+				asNumber(usage.promptTokens) ??
+				asNumber(usage.prompt_tokens) ??
+				asNumber(usage.inputTokens) ??
+				asNumber(usage.input_tokens) ??
 				0;
-			cost += costValue;
+			const output =
+				asNumber(usage.output) ??
+				asNumber(usage.completionTokens) ??
+				asNumber(usage.completion_tokens) ??
+				asNumber(usage.outputTokens) ??
+				asNumber(usage.output_tokens) ??
+				0;
+			const cacheRead =
+				asNumber(usage.cacheRead) ??
+				asNumber(usage.cache_read) ??
+				asNumber(usage.cacheReadTokens) ??
+				asNumber(usage.cache_read_input_tokens) ??
+				0;
+			const cacheWrite =
+				asNumber(usage.cacheWrite) ??
+				asNumber(usage.cache_write) ??
+				asNumber(usage.cacheCreation) ??
+				asNumber(usage.cacheCreationInputTokens) ??
+				asNumber(usage.cache_creation_input_tokens) ??
+				0;
+
+			const totalTokens =
+				asNumber(usage.totalTokens) ??
+				asNumber(usage.total_tokens) ??
+				asNumber(usage.total) ??
+				asNumber(usage.tokens);
+			tokenUsage += totalTokens ?? input + output + cacheRead + cacheWrite;
+
+			const costObj =
+				typeof usage.cost === "object" && usage.cost
+					? (usage.cost as Record<string, unknown>)
+					: undefined;
+			const costValue =
+				asNumber(costObj?.total) ??
+				asNumber(usage.costTotal) ??
+				asNumber(usage.totalCost) ??
+				asNumber(usage.usd) ??
+				asNumber(usage.cost);
+			if (costValue != null) {
+				cost += costValue;
+			} else if (costObj) {
+				cost +=
+					(asNumber(costObj.input) ?? 0) +
+					(asNumber(costObj.output) ?? 0) +
+					(asNumber(costObj.cacheRead ?? costObj.cache_read) ?? 0) +
+					(asNumber(costObj.cacheWrite ?? costObj.cache_write) ?? 0);
+			}
 		}
 	}
 

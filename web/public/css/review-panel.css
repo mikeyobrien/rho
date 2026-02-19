@@ -244,7 +244,24 @@
   margin-top: 0.6rem;
 }
 
+.reviewdash-actions-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
 .reviewdash-actions-count { color: var(--text-muted); font-size: 0.68rem; }
+
+.reviewdash-actions-error {
+  color: var(--red);
+  font-size: 0.64rem;
+  max-width: 32rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .reviewdash-actions-row { display: flex; gap: 0.45rem; }
 
 .reviewdash-btn {
@@ -260,6 +277,11 @@
 }
 
 .reviewdash-btn:hover { background: var(--border); color: var(--text); }
+
+.reviewdash-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .reviewdash-btn.primary {
   background: var(--green-dim);

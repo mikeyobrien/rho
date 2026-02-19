@@ -131,6 +131,38 @@ function buildInlineLineDiff(oldText, newText) {
 		return { lines: [], linesAdded: 0, linesRemoved: 0 };
 	}
 
+	const MAX_DIFF_LINES = 600;
+	const MAX_DIFF_MATRIX_CELLS = 200_000;
+	if (
+		oldLen > MAX_DIFF_LINES ||
+		newLen > MAX_DIFF_LINES ||
+		oldLen * newLen > MAX_DIFF_MATRIX_CELLS
+	) {
+		let prefix = 0;
+		while (
+			prefix < oldLen &&
+			prefix < newLen &&
+			oldLines[prefix] === newLines[prefix]
+		) {
+			prefix++;
+		}
+
+		let oldTail = oldLen - 1;
+		let newTail = newLen - 1;
+		while (
+			oldTail >= prefix &&
+			newTail >= prefix &&
+			oldLines[oldTail] === newLines[newTail]
+		) {
+			oldTail--;
+			newTail--;
+		}
+
+		const linesRemoved = Math.max(0, oldTail - prefix + 1);
+		const linesAdded = Math.max(0, newTail - prefix + 1);
+		return { lines: [], linesAdded, linesRemoved, truncated: true };
+	}
+
 	const dp = Array.from(
 		{ length: oldLen + 1 },
 		() => new Uint32Array(newLen + 1),
@@ -893,19 +925,34 @@ function parseUsageTotals(usage) {
 	const usageObj = usage;
 	const input =
 		toFiniteNumber(
-			usageObj.input ?? usageObj.promptTokens ?? usageObj.inputTokens,
+			usageObj.input ??
+				usageObj.promptTokens ??
+				usageObj.prompt_tokens ??
+				usageObj.inputTokens ??
+				usageObj.input_tokens,
 		) ?? 0;
 	const output =
 		toFiniteNumber(
-			usageObj.output ?? usageObj.completionTokens ?? usageObj.outputTokens,
+			usageObj.output ??
+				usageObj.completionTokens ??
+				usageObj.completion_tokens ??
+				usageObj.outputTokens ??
+				usageObj.output_tokens,
 		) ?? 0;
 	const cacheRead =
 		toFiniteNumber(
-			usageObj.cacheRead ?? usageObj.cache_read ?? usageObj.cacheReadTokens,
+			usageObj.cacheRead ??
+				usageObj.cache_read ??
+				usageObj.cacheReadTokens ??
+				usageObj.cache_read_input_tokens,
 		) ?? 0;
 	const cacheWrite =
 		toFiniteNumber(
-			usageObj.cacheWrite ?? usageObj.cache_write ?? usageObj.cacheCreation,
+			usageObj.cacheWrite ??
+				usageObj.cache_write ??
+				usageObj.cacheCreation ??
+				usageObj.cacheCreationInputTokens ??
+				usageObj.cache_creation_input_tokens,
 		) ?? 0;
 	const total =
 		toFiniteNumber(
@@ -914,13 +961,26 @@ function parseUsageTotals(usage) {
 				usageObj.total_tokens ??
 				usageObj.tokens,
 		) ?? input + output + cacheRead + cacheWrite;
-	const cost = toFiniteNumber(
-		usageObj.cost?.total ??
+
+	const costObj =
+		usageObj.cost && typeof usageObj.cost === "object" ? usageObj.cost : null;
+	let cost = toFiniteNumber(
+		costObj?.total ??
 			usageObj.costTotal ??
 			usageObj.totalCost ??
 			usageObj.usd ??
 			usageObj.cost,
 	);
+	if (cost == null && costObj) {
+		const byPart =
+			(toFiniteNumber(costObj.input) ?? 0) +
+			(toFiniteNumber(costObj.output) ?? 0) +
+			(toFiniteNumber(costObj.cacheRead ?? costObj.cache_read) ?? 0) +
+			(toFiniteNumber(costObj.cacheWrite ?? costObj.cache_write) ?? 0);
+		if (byPart > 0) {
+			cost = byPart;
+		}
+	}
 
 	return {
 		input,
@@ -1416,6 +1476,7 @@ document.addEventListener("alpine:init", () => {
 		currentThinkingLevel: "medium",
 		isStreaming: false,
 		sessionStats: { tokens: 0, cost: 0 },
+		usageAccountedMessageIds: new Set(),
 		pendingModelChange: null,
 
 		// Extension UI state
@@ -1432,6 +1493,9 @@ document.addEventListener("alpine:init", () => {
 		wsBaseReconnectDelay: 1000,
 		isWsConnected: false,
 		showReconnectBanner: false,
+		reconnectBannerMessage: "",
+		streamDisconnectedDuringResponse: false,
+		awaitingStreamReconnectState: false,
 		theme: "dark",
 
 		// Idle detection state
@@ -1521,12 +1585,22 @@ document.addEventListener("alpine:init", () => {
 							let modified = false;
 							msg.parts.forEach((part) => {
 								if (part.isRendered) return;
-								if (part.type === "text" || part.type === "thinking") {
+								if (part.type === "thinking") {
 									part.content = renderMarkdown(
 										part.rawContent || part.content,
 									);
 									part.isRendered = true;
 									modified = true;
+									return;
+								}
+								if (part.type === "text") {
+									if (part.render === "html") {
+										part.content = renderMarkdown(
+											part.rawContent || part.content,
+										);
+										modified = true;
+									}
+									part.isRendered = true;
 								}
 							});
 
@@ -1719,9 +1793,16 @@ document.addEventListener("alpine:init", () => {
 
 			ws.addEventListener("open", () => {
 				this.isWsConnected = true;
-				this.showReconnectBanner = false;
 				this.wsReconnectAttempts = 0;
 				this.error = "";
+
+				if (this.awaitingStreamReconnectState) {
+					this.showReconnectBanner = true;
+					this.reconnectBannerMessage = "Reconnected. Checking stream status…";
+				} else {
+					this.showReconnectBanner = false;
+					this.reconnectBannerMessage = "";
+				}
 
 				// Re-establish RPC session after reconnect.
 				// The server killed the old session when the previous socket closed,
@@ -1741,8 +1822,18 @@ document.addEventListener("alpine:init", () => {
 
 			ws.addEventListener("close", () => {
 				if (this.ws === ws) {
+					const lostDuringResponse = this.isStreaming || this.isSendingPrompt;
+					if (lostDuringResponse) {
+						this.streamDisconnectedDuringResponse = true;
+						this.awaitingStreamReconnectState = true;
+						this.reconnectBannerMessage =
+							"Connection lost while agent was responding. Reconnecting…";
+					} else if (!this.awaitingStreamReconnectState) {
+						this.reconnectBannerMessage = "Connection lost. Reconnecting…";
+					}
 					this.ws = null;
 					this.isWsConnected = false;
+					this.showReconnectBanner = true;
 					this.scheduleReconnect();
 				}
 			});
@@ -1924,6 +2015,11 @@ document.addEventListener("alpine:init", () => {
 			if (event.type === "agent_end") {
 				this.isStreaming = false;
 				this.isSendingPrompt = false;
+				if (this.streamDisconnectedDuringResponse && this.isWsConnected) {
+					this.streamDisconnectedDuringResponse = false;
+					this.showReconnectBanner = false;
+					this.reconnectBannerMessage = "";
+				}
 				this.updateFooter();
 				// Refresh stats after agent completes
 				this.requestSessionStats();
@@ -2587,6 +2683,7 @@ document.addEventListener("alpine:init", () => {
 					this.renderedMessages.push(finalMessage);
 				}
 
+				this.accumulateUsageFromMessage(message);
 				this.streamMessageId = "";
 				this.isSendingPrompt = false;
 				this.$nextTick(() => {
@@ -2643,9 +2740,23 @@ document.addEventListener("alpine:init", () => {
 			});
 		},
 
+		isChatViewVisible() {
+			if (document.hidden) {
+				return false;
+			}
+			const chatView = this.$root?.closest?.(".chat-view");
+			if (!chatView) {
+				return true;
+			}
+			return chatView.offsetParent !== null;
+		},
+
 		startPolling() {
 			this.stopPolling();
 			this.poller = setInterval(() => {
+				if (!this.isChatViewVisible()) {
+					return;
+				}
 				this.loadSessions(false);
 			}, CHAT_REFRESH_INTERVAL);
 		},
@@ -2814,6 +2925,7 @@ document.addEventListener("alpine:init", () => {
 			this.userScrolledUp = false;
 			this.promptQueue = [];
 			this.toolCallPartById.clear();
+			this.usageAccountedMessageIds.clear();
 			this.sessionStats = {
 				tokens: 0,
 				cost: 0,
@@ -2828,6 +2940,10 @@ document.addEventListener("alpine:init", () => {
 			this.activeRpcSessionId = "";
 			this.activeRpcSessionFile = "";
 			this.resetSlashCommandsCache();
+			this.showReconnectBanner = false;
+			this.reconnectBannerMessage = "";
+			this.streamDisconnectedDuringResponse = false;
+			this.awaitingStreamReconnectState = false;
 
 			// Clear URL hash
 			if (window.location.hash) {
@@ -2855,6 +2971,7 @@ document.addEventListener("alpine:init", () => {
 			this.streamMessageId = "";
 			this.userScrolledUp = false;
 			this.toolCallPartById.clear();
+			this.usageAccountedMessageIds.clear();
 			this.sessionStats = {
 				tokens: 0,
 				cost: 0,
@@ -2869,6 +2986,10 @@ document.addEventListener("alpine:init", () => {
 			this.activeRpcSessionId = "";
 			this.activeRpcSessionFile = "";
 			this.resetSlashCommandsCache();
+			this.showReconnectBanner = false;
+			this.reconnectBannerMessage = "";
+			this.streamDisconnectedDuringResponse = false;
+			this.awaitingStreamReconnectState = false;
 
 			// Persist in URL for refresh/back (optional)
 			if (updateHash && window.location.hash !== `#${sessionId}`) {
@@ -2879,13 +3000,18 @@ document.addEventListener("alpine:init", () => {
 			this.showSessionsPanel = false;
 
 			try {
-				const session = await fetchJson(`/api/sessions/${sessionId}`);
+				const session =
+					options.session ?? (await fetchJson(`/api/sessions/${sessionId}`));
 				this.applySession(session);
 
 				// Auto-start RPC so the session is immediately usable (not read-only)
-				const sessionFile = this.getSessionFile(sessionId);
+				const sessionFile =
+					options.sessionFile || this.getSessionFile(sessionId);
 				if (sessionFile) {
+					this.activeRpcSessionFile = sessionFile;
 					this.startRpcSession(sessionFile);
+				} else {
+					this.isForking = false;
 				}
 			} catch (error) {
 				this.error = error.message ?? "Failed to load session";
@@ -2954,6 +3080,7 @@ document.addEventListener("alpine:init", () => {
 			}
 
 			this.syncSessionStatsFromSession(session, mergedMessages);
+			this.seedUsageAccumulator(mergedMessages);
 
 			// Normalize messages, filter empty ones, and deduplicate by ID
 			const seenIds = new Set();
@@ -3089,7 +3216,7 @@ document.addEventListener("alpine:init", () => {
 				!this.allNormalizedMessages ||
 				this.allNormalizedMessages.length === 0
 			) {
-				alert("No earlier messages available.");
+				this.showToast("No earlier messages available.", "info", 2500);
 				return;
 			}
 
@@ -3108,7 +3235,7 @@ document.addEventListener("alpine:init", () => {
 			}
 
 			if (currentIndex <= 0) {
-				alert("No earlier messages to load.");
+				this.showToast("No earlier messages to load.", "info", 2500);
 				return;
 			}
 
@@ -3130,14 +3257,6 @@ document.addEventListener("alpine:init", () => {
 			this.$nextTick(() => {
 				this.setupLazyRendering();
 			});
-		},
-
-		latestForkPointId() {
-			return this.activeSession?.forkPoints?.at?.(-1)?.id ?? "";
-		},
-
-		hasForkPoints() {
-			return Boolean(this.latestForkPointId());
 		},
 
 		getSessionFile(sessionId) {
@@ -3163,6 +3282,10 @@ document.addEventListener("alpine:init", () => {
 		},
 
 		canForkMessage(message) {
+			const id = String(message?.id ?? "");
+			if (id.startsWith("local-user-")) {
+				return false;
+			}
 			return Boolean(message?.canFork && this.activeSessionId);
 		},
 
@@ -3189,15 +3312,6 @@ document.addEventListener("alpine:init", () => {
 			}
 		},
 
-		async forkFromLatest() {
-			const entryId = this.latestForkPointId();
-			if (!entryId) {
-				this.error = "No user message available to fork from";
-				return;
-			}
-			await this.forkFromEntry(entryId);
-		},
-
 		async forkFromEntry(entryId) {
 			if (!this.activeSessionId || !entryId || this.isForking) {
 				return;
@@ -3212,16 +3326,16 @@ document.addEventListener("alpine:init", () => {
 					{ entryId },
 				);
 
-				this.activeSessionId = forkResult.sessionId;
-				this.activeRpcSessionId = "";
-				this.activeRpcSessionFile = forkResult.sessionFile;
-				this.resetSlashCommandsCache();
-				history.replaceState(null, "", `#${forkResult.sessionId}`);
 				this.promptText = "";
 
-				this.applySession(forkResult.session);
+				// Navigate directly into the forked session so users can continue
+				// chatting immediately without manual session switching.
+				await this.selectSession(forkResult.sessionId, {
+					session: forkResult.session,
+					sessionFile: forkResult.sessionFile,
+				});
 				await this.loadSessions(false);
-				this.startRpcSession(forkResult.sessionFile);
+				this.showToast("Forked to new chat.", "success", 2200);
 
 				// Reset scroll state and auto-scroll to bottom after fork
 				this.userScrolledUp = false;
@@ -3299,7 +3413,7 @@ document.addEventListener("alpine:init", () => {
 				roleLabel: "USER",
 				timestamp: new Date().toLocaleString(),
 				parts: localParts,
-				canFork: true,
+				canFork: false,
 			});
 			this.scrollThreadToBottom();
 
@@ -3588,6 +3702,39 @@ document.addEventListener("alpine:init", () => {
 			this.currentThinkingLevel = normalized;
 		},
 
+		resolveInterruptedStreamState() {
+			if (!this.awaitingStreamReconnectState) {
+				return;
+			}
+
+			this.awaitingStreamReconnectState = false;
+
+			if (this.isStreaming) {
+				this.showReconnectBanner = true;
+				this.reconnectBannerMessage =
+					"Reconnected — agent is still responding.";
+				return;
+			}
+
+			if (this.streamDisconnectedDuringResponse) {
+				this.showReconnectBanner = true;
+				this.reconnectBannerMessage =
+					"Reconnected — previous response may be incomplete. Reloading…";
+				this.streamDisconnectedDuringResponse = false;
+				this.$nextTick(() => this.reloadActiveSession());
+				setTimeout(() => {
+					if (!this.isStreaming && this.isWsConnected) {
+						this.showReconnectBanner = false;
+						this.reconnectBannerMessage = "";
+					}
+				}, 2200);
+				return;
+			}
+
+			this.showReconnectBanner = false;
+			this.reconnectBannerMessage = "";
+		},
+
 		handleStateUpdate(state) {
 			if (state.model) {
 				this.currentModel = state.model;
@@ -3598,6 +3745,7 @@ document.addEventListener("alpine:init", () => {
 			if (typeof state.isStreaming === "boolean") {
 				this.isStreaming = state.isStreaming;
 			}
+			this.resolveInterruptedStreamState();
 			this.syncThinkingLevels();
 			this.updateFooter();
 		},
@@ -3729,6 +3877,81 @@ document.addEventListener("alpine:init", () => {
 				cacheRead,
 				cacheWrite,
 			};
+			this.updateFooter();
+		},
+
+		seedUsageAccumulator(messages = []) {
+			this.usageAccountedMessageIds.clear();
+			const usageMessages = Array.isArray(messages) ? messages : [];
+			for (const message of usageMessages) {
+				if (!message || message.role !== "assistant") {
+					continue;
+				}
+				const messageId = String(message.id ?? "");
+				if (!messageId) {
+					continue;
+				}
+				const totals = parseUsageTotals(message.usage);
+				const hasUsage =
+					totals.input > 0 ||
+					totals.output > 0 ||
+					totals.cacheRead > 0 ||
+					totals.cacheWrite > 0 ||
+					totals.total > 0 ||
+					(totals.cost ?? 0) > 0;
+				if (hasUsage) {
+					this.usageAccountedMessageIds.add(messageId);
+				}
+			}
+		},
+
+		accumulateUsageFromMessage(message) {
+			if (!message || message.role !== "assistant") {
+				return;
+			}
+
+			const messageId = String(message.id ?? "");
+			if (messageId && this.usageAccountedMessageIds.has(messageId)) {
+				return;
+			}
+
+			const totals = parseUsageTotals(message.usage);
+			const cost = totals.cost ?? 0;
+			const fallbackTotal =
+				totals.input + totals.output + totals.cacheRead + totals.cacheWrite;
+			const totalTokens = totals.total || fallbackTotal;
+			const hasUsage =
+				totalTokens > 0 ||
+				totals.input > 0 ||
+				totals.output > 0 ||
+				totals.cacheRead > 0 ||
+				totals.cacheWrite > 0 ||
+				cost > 0;
+			if (!hasUsage) {
+				return;
+			}
+
+			const currentTokens = toFiniteNumber(this.sessionStats?.tokens) ?? 0;
+			const currentCost = toFiniteNumber(this.sessionStats?.cost) ?? 0;
+			const currentInput = toFiniteNumber(this.sessionStats?.inputTokens) ?? 0;
+			const currentOutput =
+				toFiniteNumber(this.sessionStats?.outputTokens) ?? 0;
+			const currentCacheRead =
+				toFiniteNumber(this.sessionStats?.cacheRead) ?? 0;
+			const currentCacheWrite =
+				toFiniteNumber(this.sessionStats?.cacheWrite) ?? 0;
+
+			this.sessionStats = {
+				tokens: currentTokens + totalTokens,
+				cost: currentCost + cost,
+				inputTokens: currentInput + totals.input,
+				outputTokens: currentOutput + totals.output,
+				cacheRead: currentCacheRead + totals.cacheRead,
+				cacheWrite: currentCacheWrite + totals.cacheWrite,
+			};
+			if (messageId) {
+				this.usageAccountedMessageIds.add(messageId);
+			}
 			this.updateFooter();
 		},
 

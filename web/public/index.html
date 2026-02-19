@@ -30,7 +30,7 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260219v57" />
+    <link rel="stylesheet" href="/css/style.css?v=20260219v64" />
     <link rel="stylesheet" href="/css/review-panel.css?v=20260219v2" />
     <!-- Preload CDN scripts for faster initial render -->
     <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
@@ -40,12 +40,12 @@
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
-    <script src="/js/app.js?v=20260211v" defer></script>
+    <script src="/js/app.js?v=20260219v1" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
-    <script src="/js/chat.js?v=20260219v33" defer></script>
-    <script src="/js/config.js?v=20260211v" defer></script>
+    <script src="/js/chat.js?v=20260219v36" defer></script>
+    <script src="/js/config.js?v=20260219v1" defer></script>
     <script src="/js/memory.js?v=20260211v" defer></script>
-    <script src="/js/review-panel.js?v=20260219v1" defer></script>
+    <script src="/js/review-panel.js?v=20260219v2" defer></script>
     <script src="/js/pull-to-refresh.js?v=20260218v" defer></script>
 
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
@@ -91,14 +91,6 @@
                 x-show="activeReviewCount > 0"
                 x-text="activeReviewCount"
               ></span>
-            </button>
-            <button
-              class="nav-tab nav-tab-icon theme-toggle"
-              @click="toggleTheme()"
-              type="button"
-              title="Toggle theme"
-            >
-              <span x-text="theme === 'light' ? '&#x2600;' : '&#x263E;'"></span>
             </button>
             <button
               class="nav-tab nav-tab-icon"
@@ -195,15 +187,6 @@
                   </div>
                   <div class="chat-thread-actions">
                     <button
-                      class="btn btn-sm btn-yellow"
-                      type="button"
-                      @click="forkFromLatest()"
-                      :disabled="!activeSession || !hasForkPoints() || isForking"
-                    >
-                      <span x-show="!isForking">Fork</span>
-                      <span x-show="isForking">Forking...</span>
-                    </button>
-                    <button
                       class="btn btn-sm btn-green"
                       type="button"
                       @click="newSession()"
@@ -215,7 +198,7 @@
                 <!-- Reconnection Banner -->
                 <div class="reconnect-banner" x-show="showReconnectBanner" x-cloak>
                   <span class="reconnect-icon">&#x26A0;</span>
-                  <span>Connection lost. Reconnecting...</span>
+                  <span x-text="reconnectBannerMessage || 'Connection lost. Reconnecting…'"></span>
                   <button class="btn btn-ghost btn-sm" type="button" @click="manualReconnect()">
                     Retry now
                   </button>
@@ -252,11 +235,13 @@
                           <span class="chat-message-role" x-text="message.roleLabel"></span>
                           <span class="chat-message-time" x-text="message.timestamp"></span>
                         </div>
-                        <div class="chat-message-meta-right">
+                        <div
+                          class="chat-message-actions"
+                          x-show="message.role === 'user' && canForkMessage(message)"
+                        >
                           <button
                             class="chat-fork-button"
                             type="button"
-                            x-show="message.role === 'user' && canForkMessage(message)"
                             @click="forkFromEntry(message.id)"
                             :title="messageForkPreview(message)"
                           >
@@ -580,7 +565,7 @@
                                 Attach
                                 <input type="file" accept="image/*" multiple style="display:none" @change="addQueueItemImage(qItem.id, $event)" />
                               </label>
-                              <button class="btn btn-ghost btn-xs chat-queue-remove" type="button" @click="removeQueueItem(qItem.id)" title="Remove">✕</button>
+                              <button class="btn btn-ghost btn-xs chat-queue-remove" type="button" @click="removeQueueItem(qItem.id)" title="Remove">&times;</button>
                             </div>
                           </div>
                           <textarea
@@ -807,6 +792,21 @@
                   >
                     Save
                   </button>
+                </div>
+              </div>
+              <div class="config-preferences">
+                <div class="config-preference-item">
+                  <div class="config-preference-copy">
+                    <div class="config-preference-label">Theme</div>
+                    <div class="config-preference-help" x-text="'Current: ' + theme"></div>
+                  </div>
+                  <button
+                    class="btn btn-sm"
+                    type="button"
+                    @click="toggleTheme()"
+                    :title="themeButtonLabel()"
+                    x-text="themeButtonLabel()"
+                  ></button>
                 </div>
               </div>
               <div class="config-error" x-show="error" x-text="error"></div>
@@ -1114,12 +1114,17 @@
                   </div>
 
                   <div class="reviewdash-actions" x-show="selected.length > 0">
-                    <span class="reviewdash-actions-count" x-text="selected.length + ' file' + (selected.length !== 1 ? 's' : '')"></span>
+                    <div class="reviewdash-actions-meta">
+                      <span class="reviewdash-actions-count" x-text="selected.length + ' file' + (selected.length !== 1 ? 's' : '')"></span>
+                      <span class="reviewdash-actions-error" x-show="actionError" x-text="actionError"></span>
+                    </div>
                     <div class="reviewdash-actions-row">
-                      <button class="reviewdash-btn" @click="selectAll()">
+                      <button class="reviewdash-btn" @click="selectAll()" :disabled="isStartingReview">
                         <span x-text="selected.length === (gitStatus?.files?.filter(f => f.status !== 'deleted').length ?? 0) ? 'None' : 'All'"></span>
                       </button>
-                      <button class="reviewdash-btn primary" @click="startReview()">Review →</button>
+                      <button class="reviewdash-btn primary" @click="startReview()" :disabled="isStartingReview">
+                        <span x-text="isStartingReview ? 'Opening…' : 'Review →'"></span>
+                      </button>
                     </div>
                   </div>
                 </div>
