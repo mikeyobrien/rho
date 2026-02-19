@@ -873,38 +873,78 @@ function guessContextWindow(modelStr) {
 	return null;
 }
 
+function toFiniteNumber(value) {
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseUsageTotals(usage) {
+	if (!usage || typeof usage !== "object") {
+		return {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			total: 0,
+			cost: null,
+		};
+	}
+
+	const usageObj = usage;
+	const input =
+		toFiniteNumber(
+			usageObj.input ?? usageObj.promptTokens ?? usageObj.inputTokens,
+		) ?? 0;
+	const output =
+		toFiniteNumber(
+			usageObj.output ?? usageObj.completionTokens ?? usageObj.outputTokens,
+		) ?? 0;
+	const cacheRead =
+		toFiniteNumber(
+			usageObj.cacheRead ?? usageObj.cache_read ?? usageObj.cacheReadTokens,
+		) ?? 0;
+	const cacheWrite =
+		toFiniteNumber(
+			usageObj.cacheWrite ?? usageObj.cache_write ?? usageObj.cacheCreation,
+		) ?? 0;
+	const total =
+		toFiniteNumber(
+			usageObj.totalTokens ??
+				usageObj.total ??
+				usageObj.total_tokens ??
+				usageObj.tokens,
+		) ?? input + output + cacheRead + cacheWrite;
+	const cost = toFiniteNumber(
+		usageObj.cost?.total ??
+			usageObj.costTotal ??
+			usageObj.totalCost ??
+			usageObj.usd ??
+			usageObj.cost,
+	);
+
+	return {
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		total,
+		cost,
+	};
+}
+
 function formatUsage(usage, model) {
 	if (!usage && !model) {
 		return { desktop: "", mobile: "" };
 	}
 
 	const usageObj = usage ?? {};
-	const input = Number(
-		usageObj.input ?? usageObj.promptTokens ?? usageObj.inputTokens ?? 0,
-	);
-	const output = Number(
-		usageObj.output ?? usageObj.completionTokens ?? usageObj.outputTokens ?? 0,
-	);
-	const totalTokens = Number(
-		usageObj.totalTokens ??
-			usageObj.total ??
-			usageObj.total_tokens ??
-			usageObj.tokens ??
-			(input || output ? input + output : 0),
-	);
-	const cacheRead = Number(
-		usageObj.cacheRead ?? usageObj.cache_read ?? usageObj.cacheReadTokens ?? 0,
-	);
-	const cacheWrite = Number(
-		usageObj.cacheWrite ?? usageObj.cache_write ?? usageObj.cacheCreation ?? 0,
-	);
-	const cost =
-		usageObj.cost?.total ??
-		usageObj.costTotal ??
-		usageObj.totalCost ??
-		usageObj.usd ??
-		usageObj.cost ??
-		null;
+	const usageTotals = parseUsageTotals(usageObj);
+	const input = usageTotals.input;
+	const output = usageTotals.output;
+	const totalTokens = usageTotals.total;
+	const cacheRead = usageTotals.cacheRead;
+	const cacheWrite = usageTotals.cacheWrite;
+	const cost = usageTotals.cost;
 
 	// Compute context usage percentage
 	const usageContextWindow = Number(
@@ -1788,10 +1828,11 @@ document.addEventListener("alpine:init", () => {
 				this.activeRpcSessionId = payload.sessionId ?? "";
 				this.activeRpcSessionFile = payload.sessionFile ?? "";
 				this.isForking = false;
-				// Fetch initial state and available models
+				// Fetch initial state and available models.
+				// Stats are requested after state/switch response to avoid
+				// racing a transient zero snapshot on session startup.
 				this.requestState();
 				this.requestAvailableModels();
-				this.requestSessionStats();
 				this.requestSlashCommands(true);
 				return;
 			}
@@ -1839,10 +1880,14 @@ document.addEventListener("alpine:init", () => {
 					this.isSendingPrompt = false;
 					this.pendingSlashClassification = null;
 				}
+				if (event.command === "switch_session" && event.success) {
+					this.requestSessionStats();
+				}
 				// Handle get_state response
 				if (event.command === "get_state" && event.success) {
 					const state = event.state ?? event.data ?? {};
 					this.handleStateUpdate(state);
+					this.requestSessionStats();
 				}
 				// Handle get_available_models response
 				if (event.command === "get_available_models" && event.success) {
@@ -2769,6 +2814,15 @@ document.addEventListener("alpine:init", () => {
 			this.userScrolledUp = false;
 			this.promptQueue = [];
 			this.toolCallPartById.clear();
+			this.sessionStats = {
+				tokens: 0,
+				cost: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			};
+			this.updateFooter();
 
 			// Clear stale RPC
 			this.activeRpcSessionId = "";
@@ -2801,6 +2855,15 @@ document.addEventListener("alpine:init", () => {
 			this.streamMessageId = "";
 			this.userScrolledUp = false;
 			this.toolCallPartById.clear();
+			this.sessionStats = {
+				tokens: 0,
+				cost: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			};
+			this.updateFooter();
 
 			// Clear stale RPC when switching sessions
 			this.activeRpcSessionId = "";
@@ -2889,6 +2952,8 @@ document.addEventListener("alpine:init", () => {
 				}
 				mergedMessages.push({ ...msg });
 			}
+
+			this.syncSessionStatsFromSession(session, mergedMessages);
 
 			// Normalize messages, filter empty ones, and deduplicate by ID
 			const seenIds = new Set();
@@ -3538,46 +3603,133 @@ document.addEventListener("alpine:init", () => {
 		},
 
 		handleSessionStatsUpdate(stats) {
-			// stats.tokens may be an object { input, output, cacheRead, cacheWrite, total }
-			// (pi SessionStats format) or a plain number (legacy)
-			const tok = stats.tokens;
-			const tokIsObj = tok && typeof tok === "object";
+			const statsObj = stats && typeof stats === "object" ? stats : {};
+			const tok = statsObj.tokens;
+			const tokObj = tok && typeof tok === "object" ? tok : null;
+
+			const inputTokens =
+				toFiniteNumber(statsObj.inputTokens) ??
+				toFiniteNumber(
+					tokObj?.input ?? tokObj?.promptTokens ?? tokObj?.inputTokens,
+				) ??
+				0;
+			const outputTokens =
+				toFiniteNumber(statsObj.outputTokens) ??
+				toFiniteNumber(
+					tokObj?.output ?? tokObj?.completionTokens ?? tokObj?.outputTokens,
+				) ??
+				0;
+			const cacheRead =
+				toFiniteNumber(statsObj.cacheRead) ??
+				toFiniteNumber(statsObj.cacheReadTokens) ??
+				toFiniteNumber(tokObj?.cacheRead ?? tokObj?.cache_read) ??
+				0;
+			const cacheWrite =
+				toFiniteNumber(statsObj.cacheWrite) ??
+				toFiniteNumber(statsObj.cacheCreation) ??
+				toFiniteNumber(tokObj?.cacheWrite ?? tokObj?.cache_write) ??
+				0;
+
+			const totalTokens =
+				toFiniteNumber(statsObj.totalTokens) ??
+				toFiniteNumber(statsObj.tokenUsage) ??
+				toFiniteNumber(statsObj.tokensTotal) ??
+				toFiniteNumber(
+					tokObj?.total ??
+						tokObj?.totalTokens ??
+						tokObj?.total_tokens ??
+						tokObj?.tokens,
+				) ??
+				toFiniteNumber(tok) ??
+				inputTokens + outputTokens + cacheRead + cacheWrite;
+
+			const cost =
+				toFiniteNumber(statsObj.totalCost) ??
+				toFiniteNumber(statsObj.costTotal) ??
+				toFiniteNumber(statsObj.cost?.total) ??
+				toFiniteNumber(statsObj.cost) ??
+				0;
+
+			const currentTokens = toFiniteNumber(this.sessionStats?.tokens) ?? 0;
+			const currentCost = toFiniteNumber(this.sessionStats?.cost) ?? 0;
+			const currentInput = toFiniteNumber(this.sessionStats?.inputTokens) ?? 0;
+			const currentOutput =
+				toFiniteNumber(this.sessionStats?.outputTokens) ?? 0;
+			const currentCacheRead =
+				toFiniteNumber(this.sessionStats?.cacheRead) ?? 0;
+			const currentCacheWrite =
+				toFiniteNumber(this.sessionStats?.cacheWrite) ?? 0;
+
+			const incomingAllZero =
+				totalTokens === 0 &&
+				cost === 0 &&
+				inputTokens === 0 &&
+				outputTokens === 0 &&
+				cacheRead === 0 &&
+				cacheWrite === 0;
+			const hasCurrentUsage =
+				currentTokens > 0 ||
+				currentCost > 0 ||
+				currentInput > 0 ||
+				currentOutput > 0 ||
+				currentCacheRead > 0 ||
+				currentCacheWrite > 0;
+
+			// Ignore transient zero snapshots from RPC startup that would
+			// clobber stats already reconstructed from the loaded session.
+			if (hasCurrentUsage && incomingAllZero) {
+				return;
+			}
+
 			this.sessionStats = {
-				tokens: stats.totalTokens ?? (tokIsObj ? tok.total : tok) ?? 0,
-				cost: stats.totalCost ?? stats.cost ?? 0,
-				inputTokens: stats.inputTokens ?? (tokIsObj ? tok.input : 0) ?? 0,
-				outputTokens: stats.outputTokens ?? (tokIsObj ? tok.output : 0) ?? 0,
-				cacheRead:
-					stats.cacheRead ??
-					stats.cacheReadTokens ??
-					(tokIsObj ? tok.cacheRead : 0) ??
-					0,
-				cacheWrite:
-					stats.cacheWrite ??
-					stats.cacheCreation ??
-					(tokIsObj ? tok.cacheWrite : 0) ??
-					0,
+				tokens: Math.max(currentTokens, totalTokens),
+				cost: Math.max(currentCost, cost),
+				inputTokens: Math.max(currentInput, inputTokens),
+				outputTokens: Math.max(currentOutput, outputTokens),
+				cacheRead: Math.max(currentCacheRead, cacheRead),
+				cacheWrite: Math.max(currentCacheWrite, cacheWrite),
 			};
 			this.updateFooter();
 		},
 
-		currentModelLabel() {
-			if (!this.currentModel) {
-				return "--";
+		syncSessionStatsFromSession(session, messages = []) {
+			const sessionStats = session?.stats ?? {};
+			const tokensFromSession =
+				toFiniteNumber(sessionStats.totalTokens) ??
+				toFiniteNumber(sessionStats.tokenUsage) ??
+				toFiniteNumber(sessionStats.tokens);
+			const costFromSession =
+				toFiniteNumber(sessionStats.totalCost) ??
+				toFiniteNumber(sessionStats.cost?.total) ??
+				toFiniteNumber(sessionStats.cost);
+
+			let inputTokens = 0;
+			let outputTokens = 0;
+			let cacheRead = 0;
+			let cacheWrite = 0;
+			let tokensFromMessages = 0;
+			let costFromMessages = 0;
+
+			const usageMessages = Array.isArray(messages) ? messages : [];
+			for (const message of usageMessages) {
+				const totals = parseUsageTotals(message?.usage);
+				inputTokens += totals.input;
+				outputTokens += totals.output;
+				cacheRead += totals.cacheRead;
+				cacheWrite += totals.cacheWrite;
+				tokensFromMessages += totals.total;
+				costFromMessages += totals.cost ?? 0;
 			}
-			if (typeof this.currentModel === "string") {
-				return this.currentModel;
-			}
-			const provider = this.currentModel.provider ?? "";
-			const modelId = this.currentModel.modelId ?? this.currentModel.id ?? "";
-			if (provider && modelId) {
-				// Shorten common provider names
-				const shortProvider = provider
-					.replace("anthropic", "anth")
-					.replace("openai", "oai");
-				return `${shortProvider}/${modelId}`;
-			}
-			return modelId || provider || "--";
+
+			this.sessionStats = {
+				tokens: tokensFromSession ?? tokensFromMessages,
+				cost: costFromSession ?? costFromMessages,
+				inputTokens,
+				outputTokens,
+				cacheRead,
+				cacheWrite,
+			};
+			this.updateFooter();
 		},
 
 		modelDropdownLabel(model) {
@@ -3765,21 +3917,17 @@ document.addEventListener("alpine:init", () => {
 		},
 
 		updateFooter() {
-			const modelEl = document.querySelector(".footer .footer-model");
 			const tokensEl = document.querySelector(".footer .footer-tokens");
 			const costEl = document.querySelector(".footer .footer-cost");
 			const statusEl = document.querySelector(".footer .footer-status");
 			const extStatusEl = document.querySelector(".footer .footer-ext-status");
 
-			if (modelEl) {
-				modelEl.textContent = `model: ${this.currentModelLabel()}`;
-			}
 			if (tokensEl) {
-				const tokens = this.sessionStats.tokens || 0;
+				const tokens = toFiniteNumber(this.sessionStats?.tokens) ?? 0;
 				tokensEl.textContent = `tokens: ${tokens.toLocaleString()}`;
 			}
 			if (costEl) {
-				const cost = this.sessionStats.cost || 0;
+				const cost = toFiniteNumber(this.sessionStats?.cost) ?? 0;
 				costEl.textContent = `cost: $${cost.toFixed(4)}`;
 			}
 			if (statusEl) {

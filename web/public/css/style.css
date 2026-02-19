@@ -2423,6 +2423,11 @@ body.theme-light .chat-text blockquote {
 		gap: 0.75rem;
 	}
 
+	.chat-thread-actions .btn {
+		min-height: 32px;
+		padding: 0.18rem 0.48rem;
+	}
+
 	.chat-composer-actions {
 		gap: 0.5rem;
 	}
@@ -2441,7 +2446,7 @@ body.theme-light .chat-text blockquote {
 	.chat-thread-header {
 		flex-wrap: nowrap;
 		gap: 0.35rem;
-		padding-bottom: 0.25rem;
+		padding-bottom: 0.15rem;
 	}
 
 	/* Keep model/thinking controls aligned with attach/send row */
@@ -2471,6 +2476,7 @@ body.theme-light .chat-text blockquote {
 		padding: 0.25rem 0.5rem;
 		font-size: 0.65rem;
 		white-space: nowrap;
+		min-height: 36px;
 	}
 
 
@@ -3033,6 +3039,7 @@ body.theme-light .chat-text blockquote {
 		padding: 0.2rem 0.38rem;
 		font-size: 0.58rem;
 		white-space: nowrap;
+		min-height: 32px;
 	}
 
 	/* Tightest composer padding at 400px */
