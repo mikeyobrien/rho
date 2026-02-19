@@ -50,6 +50,7 @@ export interface TelegramInboundEnvelope {
   chatType: "private" | "group" | "supergroup" | "channel";
   userId: number | null;
   messageId: number;
+  date: number;
   text: string;
   media?: TelegramInboundMedia;
   replyToMessageId?: number;
@@ -130,6 +131,7 @@ export function normalizeInboundUpdate(update: Update): TelegramInboundEnvelope 
     chatType: message.chat.type as TelegramInboundEnvelope["chatType"],
     userId: typeof message.from?.id === "number" ? message.from.id : null,
     messageId: message.message_id,
+    date: typeof message.date === "number" ? message.date : 0,
     text,
     media,
     replyToMessageId: message.reply_to_message?.message_id,

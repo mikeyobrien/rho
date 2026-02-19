@@ -269,6 +269,18 @@ try {
     assert(normalized?.chatId === 777, "normalized chat id");
     assert(normalized?.userId === 42, "normalized user id");
     assert(normalized?.media === undefined, "text-only messages do not include media envelope");
+    assert(normalized?.date === 1, "normalized envelope includes message date");
+
+    const noDatedNormalized = normalizeInboundUpdate({
+      update_id: 124,
+      message: {
+        message_id: 10,
+        from: { id: 42 },
+        chat: { id: 777, type: "private" as const },
+        text: "no date field",
+      },
+    } as any);
+    assert(noDatedNormalized?.date === 0, "missing message date defaults to 0");
 
     const voiceNormalized = normalizeInboundUpdate({
       update_id: 1231,
@@ -395,6 +407,7 @@ try {
       chatType: "private" as const,
       userId: 42,
       messageId: 10,
+      date: 1,
       text: "hello",
       isReplyToBot: false,
     };

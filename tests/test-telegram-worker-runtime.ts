@@ -121,7 +121,9 @@ try {
   assert(result.ok === true, "pollOnce reports ok");
   assert(result.accepted === 1, "pollOnce accepts authorized update");
   assert(sent.length === 1, "pollOnce sends outbound reply");
-  assert(rpcPrompts[0] === "hello worker", "pollOnce forwards non-slash prompt text unchanged");
+  assert(rpcPrompts[0]?.startsWith("[msg:1111:77]") === true, "pollOnce prefixes RPC prompt with message metadata tag");
+  assert(rpcPrompts[0]?.endsWith("\nhello worker") === true, "pollOnce appends original text after metadata prefix");
+  assert(/\[msg:1111:77\] \[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\nhello worker/.test(rpcPrompts[0] ?? ""), "pollOnce prompt has [msg:chatId:messageId] [YYYY-MM-DD HH:MM] format");
 
   const snapshot = runtime.getSnapshot();
   assert(snapshot.runtimeState.last_update_id === 502, "runtime state advances update offset");
@@ -478,15 +480,12 @@ try {
   const shortcutResult = await shortcutRuntime.pollOnce(false);
   assert(shortcutResult.ok === true, "shortcut scenario poll succeeds");
   assert(shortcutResult.accepted === 4, "shortcut scenario accepts all shortcut updates");
-  assert(
-    JSON.stringify(shortcutPrompts) === JSON.stringify([
-      "/status",
-      "/check",
-      "/telegram",
-      "/telegram check",
-    ]),
-    "shortcut scenario forwards slash prompts exactly as received",
-  );
+  assert(shortcutPrompts.length === 4, "shortcut scenario forwards all slash prompts to RPC");
+  // Slash commands must NOT be prefixed - prefix would break RPC slash parsing (^/ anchored regexes)
+  assert(shortcutPrompts[0] === "/status", "shortcut /status sent without prefix");
+  assert(shortcutPrompts[1] === "/check", "shortcut /check sent without prefix");
+  assert(shortcutPrompts[2] === "/telegram", "shortcut /telegram sent without prefix");
+  assert(shortcutPrompts[3] === "/telegram check", "shortcut /telegram check sent without prefix");
   assert(shortcutSent.length === 4, "shortcut scenario sends one response per slash prompt");
   shortcutRuntime.dispose();
 
@@ -920,7 +919,7 @@ try {
       assert(sttResult.ok === true, "stt scenario poll succeeds");
       assert(sttResult.accepted === 1, "stt scenario accepts inbound voice update");
       assert(sttRpcCalls === 1, "stt scenario treats transcript as prompt and runs rpc once");
-      assert(sttRpcPrompts[0] === "voice transcript from provider", "stt scenario forwards transcript text to rpc prompt runner");
+      assert(sttRpcPrompts[0]?.startsWith("[msg:") && sttRpcPrompts[0]?.endsWith("\nvoice transcript from provider"), "stt scenario prefixes transcript prompt with message metadata");
       assert(sttGetFileCalls.length === 1 && sttGetFileCalls[0] === "voice-file-telegram-1", "stt scenario resolves telegram file metadata from media file id");
       assert(
         sttDownloadUrls.length === 1 && sttDownloadUrls[0]?.includes("/file/botstt-test-token/voice/path-from-telegram.oga"),
@@ -1424,7 +1423,7 @@ try {
         photoDownloadUrls.length === 1 && photoDownloadUrls[0]?.includes("/file/botphoto-test-token/photos/photo-from-telegram.jpg"),
         "photo scenario downloads telegram photo file",
       );
-      assert(photoRpcPrompts[0]?.message === "What is this?", "photo scenario uses caption as prompt text");
+      assert(photoRpcPrompts[0]?.message?.startsWith("[msg:") && photoRpcPrompts[0]?.message?.endsWith("\nWhat is this?"), "photo scenario prefixes caption prompt with message metadata");
 
       const promptImages = photoRpcPrompts[0]?.images as Array<{ type: string; data: string; mimeType: string }>;
       assert(Array.isArray(promptImages) && promptImages.length === 1, "photo scenario passes one image to rpc prompt");
@@ -1512,7 +1511,7 @@ try {
 
       await captionlessPhotoRuntime.pollOnce(false);
       assert(captionlessPhotoPrompts.length === 1, "captionless photo calls rpc prompt once");
-      assert(captionlessPhotoPrompts[0]?.message === "Describe this image.", "captionless photo uses default prompt");
+      assert(captionlessPhotoPrompts[0]?.message?.startsWith("[msg:") && captionlessPhotoPrompts[0]?.message?.endsWith("\nDescribe this image."), "captionless photo prefixes default prompt with message metadata");
       captionlessPhotoRuntime.dispose();
     } finally {
       globalThis.fetch = captionlessOriginalFetch;
@@ -1615,6 +1614,164 @@ try {
     } finally {
       globalThis.fetch = photoInboundOriginalFetch;
     }
+  }
+
+  console.log("\n-- /jobs and /tts slash commands work without prefix interference --");
+  {
+    // /jobs and /tts are handled before the RPC call site, so the prefix
+    // must NOT be applied to promptText used for slash parsing.
+    const slashStatePath = join(tmp, "telegram", "state.slash-prefix.json");
+    const slashMapPath = join(tmp, "telegram", "session-map.slash-prefix.json");
+    const slashSessionDir = join(tmp, "sessions-slash-prefix");
+
+    const slashUpdates = [
+      {
+        update_id: 1601,
+        message: {
+          message_id: 601,
+          from: { id: 2222 },
+          chat: { id: 1111, type: "private" as const },
+          date: 1739808352,
+          text: "/jobs",
+        },
+      },
+      {
+        update_id: 1602,
+        message: {
+          message_id: 602,
+          from: { id: 2222 },
+          chat: { id: 1111, type: "private" as const },
+          date: 1739808352,
+          text: "/tts hello test",
+        },
+      },
+    ];
+
+    let slashGetUpdatesCalls = 0;
+    const slashSent: Array<{ chat_id: number; text: string }> = [];
+    let slashRpcCalls = 0;
+
+    const slashClient = {
+      async getUpdates() {
+        slashGetUpdatesCalls++;
+        return slashGetUpdatesCalls === 1 ? slashUpdates : [];
+      },
+      async sendMessage(chat_id: number, text: string) {
+        slashSent.push({ chat_id, text });
+        return { message_id: 15, chat: { id: chat_id, type: "private" as const }, date: 1 };
+      },
+      async sendChatAction() { return true; },
+      async sendVoice() {
+        return { message_id: 16, chat: { id: 1111, type: "private" as const }, date: 1 };
+      },
+    };
+
+    const slashRpcRunner = {
+      async runPrompt() {
+        slashRpcCalls++;
+        return "should-not-run";
+      },
+      dispose() {},
+    };
+
+    const slashPrefixOriginalFetch = globalThis.fetch;
+    const prevApiKey = process.env.ELEVENLABS_API_KEY;
+    try {
+      process.env.ELEVENLABS_API_KEY = "test-key";
+      globalThis.fetch = (async () => ({
+        ok: true,
+        status: 200,
+        async arrayBuffer() { return new Uint8Array([1, 2]).buffer; },
+      })) as any;
+
+      const slashRuntime = createTelegramWorkerRuntime({
+        settings,
+        client: slashClient as any,
+        rpcRunner: slashRpcRunner as any,
+        statePath: slashStatePath,
+        mapPath: slashMapPath,
+        sessionDir: slashSessionDir,
+        checkTriggerPath: join(tmp, "telegram", "check.trigger.slash-prefix.json"),
+        operatorConfigPath: join(tmp, "telegram", "config.slash-prefix.json"),
+        botUsername: "",
+        logPath: join(tmp, "telegram", "log.slash-prefix.jsonl"),
+      });
+
+      const slashResult = await slashRuntime.pollOnce(false);
+      assert(slashResult.ok === true, "slash prefix scenario poll succeeds");
+      assert(slashResult.accepted === 2, "slash prefix scenario accepts both /jobs and /tts");
+      assert(slashRpcCalls === 0, "slash prefix scenario: /jobs and /tts bypass RPC (prefix does not break ^/ parsing)");
+      assert(slashSent.some((s) => s.text.includes("Jobs") || s.text.includes("No jobs")), "slash prefix scenario: /jobs produces job list response");
+      slashRuntime.dispose();
+    } finally {
+      if (prevApiKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+      else process.env.ELEVENLABS_API_KEY = prevApiKey;
+      globalThis.fetch = slashPrefixOriginalFetch;
+    }
+  }
+
+  console.log("\n-- inbound queue without date field loads with backwards compat --");
+  {
+    const noDatDir = join(tmp, "telegram-nodate");
+    const noDatStatePath = join(noDatDir, "state.json");
+    const noDatMapPath = join(noDatDir, "session-map.json");
+    const noDatSessionDir = join(tmp, "sessions-nodate");
+    const noDatQueuePath = join(noDatDir, "inbound.queue.json");
+
+    loadRuntimeState(noDatStatePath);
+    writeFileSync(
+      noDatQueuePath,
+      JSON.stringify([
+        {
+          updateId: 2001,
+          chatId: 1111,
+          chatType: "private",
+          userId: 2222,
+          messageId: 501,
+          text: "old queue item",
+          isReplyToBot: false,
+          sessionKey: "dm:1111",
+          sessionFile: join(noDatSessionDir, "dm-1111.jsonl"),
+        },
+      ], null, 2),
+    );
+
+    const noDatRpcPrompts: string[] = [];
+    const noDatClient = {
+      async getUpdates() { return []; },
+      async sendMessage(chat_id: number, text: string) {
+        return { message_id: 17, chat: { id: chat_id, type: "private" as const }, date: 1 };
+      },
+      async sendChatAction() { return true; },
+    };
+
+    const noDatRpcRunner = {
+      async runPrompt(_sessionFile: string, message: string) {
+        noDatRpcPrompts.push(message);
+        return "compat reply";
+      },
+      dispose() {},
+    };
+
+    const noDatRuntime = createTelegramWorkerRuntime({
+      settings,
+      client: noDatClient as any,
+      rpcRunner: noDatRpcRunner as any,
+      statePath: noDatStatePath,
+      mapPath: noDatMapPath,
+      sessionDir: noDatSessionDir,
+      checkTriggerPath: join(noDatDir, "check.trigger.json"),
+      operatorConfigPath: join(noDatDir, "config.json"),
+      botUsername: "",
+      logPath: join(noDatDir, "log.jsonl"),
+    });
+
+    const noDatResult = await noDatRuntime.pollOnce(false);
+    assert(noDatResult.ok === true, "no-date queue compat scenario poll succeeds");
+    assert(noDatRpcPrompts.length === 1, "no-date queue item processed");
+    assert(noDatRpcPrompts[0]?.startsWith("[msg:1111:501]\n"), "no-date queue item prefix omits timestamp bracket");
+    assert(!noDatRpcPrompts[0]?.includes("[1970") && !noDatRpcPrompts[0]?.includes("[20"), "no-date queue item has no timestamp bracket");
+    noDatRuntime.dispose();
   }
 
   failingRuntime.dispose();
