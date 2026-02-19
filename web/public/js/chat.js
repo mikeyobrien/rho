@@ -1491,11 +1491,17 @@ document.addEventListener("alpine:init", () => {
 		wsReconnectTimer: null,
 		wsMaxReconnectDelay: 30000,
 		wsBaseReconnectDelay: 1000,
+		wsPingTimer: null,
 		isWsConnected: false,
 		showReconnectBanner: false,
 		reconnectBannerMessage: "",
 		streamDisconnectedDuringResponse: false,
 		awaitingStreamReconnectState: false,
+		recoveringRpcSession: false,
+		replayingPendingRpc: false,
+		lastRpcEventSeq: 0,
+		rpcCommandCounter: 0,
+		pendingRpcCommands: new Map(),
 		theme: "dark",
 
 		// Idle detection state
@@ -1795,6 +1801,7 @@ document.addEventListener("alpine:init", () => {
 				this.isWsConnected = true;
 				this.wsReconnectAttempts = 0;
 				this.error = "";
+				this.startWsHeartbeat();
 
 				if (this.awaitingStreamReconnectState) {
 					this.showReconnectBanner = true;
@@ -1804,14 +1811,28 @@ document.addEventListener("alpine:init", () => {
 					this.reconnectBannerMessage = "";
 				}
 
-				// Re-establish RPC session after reconnect.
-				// The server killed the old session when the previous socket closed,
-				// so we need to send switch_session again on the new socket.
 				const sessionFile =
 					this.activeRpcSessionFile ||
 					this.getSessionFile(this.activeSessionId);
+
+				if (this.activeRpcSessionId) {
+					this.recoveringRpcSession = true;
+					const resumed = this.sendWs(
+						{
+							type: "rpc_command",
+							sessionId: this.activeRpcSessionId,
+							lastEventSeq: this.lastRpcEventSeq,
+							command: { type: "get_state" },
+						},
+						{ replayable: false },
+					);
+					if (resumed) {
+						return;
+					}
+					this.recoveringRpcSession = false;
+				}
+
 				if (sessionFile) {
-					this.activeRpcSessionId = "";
 					this.startRpcSession(sessionFile);
 				}
 			});
@@ -1822,6 +1843,7 @@ document.addEventListener("alpine:init", () => {
 
 			ws.addEventListener("close", () => {
 				if (this.ws === ws) {
+					this.stopWsHeartbeat();
 					const lostDuringResponse = this.isStreaming || this.isSendingPrompt;
 					if (lostDuringResponse) {
 						this.streamDisconnectedDuringResponse = true;
@@ -1839,6 +1861,7 @@ document.addEventListener("alpine:init", () => {
 			});
 
 			ws.addEventListener("error", () => {
+				this.stopWsHeartbeat();
 				this.isWsConnected = false;
 				// Error handling is done in close event
 			});
@@ -1870,17 +1893,155 @@ document.addEventListener("alpine:init", () => {
 			this.connectWebSocket();
 		},
 
-		sendWs(payload) {
+		startWsHeartbeat() {
+			this.stopWsHeartbeat();
+			this.wsPingTimer = setInterval(() => {
+				if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+					return;
+				}
+				this.ws.send(
+					JSON.stringify({
+						type: "rpc_ping",
+						ts: Date.now(),
+					}),
+				);
+			}, 15000);
+		},
+
+		stopWsHeartbeat() {
+			if (this.wsPingTimer) {
+				clearInterval(this.wsPingTimer);
+				this.wsPingTimer = null;
+			}
+		},
+
+		nextRpcCommandId() {
+			this.rpcCommandCounter += 1;
+			return `rpc-${Date.now()}-${this.rpcCommandCounter}`;
+		},
+
+		isReplayableRpcCommand(commandType) {
+			return (
+				commandType === "prompt" ||
+				commandType === "steer" ||
+				commandType === "follow_up"
+			);
+		},
+
+		prepareRpcPayload(payload) {
+			if (
+				!payload ||
+				typeof payload !== "object" ||
+				payload.type !== "rpc_command" ||
+				!payload.command ||
+				typeof payload.command !== "object"
+			) {
+				return payload;
+			}
+
+			const nextPayload = {
+				...payload,
+				command: {
+					...payload.command,
+				},
+			};
+
+			const commandId =
+				typeof nextPayload.command.id === "string"
+					? nextPayload.command.id.trim()
+					: "";
+			if (!commandId) {
+				nextPayload.command.id = this.nextRpcCommandId();
+			} else {
+				nextPayload.command.id = commandId;
+			}
+
+			return nextPayload;
+		},
+
+		trackPendingRpcCommand(payload, options = {}) {
+			if (
+				!payload ||
+				typeof payload !== "object" ||
+				payload.type !== "rpc_command" ||
+				!payload.command ||
+				typeof payload.command !== "object"
+			) {
+				return;
+			}
+			if (options.trackPending === false) {
+				return;
+			}
+
+			const commandId =
+				typeof payload.command.id === "string" ? payload.command.id : "";
+			if (!commandId) {
+				return;
+			}
+
+			const replayable =
+				typeof options.replayable === "boolean"
+					? options.replayable
+					: this.isReplayableRpcCommand(payload.command.type);
+			if (!replayable) {
+				return;
+			}
+
+			this.pendingRpcCommands.set(commandId, {
+				payload: JSON.parse(JSON.stringify(payload)),
+				queuedAt: Date.now(),
+			});
+		},
+
+		replayPendingRpcCommands() {
+			if (this.replayingPendingRpc) {
+				return;
+			}
+			if (
+				!this.ws ||
+				this.ws.readyState !== WebSocket.OPEN ||
+				!this.isWsConnected ||
+				!this.activeRpcSessionId
+			) {
+				return;
+			}
+
+			if (this.pendingRpcCommands.size === 0) {
+				return;
+			}
+
+			this.replayingPendingRpc = true;
+			try {
+				for (const [commandId, entry] of this.pendingRpcCommands.entries()) {
+					const pendingPayload = JSON.parse(JSON.stringify(entry.payload));
+					pendingPayload.sessionId = this.activeRpcSessionId;
+					if (!pendingPayload.command?.id) {
+						pendingPayload.command = {
+							...(pendingPayload.command ?? {}),
+							id: commandId,
+						};
+					}
+					this.ws.send(JSON.stringify(pendingPayload));
+				}
+			} finally {
+				this.replayingPendingRpc = false;
+			}
+		},
+
+		sendWs(payload, options = {}) {
+			const preparedPayload = this.prepareRpcPayload(payload);
+
 			if (!this.ws) {
 				this.error = "WebSocket not connected";
 				return false;
 			}
 
 			if (this.ws.readyState === WebSocket.CONNECTING) {
+				this.trackPendingRpcCommand(preparedPayload, options);
 				this.ws.addEventListener(
 					"open",
 					() => {
-						this.ws?.send(JSON.stringify(payload));
+						this.ws?.send(JSON.stringify(preparedPayload));
 					},
 					{ once: true },
 				);
@@ -1892,7 +2053,8 @@ document.addEventListener("alpine:init", () => {
 				return false;
 			}
 
-			this.ws.send(JSON.stringify(payload));
+			this.trackPendingRpcCommand(preparedPayload, options);
+			this.ws.send(JSON.stringify(preparedPayload));
 			return true;
 		},
 
@@ -1908,6 +2070,10 @@ document.addEventListener("alpine:init", () => {
 				return;
 			}
 
+			if (payload.type === "rpc_pong") {
+				return;
+			}
+
 			if (payload.type === "error") {
 				this.error = payload.message ?? "WebSocket error";
 				this.isForking = false;
@@ -1915,13 +2081,39 @@ document.addEventListener("alpine:init", () => {
 				return;
 			}
 
+			if (payload.type === "rpc_session_not_found") {
+				if (
+					payload.sessionId &&
+					this.activeRpcSessionId &&
+					payload.sessionId === this.activeRpcSessionId
+				) {
+					this.recoveringRpcSession = false;
+					this.activeRpcSessionId = "";
+					this.lastRpcEventSeq = 0;
+					const sessionFile =
+						this.activeRpcSessionFile ||
+						this.getSessionFile(this.activeSessionId);
+					if (sessionFile) {
+						this.recoveringRpcSession = true;
+						this.startRpcSession(sessionFile);
+					}
+				}
+				return;
+			}
+
+			if (payload.type === "rpc_replay_gap") {
+				this.showReconnectBanner = true;
+				this.reconnectBannerMessage =
+					"Connection resumed, but some live events were missed. Reloading…";
+				this.$nextTick(() => this.reloadActiveSession());
+				return;
+			}
+
 			if (payload.type === "session_started") {
 				this.activeRpcSessionId = payload.sessionId ?? "";
 				this.activeRpcSessionFile = payload.sessionFile ?? "";
+				this.lastRpcEventSeq = 0;
 				this.isForking = false;
-				// Fetch initial state and available models.
-				// Stats are requested after state/switch response to avoid
-				// racing a transient zero snapshot on session startup.
 				this.requestState();
 				this.requestAvailableModels();
 				this.requestSlashCommands(true);
@@ -1936,6 +2128,14 @@ document.addEventListener("alpine:init", () => {
 				return;
 			}
 
+			const seq = Number(payload.seq ?? 0);
+			if (Number.isFinite(seq) && seq > 0) {
+				if (seq <= this.lastRpcEventSeq) {
+					return;
+				}
+				this.lastRpcEventSeq = seq;
+			}
+
 			const rpcEvent = payload.event;
 			if (!rpcEvent || typeof rpcEvent !== "object") {
 				return;
@@ -1946,6 +2146,11 @@ document.addEventListener("alpine:init", () => {
 
 		handleRpcEvent(event) {
 			if (event.type === "response") {
+				const responseId = typeof event.id === "string" ? event.id : "";
+				if (responseId) {
+					this.pendingRpcCommands.delete(responseId);
+				}
+
 				if (!event.success) {
 					if (
 						event.command === "prompt" &&
@@ -1975,10 +2180,25 @@ document.addEventListener("alpine:init", () => {
 					this.requestSessionStats();
 				}
 				// Handle get_state response
-				if (event.command === "get_state" && event.success) {
-					const state = event.state ?? event.data ?? {};
-					this.handleStateUpdate(state);
-					this.requestSessionStats();
+				if (event.command === "get_state") {
+					if (event.success) {
+						const state = event.state ?? event.data ?? {};
+						this.handleStateUpdate(state);
+						this.requestSessionStats();
+						if (this.recoveringRpcSession) {
+							this.recoveringRpcSession = false;
+							this.replayPendingRpcCommands();
+						}
+					} else if (this.recoveringRpcSession) {
+						this.recoveringRpcSession = false;
+						const sessionFile =
+							this.activeRpcSessionFile ||
+							this.getSessionFile(this.activeSessionId);
+						if (sessionFile) {
+							this.activeRpcSessionId = "";
+							this.startRpcSession(sessionFile);
+						}
+					}
 				}
 				// Handle get_available_models response
 				if (event.command === "get_available_models" && event.success) {
@@ -2939,6 +3159,10 @@ document.addEventListener("alpine:init", () => {
 			// Clear stale RPC
 			this.activeRpcSessionId = "";
 			this.activeRpcSessionFile = "";
+			this.lastRpcEventSeq = 0;
+			this.recoveringRpcSession = false;
+			this.replayingPendingRpc = false;
+			this.pendingRpcCommands.clear();
 			this.resetSlashCommandsCache();
 			this.showReconnectBanner = false;
 			this.reconnectBannerMessage = "";
@@ -2985,6 +3209,10 @@ document.addEventListener("alpine:init", () => {
 			// Clear stale RPC when switching sessions
 			this.activeRpcSessionId = "";
 			this.activeRpcSessionFile = "";
+			this.lastRpcEventSeq = 0;
+			this.recoveringRpcSession = false;
+			this.replayingPendingRpc = false;
+			this.pendingRpcCommands.clear();
 			this.resetSlashCommandsCache();
 			this.showReconnectBanner = false;
 			this.reconnectBannerMessage = "";
@@ -3299,6 +3527,10 @@ document.addEventListener("alpine:init", () => {
 				this.activeSessionId = result.sessionId;
 				this.activeRpcSessionId = "";
 				this.activeRpcSessionFile = result.sessionFile;
+				this.lastRpcEventSeq = 0;
+				this.recoveringRpcSession = false;
+				this.replayingPendingRpc = false;
+				this.pendingRpcCommands.clear();
 				this.resetSlashCommandsCache();
 				history.replaceState(null, "", `#${result.sessionId}`);
 				this.promptText = "";
@@ -3744,6 +3976,9 @@ document.addEventListener("alpine:init", () => {
 			}
 			if (typeof state.isStreaming === "boolean") {
 				this.isStreaming = state.isStreaming;
+			}
+			if (!this.isStreaming) {
+				this.isSendingPrompt = false;
 			}
 			this.resolveInterruptedStreamState();
 			this.syncThinkingLevels();
