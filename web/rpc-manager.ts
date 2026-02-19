@@ -64,7 +64,11 @@ export class RPCManager {
 		const id = randomUUID();
 		const child = spawn("pi", ["--mode", "rpc"], {
 			stdio: ["pipe", "pipe", "pipe"],
-			env: process.env,
+			env: {
+				...process.env,
+				// RPC worker is not a subagent - explicitly unset to prevent inheritance.
+				RHO_SUBAGENT: undefined,
+			},
 		});
 
 		const state: SessionState = {

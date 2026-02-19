@@ -230,6 +230,8 @@ export class TelegramRpcRunner {
         ...process.env,
         // Prevent telegram polling inside RPC worker while keeping other extensions available.
         RHO_TELEGRAM_DISABLE: "1",
+        // RPC worker is not a subagent - explicitly unset to prevent inheritance.
+        RHO_SUBAGENT: undefined,
       },
     });
 
