@@ -307,6 +307,9 @@ Why this matters:
 - Browsers do not execute `.ts` directly, so browser runtime code stays in `.js` unless we add a build step.
 - Keep imports and boundaries explicit in browser modules; avoid implicit global/script-order coupling.
 - Enforce the 500-line limit for `web/**/*.ts` and `web/**/*.js` to keep files maintainable.
+- Pre-commit hooks run strict Biome (`check --error-on-warnings`) on staged `.ts/.js` plus staged-only web line-limit checks.
+
+Hooks are installed automatically when running `npm install` in this repo (`prepare` -> `simple-git-hooks`).
 
 ### Views
 

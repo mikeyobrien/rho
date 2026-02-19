@@ -53,6 +53,7 @@ Rules:
 - Do **not** add browser `.ts` files under `web/public/` unless a compile step is introduced.
 - Keep browser modules explicit (ES module imports), avoid script-order/global coupling.
 - Keep `web/**/*.ts` and `web/**/*.js` at **<= 500 lines** per file.
+- Respect pre-commit backpressure gates: strict Biome on staged `.ts/.js` (`check --error-on-warnings`) + staged web 500-line limit (`scripts/pre-commit.sh`).
 
 ### Documentation Entry Point
 - Generated architecture/reference docs live in `.agents/summary/`.
