@@ -1251,48 +1251,78 @@ body.theme-light .chat-text blockquote {
 }
 
 /* Edit tool: inline diff */
-.sem-diff {
+.sem-inline-diff-wrap {
 	display: flex;
 	flex-direction: column;
-	gap: 0.3rem;
+	gap: 0.35rem;
 }
-.sem-diff-section {
+
+.sem-inline-diff {
+	border: 1px solid var(--border);
 	border-radius: 4px;
-	overflow: hidden;
+	overflow: auto;
+	background: rgba(15, 23, 42, 0.35);
 }
-.sem-diff-label {
-	font-size: 0.6rem;
-	padding: 0.15rem 0.5rem;
-	font-weight: 500;
+
+.sem-inline-diff-line {
+	display: grid;
+	grid-template-columns: 4ch 4ch 2ch minmax(0, 1fr);
+	gap: 0.45rem;
+	align-items: start;
+	padding: 0.2rem 0.45rem;
 	font-family: var(--mono);
+	font-size: 0.68rem;
+	line-height: 1.35;
+	border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
-.sem-diff-remove {
-	background: rgba(239, 68, 68, 0.06);
-	border-left: 3px solid var(--red);
+
+.sem-inline-diff-line:first-child {
+	border-top: none;
 }
-.sem-diff-remove .sem-diff-label {
-	color: var(--red);
+
+.sem-inline-diff-line.ctx {
+	background: rgba(255, 255, 255, 0.01);
 }
-.sem-diff-add {
-	background: rgba(16, 185, 129, 0.06);
-	border-left: 3px solid var(--green);
+
+.sem-inline-diff-line.add {
+	background: rgba(34, 197, 94, 0.1);
 }
-.sem-diff-add .sem-diff-label {
+
+.sem-inline-diff-line.del {
+	background: rgba(239, 68, 68, 0.1);
+}
+
+.sem-inline-ln {
+	color: var(--text-dim);
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.sem-inline-sign {
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.sem-inline-diff-line.add .sem-inline-sign,
+.sem-inline-diff-line.add .sem-inline-ln {
 	color: var(--green);
 }
-.sem-diff-code {
-	margin: 0;
-	padding: 0.3rem 0.5rem;
-	font-size: 0.7rem;
-	line-height: 1.4;
-	background: transparent;
-	overflow-x: auto;
-	white-space: pre;
-	border: none;
+
+.sem-inline-diff-line.del .sem-inline-sign,
+.sem-inline-diff-line.del .sem-inline-ln {
+	color: var(--red);
 }
-.sem-diff-code code {
-	background: transparent;
-	padding: 0;
+
+.sem-inline-text {
+	white-space: pre;
+	overflow-wrap: normal;
+}
+
+.sem-inline-empty,
+.sem-inline-truncated {
+	font-size: 0.62rem;
+	color: var(--text-dim);
+	font-family: var(--mono);
 }
 
 /* Write / Read: file content */
@@ -1863,78 +1893,101 @@ body.theme-light .chat-text blockquote {
 
 /* ─── Queue bar ─── */
 .chat-queue-bar {
-	border: 1px dashed var(--border-bright);
-	border-radius: 4px;
-	background: var(--bg-alt);
-	margin-bottom: 0.5rem;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: rgba(251, 191, 36, 0.04);
+	margin-bottom: 0.45rem;
 	overflow: hidden;
 }
 
 .chat-queue-header {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	gap: 0.5rem;
 	width: 100%;
-	padding: 0.35rem 0.6rem;
+	padding: 0.35rem 0.55rem;
 	background: none;
 	border: none;
-	color: var(--yellow);
 	font-family: var(--mono);
-	font-size: 0.7rem;
-	font-weight: 600;
+	font-size: 0.68rem;
 	cursor: pointer;
+	text-align: left;
 }
 
 .chat-queue-header:hover {
-	background: rgba(251, 191, 36, 0.05);
+	background: rgba(251, 191, 36, 0.06);
 }
 
 .chat-queue-count {
+	color: var(--yellow);
+	font-weight: 700;
 	letter-spacing: 0.02em;
+	white-space: nowrap;
+}
+
+.chat-queue-summary {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-dim);
+	font-size: 0.66rem;
 }
 
 .chat-queue-chevron {
 	color: var(--text-dim);
-	font-size: 0.65rem;
+	font-size: 0.62rem;
 }
 
 .chat-queue-items {
 	display: flex;
 	flex-direction: column;
 	gap: 0.35rem;
-	padding: 0 0.5rem 0.5rem;
+	padding: 0.35rem 0.45rem 0.45rem;
+	border-top: 1px solid var(--border);
+	max-height: 12rem;
+	overflow: auto;
 }
 
 .chat-queue-item {
 	border: 1px solid var(--border);
-	border-radius: 3px;
+	border-left: 2px solid var(--yellow);
+	border-radius: 4px;
 	background: var(--bg);
-	padding: 0.35rem 0.45rem;
+	padding: 0.3rem 0.4rem;
 }
 
 .chat-queue-item-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	margin-bottom: 0.25rem;
+	margin-bottom: 0.2rem;
 }
 
 .chat-queue-item-num {
-	font-size: 0.6rem;
+	font-size: 0.58rem;
 	color: var(--text-dim);
 	font-family: var(--mono);
 }
 
 .chat-queue-item-actions {
 	display: flex;
-	gap: 0.25rem;
+	gap: 0.2rem;
 	align-items: center;
+}
+
+.chat-queue-item-actions .btn {
+	min-height: 1.35rem;
+	padding: 0.08rem 0.3rem;
+	line-height: 1;
+	letter-spacing: 0;
+	text-transform: none;
 }
 
 .chat-queue-remove,
 .chat-queue-attach {
 	font-size: 0.7rem;
-	padding: 0.1rem 0.3rem;
 	cursor: pointer;
 }
 
@@ -1942,17 +1995,18 @@ body.theme-light .chat-text blockquote {
 	width: 100%;
 	resize: none;
 	border: 1px solid var(--border);
+	border-radius: 3px;
 	background: var(--bg-alt);
 	color: var(--text);
 	font-family: var(--mono);
-	font-size: 0.75rem;
-	line-height: 1.4;
-	padding: 0.3rem 0.45rem;
-	min-height: 1.6em;
+	font-size: 0.72rem;
+	line-height: 1.35;
+	padding: 0.26rem 0.4rem;
+	min-height: 1.5em;
 }
 
 .chat-queue-item-text:focus {
-	border-color: var(--yellow-dim, var(--yellow));
+	border-color: var(--yellow);
 	outline: none;
 }
 
@@ -1964,8 +2018,8 @@ body.theme-light .chat-text blockquote {
 }
 
 .chat-queue-item-images .chat-attachment-thumb {
-	width: 2.5rem;
-	height: 2.5rem;
+	width: 2.2rem;
+	height: 2.2rem;
 }
 
 .btn-xs {
@@ -1983,6 +2037,26 @@ body.theme-light .chat-text blockquote {
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
+}
+
+.chat-composer-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+}
+
+.chat-composer-controls {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	flex: 1;
+}
+
+.chat-composer-controls .chat-control-group,
+.chat-composer-controls .chat-control-btn {
+	flex-shrink: 0;
 }
 
 .chat-composer {
@@ -2018,6 +2092,7 @@ body.theme-light .chat-text blockquote {
 	align-items: center;
 	justify-content: flex-end;
 	gap: 0.5rem;
+	flex-shrink: 0;
 }
 
 .chat-composer-input {
@@ -2232,7 +2307,7 @@ body.theme-light .chat-text blockquote {
 	}
 
 	.main {
-		padding: 0.15rem 0.35rem 0;
+		padding: 0;
 		gap: 0;
 	}
 
@@ -2240,10 +2315,15 @@ body.theme-light .chat-text blockquote {
 		padding: 1rem;
 	}
 
+	/* Keep chat flush on mobile while preserving padding on other views */
+	.chat-view {
+		padding: 0;
+	}
+
 	.chat-composer {
 		background: var(--bg);
-		padding: 0.4rem 0.5rem;
-		padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+		padding: 0.3rem 0.35rem;
+		padding-bottom: max(0.3rem, env(safe-area-inset-bottom));
 		border-top: 1px solid var(--border);
 		z-index: 10;
 	}
@@ -2258,6 +2338,27 @@ body.theme-light .chat-text blockquote {
 		min-height: 2.5rem;
 		max-height: 8rem;
 		font-size: 14px;
+	}
+
+	.chat-queue-header {
+		padding: 0.32rem 0.45rem;
+	}
+
+	.chat-queue-summary {
+		max-width: 52vw;
+	}
+
+	.chat-queue-items {
+		max-height: 8.5rem;
+		padding: 0.3rem 0.35rem 0.35rem;
+	}
+
+	.chat-queue-item {
+		padding: 0.25rem 0.35rem;
+	}
+
+	.chat-queue-item-text {
+		font-size: 0.7rem;
 	}
 
 	/* Touch targets (M4) - 44px minimum for interactive elements */
@@ -2288,7 +2389,7 @@ body.theme-light .chat-text blockquote {
 
 	/* Tighter message padding + smaller text */
 	.chat-message {
-		padding: 0.5rem 0.6rem;
+		padding: 0.55rem 1.1rem;
 	}
 
 	.chat-text {
@@ -2326,7 +2427,7 @@ body.theme-light .chat-text blockquote {
 		gap: 0.5rem;
 	}
 
-	.chat-controls-left {
+	.chat-composer-controls {
 		gap: 0.75rem;
 	}
 
@@ -2343,15 +2444,13 @@ body.theme-light .chat-text blockquote {
 		padding-bottom: 0.25rem;
 	}
 
-	/* Compact input area — merge controls into a slim bar above composer */
-	.chat-controls {
-		padding: 0.2rem 0;
+	/* Keep model/thinking controls aligned with attach/send row */
+	.chat-composer-toolbar {
 		gap: 0.4rem;
-		border-top: none;
-		margin-top: 0;
+		align-items: center;
 	}
 
-	.chat-controls-left {
+	.chat-composer-controls {
 		gap: 0.5rem;
 		flex-wrap: nowrap;
 		overflow-x: auto;
@@ -2363,7 +2462,7 @@ body.theme-light .chat-text blockquote {
 
 	.chat-control-select {
 		min-width: 0;
-		max-width: 180px;
+		max-width: 132px;
 		font-size: 0.7rem;
 		padding: 0.25rem 0.4rem;
 	}
@@ -2375,15 +2474,16 @@ body.theme-light .chat-text blockquote {
 	}
 
 
-	/* Tighter thread body gap */
+	/* Tighter thread body gap + slight horizontal inset for message cards */
 	.chat-thread-body {
-		gap: 0.6rem;
+		gap: 0.55rem;
+		padding: 0 0.45rem;
 	}
 
 	/* Compact thread container */
 	.chat-thread {
-		padding: 0.5rem;
-		gap: 0.4rem;
+		padding: 0.25rem;
+		gap: 0.35rem;
 	}
 
 }
@@ -2801,13 +2901,17 @@ body.theme-light .chat-text blockquote {
 	/* nav sizing already handled at 720px */
 
 	.main {
-		padding: 0 0.25rem;
+		padding: 0;
 		gap: 0;
 	}
 
 	.view {
 		padding: 0.5rem;
 		min-height: 30vh;
+	}
+
+	.chat-view {
+		padding: 0;
 	}
 
 	.view-header {
@@ -2844,13 +2948,13 @@ body.theme-light .chat-text blockquote {
 
 	.chat-thread {
 		min-height: auto;
-		padding: 0.35rem;
-		gap: 0.35rem;
+		padding: 0.2rem;
+		gap: 0.3rem;
 		border: none;
 	}
 
 	.chat-thread-body {
-		padding-right: 0.1rem;
+		padding: 0 0.35rem;
 		gap: 0.4rem;
 	}
 
@@ -2866,6 +2970,11 @@ body.theme-light .chat-text blockquote {
 		white-space: nowrap;
 	}
 
+
+	.chat-thread-meta {
+		font-size: 0.58rem;
+	}
+
 	.chat-thread-actions .btn {
 		font-size: 0.6rem;
 		padding: 0.25rem 0.5rem;
@@ -2873,7 +2982,7 @@ body.theme-light .chat-text blockquote {
 	}
 
 	.chat-message {
-		padding: 0.35rem 0.4rem;
+		padding: 0.38rem 0.85rem;
 	}
 
 	.chat-message-role {
@@ -2897,16 +3006,14 @@ body.theme-light .chat-text blockquote {
 		font-size: 0.8rem;
 	}
 
-	/* Chat controls responsive — single compact row */
-	.chat-controls {
-		flex-direction: row;
+	/* Composer controls + actions stay on one row */
+	.chat-composer-toolbar {
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.3rem 0;
+		gap: 0.35rem;
 	}
 
-	.chat-controls-left {
-		gap: 0.4rem;
+	.chat-composer-controls {
+		gap: 0.35rem;
 		flex-wrap: nowrap;
 		overflow-x: auto;
 	}
@@ -2917,14 +3024,14 @@ body.theme-light .chat-text blockquote {
 
 	.chat-control-select {
 		min-width: 0;
-		max-width: 150px;
-		font-size: 0.65rem;
-		padding: 0.2rem 0.35rem;
+		max-width: 112px;
+		font-size: 0.62rem;
+		padding: 0.18rem 0.32rem;
 	}
 
 	.chat-control-btn {
-		padding: 0.2rem 0.45rem;
-		font-size: 0.6rem;
+		padding: 0.2rem 0.38rem;
+		font-size: 0.58rem;
 		white-space: nowrap;
 	}
 
@@ -3060,7 +3167,12 @@ body.theme-light .chat-text blockquote {
 	.sem-file-path {
 		font-size: 0.6rem;
 	}
-	.sem-diff-code,
+	.sem-inline-diff-line {
+		grid-template-columns: 3ch 3ch 1.5ch minmax(0, 1fr);
+		gap: 0.28rem;
+		padding: 0.16rem 0.35rem;
+	}
+	.sem-inline-diff-line,
 	.sem-file-content,
 	.sem-bash-cmd code,
 	.sem-bash-output pre,

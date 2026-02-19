@@ -30,8 +30,8 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260218v43" />
-    <link rel="stylesheet" href="/css/review-panel.css?v=20260219v1" />
+    <link rel="stylesheet" href="/css/style.css?v=20260219v55" />
+    <link rel="stylesheet" href="/css/review-panel.css?v=20260219v2" />
     <!-- Preload CDN scripts for faster initial render -->
     <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
     <link rel="preload" href="https://cdn.jsdelivr.net/npm/marked/marked.min.js" as="script" />
@@ -42,7 +42,7 @@
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
     <script src="/js/app.js?v=20260211v" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
-    <script src="/js/chat.js?v=20260218v20" defer></script>
+    <script src="/js/chat.js?v=20260219v31" defer></script>
     <script src="/js/config.js?v=20260211v" defer></script>
     <script src="/js/memory.js?v=20260211v" defer></script>
     <script src="/js/review-panel.js?v=20260219v1" defer></script>
@@ -189,10 +189,9 @@
                   </button>
                   <div class="chat-thread-info">
                     <div class="chat-thread-title" x-text="activeSession ? sessionLabel(activeSession) : 'Select a session'"></div>
-                    <div class="chat-thread-meta" x-show="activeSession" x-text="messageCountLabel(activeSession)"></div>
+                    <div class="chat-thread-meta" x-show="activeSession" x-text="threadMetaLabel(activeSession)"></div>
                   </div>
                   <div class="chat-thread-status">
-                    <span class="chat-live-badge" x-show="isForkActive()">● LIVE</span>
                     <span class="chat-readonly-badge" x-show="!isForkActive() && activeSession">READ-ONLY</span>
                   </div>
                   <div class="chat-thread-actions">
@@ -347,15 +346,23 @@
                                         <span class="sem-badge sem-badge-error" x-show="!part.semantic.success">✗ Failed</span>
                                       </div>
                                       <template x-if="part.semantic.hasOldNew">
-                                        <div class="sem-diff">
-                                          <div class="sem-diff-section sem-diff-remove">
-                                            <div class="sem-diff-label">− removed</div>
-                                            <pre class="sem-diff-code"><code x-text="part.semantic.oldText"></code></pre>
+                                        <div class="sem-inline-diff-wrap">
+                                          <div class="sem-inline-diff" x-show="part.semantic.diffLines?.length > 0">
+                                            <template x-for="(line, lineIdx) in part.semantic.diffLines" :key="lineIdx">
+                                              <div class="sem-inline-diff-line" :class="line.type">
+                                                <span class="sem-inline-ln" x-text="line.old ?? ''"></span>
+                                                <span class="sem-inline-ln" x-text="line.new ?? ''"></span>
+                                                <span class="sem-inline-sign" x-text="line.type === 'add' ? '+' : line.type === 'del' ? '−' : ' '"></span>
+                                                <span class="sem-inline-text" x-text="line.text"></span>
+                                              </div>
+                                            </template>
                                           </div>
-                                          <div class="sem-diff-section sem-diff-add">
-                                            <div class="sem-diff-label">+ added</div>
-                                            <pre class="sem-diff-code"><code x-text="part.semantic.newText"></code></pre>
-                                          </div>
+                                          <div class="sem-inline-empty" x-show="!part.semantic.diffLines || part.semantic.diffLines.length === 0">no line changes</div>
+                                          <div
+                                            class="sem-inline-truncated"
+                                            x-show="part.semantic.diffTruncated"
+                                            x-text="'… ' + Math.max(0, (part.semantic.diffTotalLines || 0) - (part.semantic.diffLines?.length || 0)) + ' more diff lines (truncated)'"
+                                          ></div>
                                         </div>
                                       </template>
                                     </div>
@@ -514,7 +521,7 @@
                 <button
                   class="chat-scroll-bottom"
                   type="button"
-                  x-show="userScrolledUp"
+                  x-show="userScrolledUp && promptQueue.length === 0"
                   x-cloak
                   x-transition.opacity
                   @click="userScrolledUp = false; scrollThreadToBottom()"
@@ -522,54 +529,6 @@
                 >
                   ↓ New messages
                 </button>
-
-                <div class="chat-controls" x-show="isForkActive()">
-                  <div class="chat-controls-left">
-                    <div class="chat-control-group">
-                      <label class="chat-control-label">Model</label>
-                      <select
-                        class="chat-control-select"
-                        @change="setModel(availableModels.find(m => modelDropdownLabel(m) === $event.target.value))"
-                        :disabled="!canSwitchModel()"
-                      >
-                        <template x-for="model in availableModels" :key="modelDropdownLabel(model)">
-                          <option
-                            :value="modelDropdownLabel(model)"
-                            :selected="isCurrentModel(model)"
-                            x-text="modelDropdownLabel(model)"
-                          ></option>
-                        </template>
-                      </select>
-                    </div>
-                    <div class="chat-control-group">
-                      <label class="chat-control-label">Thinking</label>
-                      <select
-                        class="chat-control-select"
-                        @change="setThinkingLevel($event.target.value)"
-                        :disabled="!canChangeThinking()"
-                      >
-                        <template x-for="level in thinkingLevels" :key="level">
-                          <option
-                            :value="level"
-                            :selected="level === currentThinkingLevel"
-                            x-text="level"
-                          ></option>
-                        </template>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="chat-controls-right">
-                    <button
-                      class="btn btn-danger chat-control-btn"
-                      type="button"
-                      @click="abort()"
-                      :disabled="!canAbort()"
-                      x-show="isStreaming"
-                    >
-                      Abort
-                    </button>
-                  </div>
-                </div>
 
                 <!-- Extension widget (above input) -->
                 <div class="chat-widget" x-show="hasWidget()" x-cloak>
@@ -610,7 +569,8 @@
                   <!-- Queue bar: shows messages queued during streaming -->
                   <div class="chat-queue-bar" x-show="promptQueue.length > 0" x-cloak>
                     <button class="chat-queue-header" type="button" @click="showQueue = !showQueue">
-                      <span class="chat-queue-count" x-text="promptQueue.length + ' queued'"></span>
+                      <span class="chat-queue-count" x-text="'Queue (' + promptQueue.length + ')'"></span>
+                      <span class="chat-queue-summary" x-show="!showQueue" x-text="promptQueue[0]?.text || 'Queued message'"></span>
                       <span class="chat-queue-chevron" x-text="showQueue ? '▾' : '▸'"></span>
                     </button>
                     <div class="chat-queue-items" x-show="showQueue">
@@ -619,7 +579,6 @@
                           <div class="chat-queue-item-header">
                             <span class="chat-queue-item-num" x-text="'#' + (qIdx + 1)"></span>
                             <div class="chat-queue-item-actions">
-                              <button class="btn btn-ghost btn-xs" type="button" x-show="qIdx < promptQueue.length - 1" @click="mergeQueueItemDown(qIdx)" title="Merge with next">⤵</button>
                               <label class="btn btn-ghost btn-xs chat-queue-attach" title="Attach image">
                                 📎
                                 <input type="file" accept="image/*" multiple style="display:none" @change="addQueueItemImage(qItem.id, $event)" />
@@ -658,33 +617,79 @@
                       @input="handleComposerInput($event)"
                       @paste="handleComposerPaste($event)"
                     ></textarea>
-                    <div class="chat-composer-actions">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        x-ref="imageInput"
-                        style="display: none"
-                        @change="handleImageSelect($event)"
-                      />
-                      <button
-                        class="btn btn-ghost chat-attach-btn"
-                        type="button"
-                        @click="$refs.imageInput.click()"
-                        :disabled="isSendingPrompt || isForking"
-                        title="Attach image"
-                      >
-                        📎
-                      </button>
-                      <button class="btn" type="submit" :disabled="(!promptText.trim() && pendingImages.length === 0) || isSendingPrompt || isForking">
-                        <span x-text="submitButtonLabel()"></span>
-                      </button>
+                    <div class="chat-composer-toolbar">
+                      <div class="chat-composer-controls">
+                        <div class="chat-control-group">
+                          <label class="chat-control-label">Model</label>
+                          <select
+                            class="chat-control-select"
+                            @change="setModel(availableModels.find(m => modelDropdownLabel(m) === $event.target.value))"
+                            :disabled="!canSwitchModel()"
+                          >
+                            <template x-for="model in availableModels" :key="modelDropdownLabel(model)">
+                              <option
+                                :value="modelDropdownLabel(model)"
+                                :selected="isCurrentModel(model)"
+                                x-text="modelDropdownLabel(model)"
+                              ></option>
+                            </template>
+                          </select>
+                        </div>
+                        <div class="chat-control-group">
+                          <label class="chat-control-label">Thinking</label>
+                          <select
+                            class="chat-control-select"
+                            @change="setThinkingLevel($event.target.value)"
+                            :disabled="!canChangeThinking()"
+                          >
+                            <template x-for="level in thinkingLevels" :key="level">
+                              <option
+                                :value="level"
+                                :selected="level === currentThinkingLevel"
+                                x-text="level"
+                              ></option>
+                            </template>
+                          </select>
+                        </div>
+                        <button
+                          class="btn btn-danger chat-control-btn"
+                          type="button"
+                          @click="abort()"
+                          :disabled="!canAbort()"
+                          x-show="isStreaming"
+                        >
+                          Abort
+                        </button>
+                      </div>
+                      <div class="chat-composer-actions">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          x-ref="imageInput"
+                          style="display: none"
+                          @change="handleImageSelect($event)"
+                        />
+                        <button
+                          class="btn btn-ghost chat-attach-btn"
+                          type="button"
+                          @click="$refs.imageInput.click()"
+                          :disabled="isSendingPrompt || isForking"
+                          title="Attach image"
+                        >
+                          📎
+                        </button>
+                        <button class="btn" type="submit" :disabled="(!promptText.trim() && pendingImages.length === 0) || isSendingPrompt || isForking">
+                          <span x-text="submitButtonLabel()"></span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <div class="chat-composer-hints" x-show="isForkActive()">
                     Enter to send · Shift+Enter for newline · Paste, drag, or 📎 to attach images
                   </div>
                 </form>
+
 
                 <!-- Extension UI Dialog Overlay -->
                 <div class="ext-dialog-overlay" x-show="extensionDialog" x-cloak @click.self="dismissDialog(null)">

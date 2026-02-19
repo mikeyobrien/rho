@@ -114,14 +114,100 @@ function langFromPath(filePath) {
 	return EXT_TO_LANG[fileExtension(filePath)] || "";
 }
 
+function toDiffLines(text) {
+	if (text == null || text === "") {
+		return [];
+	}
+	return String(text).replace(/\r\n/g, "\n").split("\n");
+}
+
+function buildInlineLineDiff(oldText, newText) {
+	const oldLines = toDiffLines(oldText);
+	const newLines = toDiffLines(newText);
+	const oldLen = oldLines.length;
+	const newLen = newLines.length;
+
+	if (oldLen === 0 && newLen === 0) {
+		return { lines: [], linesAdded: 0, linesRemoved: 0 };
+	}
+
+	const dp = Array.from(
+		{ length: oldLen + 1 },
+		() => new Uint32Array(newLen + 1),
+	);
+	for (let i = oldLen - 1; i >= 0; i--) {
+		const row = dp[i];
+		const nextRow = dp[i + 1];
+		for (let j = newLen - 1; j >= 0; j--) {
+			if (oldLines[i] === newLines[j]) {
+				row[j] = nextRow[j + 1] + 1;
+			} else {
+				row[j] = Math.max(nextRow[j], row[j + 1]);
+			}
+		}
+	}
+
+	const lines = [];
+	let i = 0;
+	let j = 0;
+	let oldNum = 1;
+	let newNum = 1;
+	let linesAdded = 0;
+	let linesRemoved = 0;
+
+	while (i < oldLen && j < newLen) {
+		if (oldLines[i] === newLines[j]) {
+			lines.push({
+				type: "ctx",
+				old: oldNum++,
+				new: newNum++,
+				text: oldLines[i],
+			});
+			i++;
+			j++;
+			continue;
+		}
+
+		if (dp[i + 1][j] >= dp[i][j + 1]) {
+			lines.push({ type: "del", old: oldNum++, new: null, text: oldLines[i] });
+			linesRemoved++;
+			i++;
+		} else {
+			lines.push({ type: "add", old: null, new: newNum++, text: newLines[j] });
+			linesAdded++;
+			j++;
+		}
+	}
+
+	while (i < oldLen) {
+		lines.push({ type: "del", old: oldNum++, new: null, text: oldLines[i++] });
+		linesRemoved++;
+	}
+	while (j < newLen) {
+		lines.push({ type: "add", old: null, new: newNum++, text: newLines[j++] });
+		linesAdded++;
+	}
+
+	return { lines, linesAdded, linesRemoved };
+}
+
 const TOOL_REGISTRY = {
 	edit(args, output) {
 		const a = safeJsonParse(args) || {};
 		const path = a.path || "";
-		const oldText = a.oldText || "";
-		const newText = a.newText || "";
-		const oldLines = oldText ? oldText.split("\n").length : 0;
-		const newLines = newText ? newText.split("\n").length : 0;
+		const hasOldNew =
+			typeof a.oldText === "string" && typeof a.newText === "string";
+		const oldText = typeof a.oldText === "string" ? a.oldText : "";
+		const newText = typeof a.newText === "string" ? a.newText : "";
+		const inlineDiff = hasOldNew
+			? buildInlineLineDiff(oldText, newText)
+			: { lines: [], linesAdded: 0, linesRemoved: 0 };
+		const maxRenderLines = 260;
+		const diffTotalLines = inlineDiff.lines.length;
+		const diffLines =
+			diffTotalLines > maxRenderLines
+				? inlineDiff.lines.slice(0, maxRenderLines)
+				: inlineDiff.lines;
 		const success =
 			!output || /successfully/i.test(output) || /replaced/i.test(output);
 		return {
@@ -129,11 +215,14 @@ const TOOL_REGISTRY = {
 			path,
 			filename: extractFilename(path),
 			lang: langFromPath(path),
-			hasOldNew: Boolean(oldText && newText),
+			hasOldNew,
 			oldText,
 			newText,
-			linesRemoved: oldLines,
-			linesAdded: newLines,
+			linesRemoved: inlineDiff.linesRemoved,
+			linesAdded: inlineDiff.linesAdded,
+			diffLines,
+			diffTotalLines,
+			diffTruncated: diffTotalLines > maxRenderLines,
 			success,
 		};
 	},
@@ -753,6 +842,10 @@ const MODEL_CONTEXT_WINDOWS = {
 	"gpt-4o-mini": 128000,
 	"gpt-4-turbo": 128000,
 	"gpt-4": 8192,
+	"gpt-5.3-codex": 272000,
+	"gpt-5.2-codex": 272000,
+	"gpt-5.1-codex": 272000,
+	"gpt-5-codex": 272000,
 	o1: 200000,
 	"o1-mini": 128000,
 	"o1-pro": 200000,
@@ -774,6 +867,7 @@ function guessContextWindow(modelStr) {
 	}
 	// Fallback heuristics
 	if (lower.includes("claude")) return 200000;
+	if (lower.includes("gpt-5") || lower.includes("codex")) return 272000;
 	if (lower.includes("gpt-4")) return 128000;
 	if (lower.includes("gemini")) return 1048576;
 	return null;
@@ -813,10 +907,27 @@ function formatUsage(usage, model) {
 		null;
 
 	// Compute context usage percentage
-	const contextWindow = guessContextWindow(model);
-	const contextTokens = input || totalTokens;
-	let pct = null;
-	if (contextWindow && contextTokens) {
+	const usageContextWindow = Number(
+		usageObj.contextWindow ??
+			usageObj.context_window ??
+			usageObj.maxContextTokens ??
+			0,
+	);
+	const guessedContextWindow = guessContextWindow(model);
+	const contextWindow = usageContextWindow || guessedContextWindow;
+	const contextTokens =
+		Number(
+			usageObj.contextTokens ??
+				usageObj.context_tokens ??
+				usageObj.inputWithCache,
+		) ||
+		input + cacheRead ||
+		totalTokens;
+	const usagePercent = Number(
+		usageObj.percent ?? usageObj.contextPercent ?? usageObj.context_percent,
+	);
+	let pct = Number.isFinite(usagePercent) ? Math.round(usagePercent) : null;
+	if (pct == null && contextWindow && contextTokens) {
 		pct = Math.round((contextTokens / contextWindow) * 100);
 	}
 
@@ -929,13 +1040,13 @@ function normalizeMessage(message, isLazy = false) {
 	const normalizedParts = parts.map((part, index) => {
 		if (part.type === "text") {
 			const text = String(part.text ?? "");
-			const isHtml = role === "assistant";
+			const shouldRenderMarkdown = role === "assistant" || role === "system";
 			return {
 				...part,
 				key: `${message.id}-text-${index}`,
-				render: isHtml ? "html" : "text",
+				render: shouldRenderMarkdown ? "html" : "text",
 				rawContent: text,
-				content: isHtml && !isLazy ? renderMarkdown(text) : text,
+				content: shouldRenderMarkdown && !isLazy ? renderMarkdown(text) : text,
 				isRendered: !isLazy,
 			};
 		}
@@ -1118,7 +1229,77 @@ function extractToolOutput(result) {
 	return safeString(result);
 }
 
-const THINKING_LEVELS = ["none", "low", "medium", "high"];
+const THINKING_LEVELS_BASE = ["off", "minimal", "low", "medium", "high"];
+
+function normalizeThinkingLevel(level) {
+	const normalized = String(level ?? "")
+		.trim()
+		.toLowerCase();
+	if (normalized === "none") {
+		return "off";
+	}
+	if (normalized === "xhigh" || THINKING_LEVELS_BASE.includes(normalized)) {
+		return normalized;
+	}
+	return "medium";
+}
+
+function supportsXhighThinking(model) {
+	if (!model || typeof model !== "object") {
+		return false;
+	}
+	const modelId = String(model.modelId ?? model.id ?? model.name ?? "")
+		.trim()
+		.toLowerCase();
+	if (!modelId) {
+		return false;
+	}
+	return (
+		/^gpt-5\.1-codex-max(?:-|$)/.test(modelId) ||
+		/^gpt-5\.2(?:-codex)?(?:-|$)/.test(modelId) ||
+		/^gpt-5\.3(?:-codex)?(?:-|$)/.test(modelId)
+	);
+}
+
+function resolveModelCapabilities(model, availableModels) {
+	if (!model || typeof model !== "object") {
+		return null;
+	}
+	const provider = String(model.provider ?? "").toLowerCase();
+	const modelId = String(
+		model.modelId ?? model.id ?? model.name ?? "",
+	).toLowerCase();
+	if (!modelId || !Array.isArray(availableModels)) {
+		return model;
+	}
+	return (
+		availableModels.find((candidate) => {
+			const candidateProvider = String(candidate.provider ?? "").toLowerCase();
+			const candidateId = String(
+				candidate.modelId ?? candidate.id ?? candidate.name ?? "",
+			).toLowerCase();
+			if (!candidateId) {
+				return false;
+			}
+			if (provider) {
+				return candidateProvider === provider && candidateId === modelId;
+			}
+			return candidateId === modelId;
+		}) ?? model
+	);
+}
+
+function thinkingLevelsForModel(model, availableModels) {
+	const capabilities = resolveModelCapabilities(model, availableModels);
+	if (!capabilities || !capabilities.reasoning) {
+		return ["off"];
+	}
+	const levels = [...THINKING_LEVELS_BASE];
+	if (supportsXhighThinking(capabilities)) {
+		levels.push("xhigh");
+	}
+	return levels;
+}
 
 // Toast notification levels
 const TOAST_LEVELS = {
@@ -1170,7 +1351,7 @@ document.addEventListener("alpine:init", () => {
 		// Queued prompts: messages typed during streaming, auto-sent in order on agent_end
 		// Each item: { id, text, images: [{ data, mimeType, dataUrl }] }
 		promptQueue: [],
-		showQueue: true,
+		showQueue: false,
 
 		toggleTheme() {
 			this.theme = this.theme === "light" ? "dark" : "light";
@@ -1190,7 +1371,7 @@ document.addEventListener("alpine:init", () => {
 
 		// Chat controls state
 		availableModels: [],
-		thinkingLevels: THINKING_LEVELS,
+		thinkingLevels: [...THINKING_LEVELS_BASE],
 		currentModel: null,
 		currentThinkingLevel: "medium",
 		isStreaming: false,
@@ -1667,6 +1848,7 @@ document.addEventListener("alpine:init", () => {
 				if (event.command === "get_available_models" && event.success) {
 					const models = event.models ?? event.data?.models ?? [];
 					this.availableModels = models;
+					this.syncThinkingLevels();
 				}
 				// Handle get_session_stats response
 				if (event.command === "get_session_stats" && event.success) {
@@ -1721,14 +1903,18 @@ document.addEventListener("alpine:init", () => {
 				if (event.model) {
 					this.currentModel = event.model;
 				}
+				this.syncThinkingLevels();
 				this.updateFooter();
 				return;
 			}
 
 			if (event.type === "thinking_level_changed") {
 				if (event.thinkingLevel) {
-					this.currentThinkingLevel = event.thinkingLevel;
+					this.currentThinkingLevel = normalizeThinkingLevel(
+						event.thinkingLevel,
+					);
 				}
+				this.syncThinkingLevels();
 				this.updateFooter();
 				return;
 			}
@@ -2753,24 +2939,54 @@ document.addEventListener("alpine:init", () => {
 			});
 		},
 
+		sessionSummary(session) {
+			if (!session) {
+				return null;
+			}
+			const sessionId = session.header?.id ?? session.id ?? "";
+			if (!sessionId || !Array.isArray(this.sessions)) {
+				return null;
+			}
+			return (
+				this.sessions.find((candidate) => candidate.id === sessionId) ?? null
+			);
+		},
+
 		sessionLabel(session) {
 			if (!session) {
 				return "";
 			}
-			// Show session name, first prompt, or truncated ID
-			const rawId = session.header?.id ?? session.id ?? "";
-			const firstPrompt = session.firstPrompt;
-			const title =
+			const summary = this.sessionSummary(session);
+			const rawId = session.header?.id ?? session.id ?? summary?.id ?? "";
+			const firstPrompt = session.firstPrompt ?? summary?.firstPrompt;
+			return (
 				session.name ||
+				summary?.name ||
 				(firstPrompt
 					? clampString(firstPrompt, 50)
 					: rawId
 						? rawId.substring(0, 8)
-						: "session");
-			const timestamp = formatTimestamp(
-				session.header?.timestamp ?? session.timestamp,
+						: "session")
 			);
-			return `${title}${timestamp ? ` · ${timestamp}` : ""}`;
+		},
+
+		sessionTimestampLabel(session) {
+			if (!session) {
+				return "";
+			}
+			const summary = this.sessionSummary(session);
+			return formatTimestamp(
+				session.header?.timestamp ??
+					session.timestamp ??
+					summary?.timestamp ??
+					"",
+			);
+		},
+
+		threadMetaLabel(session) {
+			const countLabel = this.messageCountLabel(session);
+			const timestamp = this.sessionTimestampLabel(session);
+			return timestamp ? `${timestamp} · ${countLabel}` : countLabel;
 		},
 
 		messageCountLabel(session) {
@@ -3041,7 +3257,11 @@ document.addEventListener("alpine:init", () => {
 				});
 			}
 
-			this.focusComposer();
+			if (this.shouldDismissKeyboardAfterSend()) {
+				this.blurComposer();
+			} else {
+				this.focusComposer();
+			}
 		},
 
 		sendPrompt() {
@@ -3287,16 +3507,33 @@ document.addEventListener("alpine:init", () => {
 			});
 		},
 
+		syncThinkingLevels() {
+			const levels = thinkingLevelsForModel(
+				this.currentModel,
+				this.availableModels,
+			);
+			this.thinkingLevels = levels;
+			const normalized = normalizeThinkingLevel(this.currentThinkingLevel);
+			if (!levels.includes(normalized)) {
+				this.currentThinkingLevel = levels.includes("medium")
+					? "medium"
+					: (levels[0] ?? "off");
+				return;
+			}
+			this.currentThinkingLevel = normalized;
+		},
+
 		handleStateUpdate(state) {
 			if (state.model) {
 				this.currentModel = state.model;
 			}
 			if (state.thinkingLevel) {
-				this.currentThinkingLevel = state.thinkingLevel;
+				this.currentThinkingLevel = normalizeThinkingLevel(state.thinkingLevel);
 			}
 			if (typeof state.isStreaming === "boolean") {
 				this.isStreaming = state.isStreaming;
 			}
+			this.syncThinkingLevels();
 			this.updateFooter();
 		},
 
@@ -3383,6 +3620,7 @@ document.addEventListener("alpine:init", () => {
 			});
 			// Optimistically update
 			this.currentModel = model;
+			this.syncThinkingLevels();
 			this.updateFooter();
 		},
 
@@ -3390,15 +3628,19 @@ document.addEventListener("alpine:init", () => {
 			if (!this.activeRpcSessionId || this.isStreaming) {
 				return;
 			}
+			const normalizedLevel = normalizeThinkingLevel(level);
+			if (!this.thinkingLevels.includes(normalizedLevel)) {
+				return;
+			}
 			this.sendWs({
 				type: "rpc_command",
 				sessionId: this.activeRpcSessionId,
 				command: {
 					type: "set_thinking_level",
-					level,
+					level: normalizedLevel,
 				},
 			});
-			this.currentThinkingLevel = level;
+			this.currentThinkingLevel = normalizedLevel;
 			this.updateFooter();
 		},
 
@@ -3406,9 +3648,11 @@ document.addEventListener("alpine:init", () => {
 			if (!this.activeRpcSessionId || this.isStreaming) {
 				return;
 			}
-			const currentIndex = THINKING_LEVELS.indexOf(this.currentThinkingLevel);
-			const nextIndex = (currentIndex + 1) % THINKING_LEVELS.length;
-			this.setThinkingLevel(THINKING_LEVELS[nextIndex]);
+			const levels = this.thinkingLevels.length ? this.thinkingLevels : ["off"];
+			const current = normalizeThinkingLevel(this.currentThinkingLevel);
+			const currentIndex = levels.indexOf(current);
+			const nextIndex = (currentIndex + 1) % levels.length;
+			this.setThinkingLevel(levels[nextIndex]);
 		},
 
 		abort() {
@@ -3513,7 +3757,6 @@ document.addEventListener("alpine:init", () => {
 				});
 				this.promptText = "";
 				this.pendingImages = [];
-				this.showQueue = true;
 				this.focusComposer();
 			} else {
 				// Normal prompt submission
@@ -3571,18 +3814,14 @@ document.addEventListener("alpine:init", () => {
 				return "Fork a session to start chatting...";
 			}
 			if (this.isStreaming) {
-				return this.promptQueue.length > 0
-					? `${this.promptQueue.length} queued — type another or wait`
-					: "Type a message (queued until done)...";
+				return "Streaming… send to queue";
 			}
 			return "Type a prompt...";
 		},
 
 		submitButtonLabel() {
 			if (this.isStreaming) {
-				return this.promptQueue.length > 0
-					? `Queue (${this.promptQueue.length})`
-					: "Queue";
+				return "Queue";
 			}
 			return "Send";
 		},
@@ -3838,6 +4077,26 @@ document.addEventListener("alpine:init", () => {
 		},
 
 		// Focus management
+		shouldDismissKeyboardAfterSend() {
+			if (
+				typeof window === "undefined" ||
+				typeof window.matchMedia !== "function"
+			) {
+				return false;
+			}
+			return (
+				window.matchMedia("(max-width: 720px)").matches ||
+				window.matchMedia("(pointer: coarse)").matches
+			);
+		},
+
+		blurComposer() {
+			const input = this.$refs.composerInput;
+			if (input && typeof input.blur === "function") {
+				input.blur();
+			}
+		},
+
 		focusComposer() {
 			this.$nextTick(() => {
 				const input = this.$refs.composerInput;
