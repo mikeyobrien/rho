@@ -29,7 +29,7 @@ jobs:
           fi
 
       - name: Install dependencies
-        run: npm install --omit=dev
+        run: npm ci --omit=dev --ignore-scripts
 
       - name: Publish
         run: npm publish --access public --provenance
