@@ -1,6 +1,6 @@
 {
   "name": "@rhobot-dev/rho",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "AI agent with persistent memory, heartbeat check-ins, and a knowledge vault",
   "bin": {
@@ -51,7 +51,7 @@
     "test": "for f in tests/test-*.ts; do if [ \"$f\" = \"tests/test-vault.ts\" ]; then continue; fi; npx -y tsx \"$f\" || exit 1; done",
     "telegram:smoke": "npx -y tsx scripts/telegram-smoke.ts",
     "hooks:pre-commit": "bash scripts/pre-commit.sh",
-    "prepare": "simple-git-hooks"
+    "prepare": "command -v simple-git-hooks >/dev/null && simple-git-hooks || true"
   },
   "simple-git-hooks": {
     "pre-commit": "npm run -s hooks:pre-commit"
