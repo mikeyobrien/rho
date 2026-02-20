@@ -1,68 +1,65 @@
 {
-  "name": "@rhobot-dev/rho",
-  "version": "0.1.7",
-  "type": "module",
-  "description": "AI agent with persistent memory, heartbeat check-ins, and a knowledge vault",
-  "bin": {
-    "rho": "cli/rho.mjs"
-  },
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "pi-skill",
-    "ai-agent",
-    "memory",
-    "heartbeat",
-    "knowledge-vault"
-  ],
-  "homepage": "https://rhobot.dev",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/mikeyobrien/rho.git"
-  },
-  "license": "MIT",
-  "pi": {
-    "extensions": [
-      "./extensions"
-    ],
-    "skills": [
-      "./skills"
-    ],
-    "image": "https://raw.githubusercontent.com/mikeyobrien/rho/main/docs/logo.png"
-  },
-  "peerDependencies": {
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "@sinclair/typebox": "*"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "@sinclair/typebox": "*",
-    "simple-git-hooks": "^2.13.1"
-  },
-  "scripts": {
-    "build": "printf '%s\n' 'no build step'",
-    "lint": "printf '%s\n' 'no lint step'",
-    "typecheck": "printf '%s\n' 'no typecheck step'",
-    "test": "for f in tests/test-*.ts; do if [ \"$f\" = \"tests/test-vault.ts\" ]; then continue; fi; npx -y tsx \"$f\" || exit 1; done",
-    "telegram:smoke": "npx -y tsx scripts/telegram-smoke.ts",
-    "hooks:pre-commit": "bash scripts/pre-commit.sh",
-    "prepare": "command -v simple-git-hooks >/dev/null && simple-git-hooks || true"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "npm run -s hooks:pre-commit"
-  },
-  "dependencies": {
-    "@grammyjs/auto-retry": "^2.0.2",
-    "@hono/node-server": "^1.13.1",
-    "@hono/node-ws": "^1.0.7",
-    "grammy": "^1.40.0",
-    "hono": "^4.6.16",
-    "smol-toml": "^1.6.0",
-    "tsx": "^4.21.0"
-  }
+	"name": "@rhobot-dev/rho",
+	"version": "0.1.7",
+	"type": "module",
+	"description": "AI agent with persistent memory, heartbeat check-ins, and a knowledge vault",
+	"bin": {
+		"rho": "cli/rho.mjs"
+	},
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"pi-skill",
+		"ai-agent",
+		"memory",
+		"heartbeat",
+		"knowledge-vault"
+	],
+	"homepage": "https://rhobot.dev",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/mikeyobrien/rho.git"
+	},
+	"license": "MIT",
+	"pi": {
+		"extensions": ["./extensions"],
+		"skills": ["./skills"],
+		"image": "https://raw.githubusercontent.com/mikeyobrien/rho/main/docs/logo.png"
+	},
+	"peerDependencies": {
+		"@mariozechner/pi-ai": "*",
+		"@mariozechner/pi-coding-agent": "*",
+		"@mariozechner/pi-tui": "*",
+		"@sinclair/typebox": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@mariozechner/pi-ai": "*",
+		"@mariozechner/pi-coding-agent": "*",
+		"@mariozechner/pi-tui": "*",
+		"@sinclair/typebox": "*",
+		"simple-git-hooks": "^2.13.1"
+	},
+	"scripts": {
+		"build": "printf '%s\n' 'no build step'",
+		"lint": "printf '%s\n' 'no lint step'",
+		"typecheck": "printf '%s\n' 'no typecheck step'",
+		"test": "for f in tests/test-*.ts; do if [ \"$f\" = \"tests/test-vault.ts\" ]; then continue; fi; npx -y tsx \"$f\" || exit 1; done",
+		"test:web:playwriter": "npx -y tsx tests/playwriter/web-multi-session-gates.ts",
+		"telegram:smoke": "npx -y tsx scripts/telegram-smoke.ts",
+		"hooks:pre-commit": "bash scripts/pre-commit.sh",
+		"prepare": "command -v simple-git-hooks >/dev/null && simple-git-hooks || true"
+	},
+	"simple-git-hooks": {
+		"pre-commit": "npm run -s hooks:pre-commit"
+	},
+	"dependencies": {
+		"@grammyjs/auto-retry": "^2.0.2",
+		"@hono/node-server": "^1.13.1",
+		"@hono/node-ws": "^1.0.7",
+		"grammy": "^1.40.0",
+		"hono": "^4.6.16",
+		"smol-toml": "^1.6.0",
+		"tsx": "^4.21.0"
+	}
 }
