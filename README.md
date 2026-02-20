@@ -290,9 +290,29 @@ A browser-based interface for chatting, browsing memory, managing tasks, and edi
 rho web                  # Start on default port (3141)
 rho web --port 4000      # Custom port
 rho web --open           # Start and open browser
+rho web restart          # Restart running web server
 ```
 
 Then visit `http://localhost:3141` (or your machine's IP for remote access — the server binds `0.0.0.0` by default).
+
+If web is auto-started by the daemon (`[settings.web].enabled = true` with `rho start`), `rho web restart` restarts the daemon to bounce web. For standalone `rho web` sessions, it restarts the tracked web process directly.
+
+### Web code architecture (no-build)
+
+Rho-web is intentionally split between server-side TypeScript and browser-side JavaScript:
+
+- `web/*.ts` runs in Node (via `tsx`/strip-types) for the Hono server, RPC bridge, and backend routes.
+- `web/public/js/*.js` runs directly in the browser and is served as static assets (no frontend bundler/transpiler step).
+- Chat frontend code is ES modules in `web/public/js/chat/` with `web/public/js/chat.js` as the module entrypoint.
+
+Why this matters:
+
+- Browsers do not execute `.ts` directly, so browser runtime code stays in `.js` unless we add a build step.
+- Keep imports and boundaries explicit in browser modules; avoid implicit global/script-order coupling.
+- Enforce the 500-line limit for `web/**/*.ts` and `web/**/*.js` to keep files maintainable.
+- Pre-commit hooks run strict Biome (`check --error-on-warnings`) on staged `.ts/.js` plus staged-only web line-limit checks.
+
+Hooks are installed automatically when running `npm install` in this repo (`prepare` -> `simple-git-hooks`).
 
 ### Views
 
@@ -431,11 +451,16 @@ rho/
 │   └── linux/
 │       ├── skills/          # notification, clipboard, open-url, tts
 │       └── setup.sh
-├── web/                     # Web UI server and frontend
-│   ├── server.ts            # Hono server (REST + WebSocket + RPC bridge)
+├── web/                     # Web UI backend + frontend (no-build browser JS)
+│   ├── server.ts            # Server composition entrypoint
+│   ├── server-core.ts       # Shared Hono app/runtime context
+│   ├── server-*-routes.ts   # Route modules (review/git/config/sessions/tasks/memory/ws/static)
+│   ├── session-reader.ts    # Session reader public API
+│   ├── session-reader-*.ts  # Session reader internals (types/io/parse/api)
 │   ├── rpc-manager.ts       # pi RPC process manager
 │   ├── config.ts            # Web config helpers
 │   └── public/              # Static assets (HTML, CSS, JS)
+│       └── js/chat/         # Chat frontend ES modules
 ├── configs/                 # Configuration files
 │   └── tmux-rho.conf        # SSH-friendly tmux config (used by rho's tmux socket)
 ├── brain/                   # Default brain.jsonl with core behaviors

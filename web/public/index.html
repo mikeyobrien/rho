@@ -2,27 +2,51 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#161b22" />
+    <meta name="description" content="Persistent coding agent and technical copilot" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="rho" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
     <title>Rho Web UI</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <style>
+      /* Iosevka — narrow monospace for mobile density */
+      @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 400; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-400-normal.woff2) format('woff2'); }
+      @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 500; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-500-normal.woff2) format('woff2'); }
+      @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 700; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-700-normal.woff2) format('woff2'); }
+    </style>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
     />
-    <link rel="stylesheet" href="/css/style.css?v=20260211v" />
+    <link rel="stylesheet" href="/css/style.css?v=20260219v64" />
+    <link rel="stylesheet" href="/css/review-panel.css?v=20260219v2" />
+    <!-- Preload CDN scripts for faster initial render -->
+    <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/marked/marked.min.js" as="script" />
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js" as="script" />
+    <link rel="preload" href="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" as="script" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
-    <script src="/js/app.js?v=20260211v" defer></script>
+    <script src="/js/app.js?v=20260219v1" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
-    <script src="/js/chat.js?v=20260214v" defer></script>
-    <script src="/js/config.js?v=20260211v" defer></script>
+    <script type="module" src="/js/chat.js?v=20260219v38"></script>
+    <script src="/js/config.js?v=20260219v1" defer></script>
     <script src="/js/memory.js?v=20260211v" defer></script>
+    <script src="/js/review-panel.js?v=20260219v2" defer></script>
+    <script src="/js/pull-to-refresh.js?v=20260218v" defer></script>
 
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
@@ -53,19 +77,21 @@
             >
               Brain
             </button>
-            <a
+            <button
               class="nav-tab"
-              href="/review/lobby.html"
+              :class="{ active: view === 'review' }"
+              @click="setView('review')"
+              type="button"
               role="tab"
-              x-show="activeReviewCount > 0"
-              x-cloak
+              :aria-selected="view === 'review'"
             >
               Review
               <span
                 class="nav-tab-badge"
+                x-show="activeReviewCount > 0"
                 x-text="activeReviewCount"
               ></span>
-            </a>
+            </button>
             <button
               class="nav-tab nav-tab-icon"
               :class="{ active: view === 'config' }"
@@ -82,28 +108,17 @@
 
       <main class="main">
         <section class="view chat-view" x-show="view === 'chat'" x-cloak role="tabpanel">
-          <div class="view-header">// chat</div>
-          <div class="view-title">Session viewer</div>
           <div class="view-body" x-data="rhoChat()" x-init="init()">
             <div class="chat-layout">
-              <!-- Mobile toggle for sessions -->
-              <button
-                class="mobile-panel-toggle"
-               
-                type="button"
-                @click="toggleSessionsPanel()"
-                :aria-expanded="showSessionsPanel"
-              >
-                <span class="mobile-panel-toggle-label">
-                  <span x-text="activeSession ? (activeSession.name || 'Session') : 'Sessions'"></span>
-                  <span class="mobile-panel-toggle-count" x-text="sessionsTotal + ' session' + (sessionsTotal === 1 ? '' : 's')"></span>
-                </span>
-                <span class="mobile-panel-toggle-arrow">&#x25BC;</span>
-              </button>
-              <aside class="chat-sessions" :class="{ collapsed: !showSessionsPanel }">
+              <!-- Sessions backdrop (click to close) -->
+              <div
+                class="chat-sessions-backdrop"
+                :class="{ visible: showSessionsPanel }"
+                @click="showSessionsPanel = false"
+              ></div>
+              <aside class="chat-sessions" :class="{ open: showSessionsPanel }" @keydown.escape.window="showSessionsPanel = false">
                 <div class="chat-section-header">
-                  <div class="chat-section-title">Sessions</div>
-                  <button class="btn btn-sm btn-green" type="button" @click="newSession()" :disabled="isForking">+ New</button>
+                  <div class="chat-section-title">Sessions <span x-show="sessionsTotal > 0" x-text="'(' + sessionsTotal + ')'"></span></div>
                 </div>
                 <div class="chat-section-meta chat-loading-inline" x-show="isLoadingSessions">
                   <span class="loading-spinner-sm"></span>
@@ -137,57 +152,53 @@
                   </div>
                   <div class="chat-session-count" x-show="sessions.length > 0 && !allSessionsLoaded" x-text="`${sessions.length} of ${sessionsTotal}`"></div>
                   <div class="chat-empty-state" x-show="!isLoadingSessions && sessions.length === 0">
-                    <span class="empty-icon">&#x1F4C1;</span>
                     <span>No sessions yet</span>
                     <span class="empty-hint">Sessions appear here when you start using Rho CLI</span>
                   </div>
                 </div>
               </aside>
 
-              <section class="chat-thread">
-                <!-- Maximized top bar (only visible in fullscreen) -->
-                <div class="maximized-bar" x-show="chatMaximized" x-transition.opacity>
-                  <div class="maximized-bar-info">
-                    <span class="maximized-bar-title" x-text="activeSession ? sessionLabel(activeSession) : 'rho'"></span>
-                    <span class="chat-live-badge" x-show="isForkActive()">● LIVE</span>
-                  </div>
-                  <button class="maximized-bar-exit" type="button" @click="toggleMaximized()" title="Exit fullscreen (Esc)">⊡</button>
+              <section class="chat-thread"
+                @dragover.prevent="handleDragOver($event)"
+                @dragleave="handleDragLeave($event)"
+                @drop.prevent="handleDrop($event)"
+              >
+                <!-- Drop zone overlay -->
+                <div class="chat-drop-overlay" x-show="isDraggingOver" x-cloak x-transition.opacity>
+                  <div class="chat-drop-label">Drop image to attach</div>
                 </div>
 
                 <div class="chat-thread-header">
-                  <div>
+                  <button
+                    class="chat-sessions-toggle"
+                    :class="{ open: showSessionsPanel }"
+                    type="button"
+                    @click="showSessionsPanel = !showSessionsPanel"
+                    title="Toggle sessions"
+                  >
+                    <span class="toggle-icon" x-text="showSessionsPanel ? '✕' : '☰'"></span>
+                  </button>
+                  <div class="chat-thread-info">
                     <div class="chat-thread-title" x-text="activeSession ? sessionLabel(activeSession) : 'Select a session'"></div>
-                    <div class="chat-thread-meta" x-show="activeSession" x-text="messageCountLabel(activeSession)"></div>
+                    <div class="chat-thread-meta" x-show="activeSession" x-text="threadMetaLabel(activeSession)"></div>
                   </div>
                   <div class="chat-thread-status">
-                    <span class="chat-live-badge" x-show="isForkActive()">● LIVE</span>
-                    <span class="chat-readonly-badge" x-show="!isForkActive() && activeSession">READ-ONLY</span>
+                    <span class="chat-readonly-badge" x-show="!isInteractiveSession() && activeSession">READ-ONLY</span>
                   </div>
                   <div class="chat-thread-actions">
                     <button
                       class="btn btn-sm btn-green"
                       type="button"
-                      @click="forkFromLatest()"
-                      :disabled="!activeSession || !hasForkPoints() || isForking"
-                    >
-                      <span x-show="!isForking">Fork from latest</span>
-                      <span x-show="isForking">Forking...</span>
-                    </button>
-                    <button
-                      class="btn btn-sm btn-green"
-                      type="button"
-                      @click="toggleMaximized()"
-                      :title="chatMaximized ? 'Exit fullscreen' : 'Fullscreen chat'"
-                    >
-                      <span x-text="chatMaximized ? '⊡' : '⊞'"></span>
-                    </button>
+                      @click="newSession()"
+                      :disabled="isForking"
+                    >+ New</button>
                   </div>
                 </div>
 
                 <!-- Reconnection Banner -->
                 <div class="reconnect-banner" x-show="showReconnectBanner" x-cloak>
                   <span class="reconnect-icon">&#x26A0;</span>
-                  <span>Connection lost. Reconnecting...</span>
+                  <span x-text="reconnectBannerMessage || 'Connection lost. Reconnecting…'"></span>
                   <button class="btn btn-ghost btn-sm" type="button" @click="manualReconnect()">
                     Retry now
                   </button>
@@ -199,31 +210,43 @@
                     <span>Loading session...</span>
                   </div>
                   <div class="chat-empty" x-show="!isLoadingSession && activeSession && !hasMessages()">
-                    <span class="empty-icon">&#x1F4AC;</span>
-                    <span x-text="isForkActive() ? 'Type a message below to start chatting.' : 'No messages yet. Fork this session to start chatting.'"></span>
+                    <span x-text="isInteractiveSession() ? 'No messages yet. Type a message below to start chatting.' : 'No messages yet. Fork this session to start chatting.'"></span>
                   </div>
                   <div class="chat-empty" x-show="!activeSession && !isLoadingSession">
-                    <span class="empty-icon">&#x1F4C2;</span>
                     <span>Select a session from the sidebar to view messages.</span>
                   </div>
+
+                  <!-- Load earlier messages button -->
+                  <button
+                    x-show="hasEarlierMessages"
+                    @click="loadEarlierMessages()"
+                    class="load-earlier-btn"
+                    type="button"
+                  >
+                    Load earlier messages
+                  </button>
 
                   <!-- Streaming indicator (dots removed — composer border pulses instead) -->
 
                   <template x-for="message in renderedMessages" :key="message.id">
-                    <article class="chat-message" :class="message.role">
+                    <article class="chat-message" :class="message.role" :data-message-id="message.id">
                       <div class="chat-message-meta">
-                        <span class="chat-message-role" x-text="message.roleLabel"></span>
-                        <div class="chat-message-meta-right">
+                        <div class="chat-message-meta-left">
+                          <span class="chat-message-role" x-text="message.roleLabel"></span>
+                          <span class="chat-message-time" x-text="message.timestamp"></span>
+                        </div>
+                        <div
+                          class="chat-message-actions"
+                          x-show="message.role === 'user' && canForkMessage(message)"
+                        >
                           <button
                             class="chat-fork-button"
                             type="button"
-                            x-show="message.role === 'user' && canForkMessage(message)"
                             @click="forkFromEntry(message.id)"
                             :title="messageForkPreview(message)"
                           >
                             Fork from here
                           </button>
-                          <span class="chat-message-time" x-text="message.timestamp"></span>
                         </div>
                       </div>
                       <div class="chat-message-body">
@@ -235,10 +258,15 @@
                             <template x-if="part.type === 'text' && part.render === 'text'">
                               <div class="chat-text" x-text="part.content"></div>
                             </template>
+                            <template x-if="part.type === 'image'">
+                              <div class="chat-image">
+                                <img :src="part.dataUrl" alt="attached image" />
+                              </div>
+                            </template>
                             <template x-if="part.type === 'thinking'">
                               <div class="chat-block thinking" x-data="{ open: false }">
                                 <button class="chat-block-toggle" type="button" @click="open = !open">
-                                  <span class="thinking-icon">💭</span>
+                                  <span class="thinking-icon">···</span>
                                   Thinking
                                   <span class="tool-chevron" x-text="open ? '▾' : '▸'"></span>
                                 </button>
@@ -247,20 +275,193 @@
                               </div>
                             </template>
                             <template x-if="part.type === 'tool_call'">
-                              <div class="chat-block tool" x-data="{ open: false }">
+                              <div class="chat-block tool" x-data="{ open: false, showRaw: false, showAllOutput: false, showAllDiff: false }">
+                                <!-- ─── Collapsed header ─── -->
                                 <button class="chat-block-toggle" type="button" @click="open = !open">
                                   <span class="tool-status-icon" :class="part.status" x-text="part.status === 'running' ? '⟳' : part.status === 'error' ? '✗' : '✓'"></span>
                                   <span class="tool-name" x-text="part.name"></span>
-                                  <span class="tool-args-hint" x-text="part.argsSummary"></span>
+                                  <!-- Semantic header: path badge for file tools (full path desktop, filename mobile) -->
+                                  <template x-if="part.semantic && (part.semantic.tool === 'edit' || part.semantic.tool === 'write' || part.semantic.tool === 'read')">
+                                    <span class="tool-path-badge-wrap">
+                                      <span class="tool-path-badge tool-path-full" :title="part.semantic.path" x-text="part.argsSummary"></span>
+                                      <span class="tool-path-badge tool-path-short" :title="part.semantic.path" x-text="part.semantic.filename || part.semantic.path"></span>
+                                    </span>
+                                  </template>
+                                  <!-- Semantic header: command for bash -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'bash'">
+                                    <span class="tool-command-hint" x-text="part.argsSummary"></span>
+                                  </template>
+                                  <!-- Semantic header: action for brain/vault/email -->
+                                  <template x-if="part.semantic && (part.semantic.tool === 'brain' || part.semantic.tool === 'vault' || part.semantic.tool === 'email')">
+                                    <span class="tool-action-hint" x-text="part.argsSummary"></span>
+                                  </template>
+                                  <!-- Fallback: generic args hint for unknown tools -->
+                                  <template x-if="!part.semantic">
+                                    <span class="tool-args-hint" x-text="part.argsSummary"></span>
+                                  </template>
                                   <span class="tool-duration" x-show="part.duration" x-text="part.duration"></span>
                                   <span class="tool-chevron" x-text="open ? '▾' : '▸'"></span>
                                 </button>
-                                <div class="tool-preview" x-show="!open && part.outputPreview" x-text="part.outputPreview"></div>
+                                <!-- Collapsed preview -->
+                                <div class="tool-preview" x-show="!open && part.outputPreview && !(part.semantic?.tool === 'edit' && part.semantic?.hasOldNew)" x-text="part.outputPreview"></div>
+                                <div class="tool-preview tool-preview-diff" x-show="!open && part.semantic?.tool === 'edit' && part.semantic?.hasOldNew && part.semantic?.success">
+                                  <span class="diff-pill diff-pill-add" x-text="'+' + (part.semantic?.linesAdded || 0)"></span>
+                                  <span class="diff-pill diff-pill-remove" x-text="'−' + (part.semantic?.linesRemoved || 0)"></span>
+                                </div>
+
+                                <!-- ─── Expanded body ─── -->
                                 <div class="chat-block-body" x-show="open">
-                                  <div class="chat-block-label">args</div>
-                                  <pre><code x-text="part.args"></code></pre>
-                                  <div class="chat-block-label" x-show="part.output">output</div>
-                                  <pre x-show="part.output"><code x-text="part.output"></code></pre>
+                                  <!-- Raw toggle button -->
+                                  <button class="sem-raw-toggle" type="button" @click="showRaw = !showRaw" x-show="part.semantic" x-text="showRaw ? '← semantic' : 'raw ↗'"></button>
+
+                                  <!-- ═══ SEMANTIC: Edit tool ═══ -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'edit' && !showRaw">
+                                    <div class="sem-edit">
+                                      <div class="sem-file-header">
+                                        <span class="sem-file-icon">Edit</span>
+                                        <span class="sem-file-path" :title="part.semantic.path" x-text="part.semantic.path"></span>
+                                        <span class="sem-diff-stats" x-show="part.semantic.success && part.semantic.hasOldNew">
+                                          <span class="diff-pill diff-pill-add" x-text="'+' + (part.semantic.linesAdded || 0)"></span>
+                                          <span class="diff-pill diff-pill-remove" x-text="'−' + (part.semantic.linesRemoved || 0)"></span>
+                                        </span>
+                                        <span class="sem-badge sem-badge-success" x-show="part.semantic.success && !part.semantic.hasOldNew">✓ Applied</span>
+                                        <span class="sem-badge sem-badge-error" x-show="!part.semantic.success">✗ Failed</span>
+                                      </div>
+                                      <template x-if="part.semantic.hasOldNew">
+                                        <div class="sem-inline-diff-wrap">
+                                          <div class="sem-inline-diff" x-show="part.semantic.diffLines?.length > 0">
+                                            <template x-for="(line, lineIdx) in part.semantic.diffLines" :key="lineIdx">
+                                              <div class="sem-inline-diff-line" :class="line.type">
+                                                <span class="sem-inline-ln" x-text="line.old ?? ''"></span>
+                                                <span class="sem-inline-ln" x-text="line.new ?? ''"></span>
+                                                <span class="sem-inline-sign" x-text="line.type === 'add' ? '+' : line.type === 'del' ? '−' : ' '"></span>
+                                                <span class="sem-inline-text" x-text="line.text"></span>
+                                              </div>
+                                            </template>
+                                          </div>
+                                          <div class="sem-inline-empty" x-show="!part.semantic.diffLines || part.semantic.diffLines.length === 0">no line changes</div>
+                                          <div
+                                            class="sem-inline-truncated"
+                                            x-show="part.semantic.diffTruncated"
+                                            x-text="'… ' + Math.max(0, (part.semantic.diffTotalLines || 0) - (part.semantic.diffLines?.length || 0)) + ' more diff lines (truncated)'"
+                                          ></div>
+                                        </div>
+                                      </template>
+                                    </div>
+                                  </template>
+
+                                  <!-- ═══ SEMANTIC: Write tool ═══ -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'write' && !showRaw">
+                                    <div class="sem-write">
+                                      <div class="sem-file-header">
+                                        <span class="sem-file-icon">Write</span>
+                                        <span class="sem-file-path" :title="part.semantic.path" x-text="part.semantic.path"></span>
+                                        <span class="sem-badge sem-badge-success" x-show="part.semantic.success">✓ Written</span>
+                                      </div>
+                                      <pre class="sem-file-content"><code x-text="part.semantic.content.length > 3000 ? part.semantic.content.slice(0, 3000) + '\n... (truncated)' : part.semantic.content"></code></pre>
+                                    </div>
+                                  </template>
+
+                                  <!-- ═══ SEMANTIC: Read tool ═══ -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'read' && !showRaw">
+                                    <div class="sem-read">
+                                      <div class="sem-file-header">
+                                        <span class="sem-file-icon">Read</span>
+                                        <span class="sem-file-path" :title="part.semantic.path" x-text="part.semantic.path"></span>
+                                        <span class="sem-file-range" x-show="part.semantic.offset" x-text="'lines ' + part.semantic.offset + (part.semantic.limit ? '-' + (part.semantic.offset + part.semantic.limit - 1) : '+')"></span>
+                                        <span class="sem-file-lines" x-text="part.semantic.lineCount + ' lines'"></span>
+                                      </div>
+                                      <pre class="sem-file-content sem-highlighted" x-data="{ expanded: false }">
+                                        <template x-if="part.semantic.lineCount <= 100 || expanded">
+                                          <code x-text="part.output"></code>
+                                        </template>
+                                        <template x-if="part.semantic.lineCount > 100 && !expanded">
+                                          <code x-text="part.output.split('\n').slice(0, 60).join('\n')"></code>
+                                        </template>
+                                        <template x-if="part.semantic.lineCount > 100 && !expanded">
+                                          <button class="sem-show-all" type="button" @click="expanded = true" x-text="'Show all ' + part.semantic.lineCount + ' lines'"></button>
+                                        </template>
+                                      </pre>
+                                    </div>
+                                  </template>
+
+                                  <!-- ═══ SEMANTIC: Bash tool ═══ -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'bash' && !showRaw">
+                                    <div class="sem-bash" :class="part.semantic.isError ? 'sem-bash-error' : ''">
+                                      <div class="sem-bash-cmd">
+                                        <span class="sem-bash-prompt">$</span>
+                                        <code x-text="part.semantic.command"></code>
+                                      </div>
+                                      <template x-if="part.output">
+                                        <div class="sem-bash-output" x-data="{ expanded: false }">
+                                          <!-- Short output: show all -->
+                                          <template x-if="part.semantic.lineCount <= 25">
+                                            <pre><code x-text="part.output"></code></pre>
+                                          </template>
+                                          <!-- Long output: truncated with expander -->
+                                          <template x-if="part.semantic.lineCount > 25 && !expanded">
+                                            <div>
+                                              <pre><code x-text="part.output.split('\n').slice(0, 15).join('\n')"></code></pre>
+                                              <button class="sem-show-hidden" type="button" @click="expanded = true" x-text="'⋯ show ' + (part.semantic.lineCount - 25) + ' hidden lines'"></button>
+                                              <pre><code x-text="part.output.split('\n').slice(-10).join('\n')"></code></pre>
+                                            </div>
+                                          </template>
+                                          <!-- Expanded: show all -->
+                                          <template x-if="part.semantic.lineCount > 25 && expanded">
+                                            <pre><code x-text="part.output"></code></pre>
+                                          </template>
+                                        </div>
+                                      </template>
+                                    </div>
+                                  </template>
+
+                                  <!-- ═══ SEMANTIC: Brain tool ═══ -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'brain' && !showRaw">
+                                    <div class="sem-brain">
+                                      <div class="sem-action-header">
+                                        <span class="sem-action-badge">Brain</span>
+                                        <span class="sem-action-label" x-text="part.semantic.summary"></span>
+                                        <span class="sem-action-id" x-show="part.semantic.id" x-text="part.semantic.id"></span>
+                                      </div>
+                                      <pre class="sem-structured-output"><code x-text="part.output"></code></pre>
+                                    </div>
+                                  </template>
+
+                                  <!-- ═══ SEMANTIC: Vault tool ═══ -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'vault' && !showRaw">
+                                    <div class="sem-vault">
+                                      <div class="sem-action-header">
+                                        <span class="sem-action-badge">Vault</span>
+                                        <span class="sem-action-label" x-text="part.semantic.summary"></span>
+                                        <span class="sem-action-slug" x-show="part.semantic.slug" x-text="part.semantic.slug"></span>
+                                      </div>
+                                      <pre class="sem-structured-output"><code x-text="part.output"></code></pre>
+                                    </div>
+                                  </template>
+
+                                  <!-- ═══ SEMANTIC: Email tool ═══ -->
+                                  <template x-if="part.semantic && part.semantic.tool === 'email' && !showRaw">
+                                    <div class="sem-email">
+                                      <div class="sem-action-header">
+                                        <span class="sem-action-badge">Email</span>
+                                        <span class="sem-action-label" x-text="part.semantic.summary"></span>
+                                      </div>
+                                      <template x-if="part.semantic.subject">
+                                        <div class="sem-email-subject" x-text="'Subject: ' + part.semantic.subject"></div>
+                                      </template>
+                                      <pre class="sem-structured-output"><code x-text="part.output"></code></pre>
+                                    </div>
+                                  </template>
+
+                                  <!-- ═══ RAW view (fallback or toggled) ═══ -->
+                                  <template x-if="!part.semantic || showRaw">
+                                    <div class="sem-raw">
+                                      <div class="chat-block-label">args</div>
+                                      <pre><code x-text="part.args"></code></pre>
+                                      <div class="chat-block-label" x-show="part.output">output</div>
+                                      <pre x-show="part.output"><code x-text="part.output"></code></pre>
+                                    </div>
+                                  </template>
                                 </div>
                               </div>
                             </template>
@@ -292,51 +493,24 @@
                           </div>
                         </template>
                       </div>
-                      <div class="chat-usage" x-show="message.usageLine" x-text="message.usageLine"></div>
+                      <div class="chat-usage chat-usage-desktop" x-show="message.usageData?.desktop" x-text="message.usageData?.desktop"></div>
+                      <div class="chat-usage chat-usage-mobile" x-show="message.usageData?.mobile" x-text="message.usageData?.mobile"></div>
                     </article>
                   </template>
                 </div>
 
-                <div class="chat-controls" x-show="isForkActive()">
-                  <div class="chat-controls-left">
-                    <div class="chat-control-group">
-                      <label class="chat-control-label">Model</label>
-                      <select
-                        class="chat-control-select"
-                        @change="setModel(availableModels.find(m => modelDropdownLabel(m) === $event.target.value))"
-                        :disabled="!canSwitchModel()"
-                      >
-                        <template x-for="model in availableModels" :key="modelDropdownLabel(model)">
-                          <option
-                            :value="modelDropdownLabel(model)"
-                            :selected="isCurrentModel(model)"
-                            x-text="modelDropdownLabel(model)"
-                          ></option>
-                        </template>
-                      </select>
-                    </div>
-                    <button
-                      class="btn btn-ghost chat-control-btn"
-                      type="button"
-                      @click="cycleThinkingLevel()"
-                      :disabled="!canChangeThinking()"
-                      :title="`Thinking level: ${thinkingLevelLabel()}`"
-                    >
-                      Thinking: <span x-text="thinkingLevelLabel()"></span>
-                    </button>
-                  </div>
-                  <div class="chat-controls-right">
-                    <button
-                      class="btn btn-danger chat-control-btn"
-                      type="button"
-                      @click="abort()"
-                      :disabled="!canAbort()"
-                      x-show="isStreaming"
-                    >
-                      Abort
-                    </button>
-                  </div>
-                </div>
+                <!-- Scroll to bottom button -->
+                <button
+                  class="chat-scroll-bottom"
+                  type="button"
+                  x-show="userScrolledUp && promptQueue.length === 0"
+                  x-cloak
+                  x-transition.opacity
+                  @click="userScrolledUp = false; scrollThreadToBottom()"
+                  title="Scroll to bottom"
+                >
+                  ↓ New messages
+                </button>
 
                 <!-- Extension widget (above input) -->
                 <div class="chat-widget" x-show="hasWidget()" x-cloak>
@@ -344,36 +518,160 @@
                   <button class="chat-widget-close" type="button" @click="extensionWidget = null">&times;</button>
                 </div>
 
-                <form class="chat-composer" :class="{ streaming: isStreaming }" @submit.prevent="handlePromptSubmit()" x-show="isForkActive()">
-                  <textarea
-                    class="chat-composer-input"
-                    x-ref="composerInput"
-                    x-model="promptText"
-                    :placeholder="inputPlaceholder()"
-                    rows="2"
-                    :disabled="isSendingPrompt || isForking"
-                    @keydown="handleComposerKeydown($event)"
-                    @input="handleComposerInput($event)"
-                  ></textarea>
-                  <div class="chat-composer-actions">
-                    <button
-                      class="btn btn-ghost"
-                      type="button"
-                      @click="sendFollowUp()"
-                      :disabled="!promptText.trim() || !isStreaming"
-                      x-show="isStreaming"
-                      title="Queue as follow-up (sent after current response)"
-                    >
-                      Follow-up
-                    </button>
-                    <button class="btn" type="submit" :disabled="!promptText.trim() || isSendingPrompt || isForking">
-                      <span x-text="submitButtonLabel()"></span>
-                    </button>
+                <form class="chat-composer" :class="{ streaming: isStreaming }" @submit.prevent="handlePromptSubmit()" x-show="isInteractiveSession()">
+                  <!-- Image attachments preview -->
+                  <div class="chat-composer-attachments" x-show="pendingImages.length > 0">
+                    <template x-for="(img, idx) in pendingImages" :key="idx">
+                      <div class="chat-attachment-thumb">
+                        <img :src="img.dataUrl" alt="attachment" />
+                        <button class="chat-attachment-remove" type="button" @click="removeImage(idx)">&times;</button>
+                      </div>
+                    </template>
                   </div>
-                  <div class="chat-composer-hints" x-show="isForkActive()">
-                    Enter to send · Shift+Enter for newline
+                  <div class="slash-ac">
+                    <!-- Slash command autocomplete dropdown -->
+                    <div class="slash-ac-dropdown"
+                         x-ref="slashAcDropdown"
+                         x-show="slashAcVisible"
+                         x-cloak
+                         @mousedown.prevent>
+                      <template x-for="(item, idx) in slashAcItems" :key="item.name">
+                        <div class="slash-ac-item"
+                             :class="{ active: idx === slashAcIndex }"
+                             @click="selectSlashCommand(item)"
+                             @mouseenter="slashAcIndex = idx">
+                          <span class="slash-ac-name" x-text="'/' + item.name"></span>
+                          <span class="slash-ac-badge" x-text="item.source"></span>
+                          <span class="slash-ac-desc" x-text="item.description"></span>
+                        </div>
+                      </template>
+                      <div class="slash-ac-empty" x-show="slashAcItems.length === 0">No matching commands</div>
+                    </div>
+                  </div>
+                  <!-- Queue bar: shows messages queued during streaming -->
+                  <div class="chat-queue-bar" x-show="promptQueue.length > 0" x-cloak>
+                    <button class="chat-queue-header" type="button" @click="showQueue = !showQueue">
+                      <span class="chat-queue-count" x-text="'Queue (' + promptQueue.length + ')'"></span>
+                      <span class="chat-queue-summary" x-show="!showQueue" x-text="promptQueue[0]?.text || 'Queued message'"></span>
+                      <span class="chat-queue-chevron" x-text="showQueue ? '▾' : '▸'"></span>
+                    </button>
+                    <div class="chat-queue-items" x-show="showQueue">
+                      <template x-for="(qItem, qIdx) in promptQueue" :key="qItem.id">
+                        <div class="chat-queue-item">
+                          <div class="chat-queue-item-header">
+                            <span class="chat-queue-item-num" x-text="'#' + (qIdx + 1)"></span>
+                            <div class="chat-queue-item-actions">
+                              <label class="btn btn-ghost btn-xs chat-queue-attach" title="Attach image">
+                                Attach
+                                <input type="file" accept="image/*" multiple style="display:none" @change="addQueueItemImage(qItem.id, $event)" />
+                              </label>
+                              <button class="btn btn-ghost btn-xs chat-queue-remove" type="button" @click="removeQueueItem(qItem.id)" title="Remove">&times;</button>
+                            </div>
+                          </div>
+                          <textarea
+                            class="chat-queue-item-text"
+                            :value="qItem.text"
+                            @input="updateQueueItemText(qItem.id, $event.target.value)"
+                            rows="1"
+                          ></textarea>
+                          <div class="chat-queue-item-images" x-show="qItem.images.length > 0">
+                            <template x-for="(img, imgIdx) in qItem.images" :key="imgIdx">
+                              <div class="chat-attachment-thumb">
+                                <img :src="img.dataUrl" alt="attachment" />
+                                <button class="chat-attachment-remove" type="button" @click="removeQueueItemImage(qItem.id, imgIdx)">&times;</button>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+
+                  <div class="chat-composer-row">
+                    <textarea
+                      class="chat-composer-input"
+                      x-ref="composerInput"
+                      x-model="promptText"
+                      :placeholder="inputPlaceholder()"
+                      rows="2"
+                      :disabled="isSendingPrompt || isForking"
+                      @keydown="handleComposerKeydown($event)"
+                      @input="handleComposerInput($event)"
+                      @paste="handleComposerPaste($event)"
+                    ></textarea>
+                    <div class="chat-composer-toolbar">
+                      <div class="chat-composer-controls">
+                        <div class="chat-control-group">
+                          <label class="chat-control-label">Model</label>
+                          <select
+                            class="chat-control-select"
+                            @change="setModel(availableModels.find(m => modelDropdownLabel(m) === $event.target.value))"
+                            :disabled="!canSwitchModel()"
+                          >
+                            <template x-for="model in availableModels" :key="modelDropdownLabel(model)">
+                              <option
+                                :value="modelDropdownLabel(model)"
+                                :selected="isCurrentModel(model)"
+                                x-text="modelDropdownLabel(model)"
+                              ></option>
+                            </template>
+                          </select>
+                        </div>
+                        <div class="chat-control-group">
+                          <label class="chat-control-label">Thinking</label>
+                          <select
+                            class="chat-control-select"
+                            @change="setThinkingLevel($event.target.value)"
+                            :disabled="!canChangeThinking()"
+                          >
+                            <template x-for="level in thinkingLevels" :key="level">
+                              <option
+                                :value="level"
+                                :selected="level === currentThinkingLevel"
+                                x-text="level"
+                              ></option>
+                            </template>
+                          </select>
+                        </div>
+                        <button
+                          class="btn btn-danger chat-control-btn"
+                          type="button"
+                          @click="abort()"
+                          :disabled="!canAbort()"
+                          x-show="isStreaming"
+                        >
+                          Abort
+                        </button>
+                      </div>
+                      <div class="chat-composer-actions">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          x-ref="imageInput"
+                          style="display: none"
+                          @change="handleImageSelect($event)"
+                        />
+                        <button
+                          class="btn btn-ghost chat-attach-btn"
+                          type="button"
+                          @click="$refs.imageInput.click()"
+                          :disabled="isSendingPrompt || isForking"
+                          title="Attach image"
+                        >
+                          Attach
+                        </button>
+                        <button class="btn" type="submit" :disabled="(!promptText.trim() && pendingImages.length === 0) || isSendingPrompt || isForking">
+                          <span x-text="submitButtonLabel()"></span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="chat-composer-hints" x-show="isInteractiveSession()">
+                    Enter to send · Shift+Enter for newline · Paste, drag, or use Attach for images
                   </div>
                 </form>
+
 
                 <!-- Extension UI Dialog Overlay -->
                 <div class="ext-dialog-overlay" x-show="extensionDialog" x-cloak @click.self="dismissDialog(null)">
@@ -494,6 +792,21 @@
                   >
                     Save
                   </button>
+                </div>
+              </div>
+              <div class="config-preferences">
+                <div class="config-preference-item">
+                  <div class="config-preference-copy">
+                    <div class="config-preference-label">Theme</div>
+                    <div class="config-preference-help" x-text="'Current: ' + theme"></div>
+                  </div>
+                  <button
+                    class="btn btn-sm"
+                    type="button"
+                    @click="toggleTheme()"
+                    :title="themeButtonLabel()"
+                    x-text="themeButtonLabel()"
+                  ></button>
                 </div>
               </div>
               <div class="config-error" x-show="error" x-text="error"></div>
@@ -650,7 +963,7 @@
                     <div class="memory-card-meta-right">
                       <span class="memory-card-date" x-show="entry.due">due <span x-text="entry.due"></span></span>
                       <span class="memory-card-date" x-text="entry.created || '--'"></span>
-                      <button class="memory-edit-btn" type="button" @click="startEdit(entry)" title="Edit entry" x-show="editingId !== entry.id">✏</button>
+                      <button class="memory-edit-btn" type="button" @click="startEdit(entry)" title="Edit entry" x-show="editingId !== entry.id">✎</button>
                       <button class="memory-delete-btn" type="button" @click="entry.type === 'task' ? removeTask(entry) : remove(entry)" title="Delete entry" x-show="editingId !== entry.id">&times;</button>
                     </div>
                   </div>
@@ -685,23 +998,158 @@
                 </div>
               </template>
               <div class="memory-empty" x-show="entries.length === 0 && !isLoading">
-                <span class="empty-icon">&#x1F9E0;</span>
                 <span>No matching entries</span>
               </div>
             </div>
             <div class="memory-empty" x-show="!isLoading && entries.length === 0 && !error">
-              <span class="empty-icon">&#x1F9E0;</span>
               <span>No matching entries</span>
             </div>
           </div>
         </section>
 
 
+        <section class="view review-view" x-show="view === 'review'" x-cloak role="tabpanel">
+          <div class="view-header">// review</div>
+          <div class="view-title">Git changes</div>
+          <div class="view-body" x-data="rhoReviewDashboard()" x-init="init()">
+            <div class="reviewdash">
+              <template x-if="loading && !gitStatus">
+                <div class="reviewdash-empty"><p class="text-muted">loading…</p></div>
+              </template>
+
+              <template x-if="!loading && error && !gitStatus">
+                <div class="reviewdash-empty">
+                  <p x-text="error"></p>
+                  <p class="text-muted">check that you're in a git repository</p>
+                </div>
+              </template>
+
+              <template x-if="!loading && !error && !gitStatus">
+                <div class="reviewdash-empty">
+                  <p>no git context detected</p>
+                  <p class="text-muted">run a git command to get started</p>
+                </div>
+              </template>
+
+              <template x-if="gitStatus">
+                <div class="reviewdash-main">
+                  <div class="reviewdash-scroll">
+                    <div class="reviewdash-branch">
+                      <span class="reviewdash-branch-icon">⎇</span>
+                      <span class="reviewdash-branch-name" x-text="gitStatus.branch"></span>
+                      <span class="reviewdash-sep">·</span>
+                      <span class="reviewdash-summary" x-text="fileSummary()"></span>
+                    </div>
+
+                    <template x-if="gitStatus.sessionFiles.length > 0">
+                      <div class="reviewdash-session-badge" x-text="gitStatus.sessionFiles.length + ' file' + (gitStatus.sessionFiles.length !== 1 ? 's' : '') + ' changed this session'"></div>
+                    </template>
+
+                    <template x-if="reviews.length > 0">
+                      <div class="reviewdash-section">
+                        <div class="reviewdash-section-title">active reviews</div>
+                        <template x-for="r in reviews" :key="r.id">
+                          <a class="reviewdash-review-row" :href="'/review/' + r.id + '?token=' + encodeURIComponent(r.token)">
+                            <span class="reviewdash-dot"></span>
+                            <span class="reviewdash-review-files" x-text="r.files.join(', ')"></span>
+                            <span class="text-muted" x-text="relativeTime(r.createdAt)"></span>
+                          </a>
+                        </template>
+                      </div>
+                    </template>
+
+                    <template x-if="submissions.length > 0">
+                      <div class="reviewdash-section">
+                        <div class="reviewdash-section-title">submitted inbox</div>
+                        <template x-for="entry in submissions" :key="entry.id">
+                          <div class="reviewdash-review-row">
+                            <span class="reviewdash-dot"></span>
+                            <span class="reviewdash-review-files" x-text="entry.files.join(', ')"></span>
+                            <span class="text-muted" x-text="submissionMeta(entry)"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
+                    <template x-if="gitStatus.files.length > 0">
+                      <div class="reviewdash-files">
+                        <template x-for="file in gitStatus.files" :key="file.path">
+                          <div class="reviewdash-entry">
+                            <div class="reviewdash-row" @click="toggleExpand(file.path)">
+                              <label class="reviewdash-check" @click.stop>
+                                <input type="checkbox" :checked="selected.includes(file.path)" @change="toggleSelect(file.path)">
+                              </label>
+                              <span class="reviewdash-status" :class="file.status" x-text="file.statusLabel"></span>
+                              <span class="reviewdash-path" x-text="file.path"></span>
+                              <template x-if="file.isSession">
+                                <span class="reviewdash-session-dot" title="Changed this session">●</span>
+                              </template>
+                              <span class="reviewdash-stats" x-show="file.additions || file.deletions">
+                                <span class="reviewdash-add" x-show="file.additions" x-text="'+' + file.additions"></span>
+                                <span class="reviewdash-del" x-show="file.deletions" x-text="'−' + file.deletions"></span>
+                              </span>
+                              <span class="reviewdash-chevron" x-text="expanded.includes(file.path) ? '▾' : '▸'"></span>
+                            </div>
+
+                            <div class="reviewdash-diff-wrap" x-show="expanded.includes(file.path)">
+                              <template x-if="diffs[file.path] === false">
+                                <div class="reviewdash-diff-loading">loading diff…</div>
+                              </template>
+                              <template x-if="diffs[file.path] === ''">
+                                <div class="reviewdash-diff-empty">no diff available</div>
+                              </template>
+                              <template x-if="diffs[file.path] && diffs[file.path] !== false">
+                                <div x-html="renderDiff(diffs[file.path])"></div>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
+                    <template x-if="gitStatus.files.length === 0">
+                      <div class="reviewdash-empty">
+                        <p class="text-muted">working tree clean</p>
+                      </div>
+                    </template>
+
+                    <template x-if="gitStatus.log.length > 0">
+                      <div class="reviewdash-commits">
+                        <div class="reviewdash-section-title">recent commits</div>
+                        <template x-for="entry in gitStatus.log" :key="entry.hash">
+                          <div class="reviewdash-commit-row">
+                            <span class="reviewdash-commit-hash" x-text="entry.hash"></span>
+                            <span class="reviewdash-commit-msg" x-text="entry.message"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+
+                  <div class="reviewdash-actions" x-show="selected.length > 0">
+                    <div class="reviewdash-actions-meta">
+                      <span class="reviewdash-actions-count" x-text="selected.length + ' file' + (selected.length !== 1 ? 's' : '')"></span>
+                      <span class="reviewdash-actions-error" x-show="actionError" x-text="actionError"></span>
+                    </div>
+                    <div class="reviewdash-actions-row">
+                      <button class="reviewdash-btn" @click="selectAll()" :disabled="isStartingReview">
+                        <span x-text="selected.length === (gitStatus?.files?.filter(f => f.status !== 'deleted').length ?? 0) ? 'None' : 'All'"></span>
+                      </button>
+                      <button class="reviewdash-btn primary" @click="startReview()" :disabled="isStartingReview">
+                        <span x-text="isStartingReview ? 'Opening…' : 'Review →'"></span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </section>
+
       </main>
 
       <footer class="footer">
         <div class="footer-inner">
-          <span class="footer-model">model: --</span>
           <span class="footer-tokens">tokens: --</span>
           <span class="footer-cost">cost: --</span>
           <span class="footer-status">status: idle</span>
@@ -709,5 +1157,15 @@
         </div>
       </footer>
     </div>
+    <script>
+      // Register service worker for PWA
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.log('SW registration failed:', err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

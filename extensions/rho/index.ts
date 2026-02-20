@@ -46,6 +46,7 @@ import { handleBrainAction } from "../lib/brain-tool.ts";
 import { readBrain, foldBrain, buildBrainPrompt, appendBrainEntryWithDedup, getInjectedIds, BRAIN_PATH } from "../lib/brain-store.ts";
 import { detectMigration, runMigration } from "../lib/brain-migration.ts";
 import { LeaseHandle, isLeaseStale, readLeaseMeta, tryAcquireLeaseLock } from "../lib/lease-lock.ts";
+import { withFileLock } from "../lib/file-lock.ts";
 import { handleBootstrapSlash, runBootstrapCliFromExtension } from "./bootstrap/slash-bootstrap.ts";
 
 export { parseFrontmatter, extractWikilinks };
@@ -76,6 +77,8 @@ const RESULTS_DIR = path.join(RHO_DIR, "results");
 const STATE_PATH = path.join(RHO_DIR, "rho-state.json");
 const CONFIG_PATH = path.join(RHO_DIR, "config.json");
 const SETTINGS_PATH = path.join(RHO_DIR, "rho-settings.json");
+const AUTO_MEMORY_LOG_PATH = path.join(BRAIN_DIR, "auto-memory-log.jsonl");
+const AUTO_MEMORY_LOG_LOCK_PATH = `${AUTO_MEMORY_LOG_PATH}.lock`;
 
 const LEGACY_STATE_PATH = path.join(HOME, ".pi", "agent", "rho-state.json");
 
@@ -233,6 +236,8 @@ const AUTO_MEMORY_MAX_ITEMS = 3;
 const AUTO_MEMORY_MAX_TEXT = 200;
 const AUTO_MEMORY_DEFAULT_CATEGORY = "General";
 const AUTO_MEMORY_ALLOWED_CATEGORIES = new Set(["Communication", "Code", "Tools", "Workflow", "General"]);
+const AUTO_MEMORY_RECEIPT_MAX_WIDTH = 200;
+const AUTO_MEMORY_RECENT_DEFAULT_LIMIT = 10;
 const COMPACT_MEMORY_FLUSH_ENABLED = process.env.RHO_COMPACT_MEMORY_FLUSH !== "0";
 
 // ─── Brain: Model Resolution ─────────────────────────────────────────────────
@@ -279,7 +284,17 @@ function sanitizeCategory(category?: string): string {
   return AUTO_MEMORY_DEFAULT_CATEGORY;
 }
 
-async function storeLearningEntry(text: string, options?: { source?: string; maxLength?: number }): Promise<StoreResult> {
+async function storeLearningEntry(
+  text: string,
+  options?: {
+    source?: string;
+    maxLength?: number;
+    sourceSessionId?: string | null;
+    sourceLeafId?: string | null;
+    sourceRunId?: string;
+    sourceTrigger?: string;
+  }
+): Promise<StoreResult> {
   const normalized = normalizeMemoryText(text);
   if (!normalized) return { stored: false, reason: "empty" };
   if (options?.maxLength && normalized.length > options.maxLength) {
@@ -291,6 +306,10 @@ async function storeLearningEntry(text: string, options?: { source?: string; max
     type: "learning" as const,
     text: normalized,
     source: options?.source,
+    sourceSessionId: options?.sourceSessionId,
+    sourceLeafId: options?.sourceLeafId,
+    sourceRunId: options?.sourceRunId,
+    sourceTrigger: options?.sourceTrigger,
     created: new Date().toISOString(),
   };
 
@@ -311,7 +330,14 @@ async function storeLearningEntry(text: string, options?: { source?: string; max
 async function storePreferenceEntry(
   text: string,
   category: string,
-  options?: { maxLength?: number }
+  options?: {
+    source?: string;
+    maxLength?: number;
+    sourceSessionId?: string | null;
+    sourceLeafId?: string | null;
+    sourceRunId?: string;
+    sourceTrigger?: string;
+  }
 ): Promise<StoreResult> {
   const normalized = normalizeMemoryText(text);
   if (!normalized) return { stored: false, reason: "empty" };
@@ -325,6 +351,11 @@ async function storePreferenceEntry(
     type: "preference" as const,
     category: normalizedCategory,
     text: normalized,
+    source: options?.source,
+    sourceSessionId: options?.sourceSessionId,
+    sourceLeafId: options?.sourceLeafId,
+    sourceRunId: options?.sourceRunId,
+    sourceTrigger: options?.sourceTrigger,
     created: new Date().toISOString(),
   };
 
@@ -348,6 +379,26 @@ async function storePreferenceEntry(
 type AutoMemoryResponse = {
   learnings?: Array<{ text?: string }>;
   preferences?: Array<{ text?: string; category?: string }>;
+};
+
+type AutoMemorySkipReason = "empty" | "duplicate" | "too_long" | "item_limit";
+
+type AutoMemoryDecision = {
+  kind: "learning" | "preference";
+  text: string;
+  category?: string;
+  status: "saved" | "skipped";
+  reason?: AutoMemorySkipReason;
+  entryId?: string;
+};
+
+type AutoMemoryRunResult = {
+  storedLearnings: number;
+  storedPrefs: number;
+  decisions: AutoMemoryDecision[];
+  runId: string;
+  source: string;
+  trigger?: string;
 };
 
 function formatExistingMemories(entries: Array<{ type: string; text?: string; category?: string }>): string {
@@ -424,12 +475,97 @@ function parseAutoMemoryResponse(text: string): AutoMemoryResponse | null {
   }
 }
 
+function truncateForReceipt(text: string, max = 64): string {
+  if (text.length <= max) return text;
+  if (max <= 3) return text.slice(0, Math.max(0, max));
+  return `${text.slice(0, max - 3)}...`;
+}
+
+function formatAutoMemorySavedItemPreview(item: AutoMemoryDecision): string {
+  const raw = item.kind === "preference"
+    ? `[${item.category ?? AUTO_MEMORY_DEFAULT_CATEGORY}] ${item.text}`
+    : item.text;
+  return `"${truncateForReceipt(raw)}"`;
+}
+
+function formatAutoMemoryReceipt(result: AutoMemoryRunResult): string {
+  const saved = result.decisions.filter((d) => d.status === "saved");
+  const skipped = result.decisions.length - saved.length;
+  const prefix = `Auto-memory: +${saved.length} saved` + (skipped > 0 ? `, ${skipped} skipped` : "");
+
+  if (saved.length === 0) {
+    return `${prefix} (${result.source})`;
+  }
+
+  const preview: string[] = [];
+  let used = 0;
+  for (const item of saved) {
+    const chunk = formatAutoMemorySavedItemPreview(item);
+    const added = preview.length === 0 ? chunk.length : chunk.length + 3;
+    if (prefix.length + 3 + used + added > AUTO_MEMORY_RECEIPT_MAX_WIDTH && preview.length > 0) break;
+    preview.push(chunk);
+    used += added;
+  }
+
+  const more = preview.length < saved.length ? ` +${saved.length - preview.length} more` : "";
+  return `${prefix}: ${preview.join(" | ")}${more}`;
+}
+
+async function appendAutoMemoryLog(entry: Record<string, unknown>): Promise<void> {
+  try {
+    await withFileLock(AUTO_MEMORY_LOG_LOCK_PATH, { purpose: "auto-memory-log" }, async () => {
+      fs.mkdirSync(path.dirname(AUTO_MEMORY_LOG_PATH), { recursive: true });
+      const fd = fs.openSync(
+        AUTO_MEMORY_LOG_PATH,
+        fs.constants.O_APPEND | fs.constants.O_CREAT | fs.constants.O_WRONLY,
+        0o644,
+      );
+      try {
+        fs.writeSync(fd, JSON.stringify(entry) + "\n");
+      } finally {
+        fs.closeSync(fd);
+      }
+    });
+  } catch (error) {
+    if (AUTO_MEMORY_DEBUG) {
+      console.error(`Auto-memory log write failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+function readRecentAutoMemoryRuns(limit = AUTO_MEMORY_RECENT_DEFAULT_LIMIT): Array<Record<string, any>> {
+  if (limit <= 0) return [];
+  let raw = "";
+  try {
+    raw = fs.readFileSync(AUTO_MEMORY_LOG_PATH, "utf-8");
+  } catch {
+    return [];
+  }
+
+  const out: Array<Record<string, any>> = [];
+  const lines = raw.split("\n").filter((line) => line.trim().length > 0);
+  for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
+    try {
+      const parsed = JSON.parse(lines[i]);
+      if (parsed && parsed.type === "auto_memory_run") out.push(parsed);
+    } catch {
+      // skip bad lines
+    }
+  }
+  return out;
+}
+
 async function runAutoMemoryExtraction(
   messages: AgentMessage[],
   ctx: ExtensionContext,
-  options?: { source?: string; signal?: AbortSignal; maxItems?: number; maxText?: number }
-): Promise<{ storedLearnings: number; storedPrefs: number } | null> {
+  options?: { source?: string; trigger?: string; signal?: AbortSignal; maxItems?: number; maxText?: number; notifyReceipt?: boolean }
+): Promise<AutoMemoryRunResult | null> {
   if (!getAutoMemoryEffective().enabled) return null;
+
+  const source = options?.source ?? "auto";
+  const trigger = options?.trigger;
+  const runId = crypto.randomBytes(6).toString("hex");
+  const startedAt = new Date().toISOString();
 
   const resolved = await resolveSmallModel(ctx);
   if (!resolved) return null;
@@ -437,6 +573,15 @@ async function runAutoMemoryExtraction(
 
   const conversationText = serializeConversation(convertToLlm(messages));
   if (!conversationText.trim()) return null;
+
+  let sessionId: string | null = null;
+  let leafId: string | null = null;
+  try {
+    sessionId = ctx.sessionManager.getSessionId();
+    leafId = ctx.sessionManager.getLeafId();
+  } catch {
+    // best effort
+  }
 
   if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
     ctx.ui.notify(`Auto-memory: extracting via ${model.name}...`, "info");
@@ -485,7 +630,22 @@ async function runAutoMemoryExtraction(
     }
   }
 
-  if (!response) return null;
+  if (!response) {
+    await appendAutoMemoryLog({
+      type: "auto_memory_run",
+      id: runId,
+      created: startedAt,
+      finishedAt: new Date().toISOString(),
+      status: "no_response",
+      source,
+      trigger,
+      sessionId,
+      leafId,
+      model: { provider: model.provider, id: model.id, name: model.name },
+      conversation: { messageCount: messages.length, chars: conversationText.length },
+    });
+    return null;
+  }
 
   const responseText = response.content
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
@@ -495,6 +655,20 @@ async function runAutoMemoryExtraction(
 
   const parsed = parseAutoMemoryResponse(responseText);
   if (!parsed) {
+    await appendAutoMemoryLog({
+      type: "auto_memory_run",
+      id: runId,
+      created: startedAt,
+      finishedAt: new Date().toISOString(),
+      status: "parse_failed",
+      source,
+      trigger,
+      sessionId,
+      leafId,
+      model: { provider: model.provider, id: model.id, name: model.name },
+      conversation: { messageCount: messages.length, chars: conversationText.length },
+      responsePreview: responseText.slice(0, 500),
+    });
     if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
       ctx.ui.notify("Auto-memory: no JSON response", "warning");
     }
@@ -502,65 +676,118 @@ async function runAutoMemoryExtraction(
   }
 
   const extractedLearnings = (parsed.learnings ?? [])
-    .map((l) => normalizeMemoryText(l.text ?? ""))
-    .filter(Boolean);
+    .map((l) => normalizeMemoryText(l.text ?? ""));
   const extractedPreferences = (parsed.preferences ?? [])
     .map((p) => ({
       text: normalizeMemoryText(p.text ?? ""),
       category: sanitizeCategory(p.category),
-    }))
-    .filter((p) => p.text.length > 0);
+    }));
 
   const maxItems = options?.maxItems ?? AUTO_MEMORY_MAX_ITEMS;
   const maxText = options?.maxText ?? AUTO_MEMORY_MAX_TEXT;
-  const source = options?.source ?? "auto";
+  const notifyReceipt = options?.notifyReceipt ?? source === "auto";
+
   let remaining = maxItems;
   let storedLearnings = 0;
   let storedPrefs = 0;
-  const storedItems: string[] = [];
+  const decisions: AutoMemoryDecision[] = [];
 
   for (const text of extractedLearnings) {
-    if (remaining <= 0) break;
-    const result = await storeLearningEntry(text, { source, maxLength: maxText });
+    if (!text) {
+      decisions.push({ kind: "learning", text: "", status: "skipped", reason: "empty" });
+      continue;
+    }
+
+    if (remaining <= 0) {
+      decisions.push({ kind: "learning", text, status: "skipped", reason: "item_limit" });
+      continue;
+    }
+
+    const result = await storeLearningEntry(text, {
+      source,
+      maxLength: maxText,
+      sourceSessionId: sessionId,
+      sourceLeafId: leafId,
+      sourceRunId: runId,
+      sourceTrigger: trigger,
+    });
     if (result.stored) {
       storedLearnings += 1;
       remaining -= 1;
-      storedItems.push(text);
+      decisions.push({ kind: "learning", text, status: "saved", entryId: result.id });
+    } else {
+      decisions.push({ kind: "learning", text, status: "skipped", reason: result.reason ?? "duplicate" });
     }
   }
 
   for (const pref of extractedPreferences) {
-    if (remaining <= 0) break;
-    const result = await storePreferenceEntry(pref.text, pref.category, { maxLength: maxText });
+    if (!pref.text) {
+      decisions.push({ kind: "preference", category: pref.category, text: "", status: "skipped", reason: "empty" });
+      continue;
+    }
+
+    if (remaining <= 0) {
+      decisions.push({ kind: "preference", category: pref.category, text: pref.text, status: "skipped", reason: "item_limit" });
+      continue;
+    }
+
+    const result = await storePreferenceEntry(pref.text, pref.category, {
+      source,
+      maxLength: maxText,
+      sourceSessionId: sessionId,
+      sourceLeafId: leafId,
+      sourceRunId: runId,
+      sourceTrigger: trigger,
+    });
     if (result.stored) {
       storedPrefs += 1;
       remaining -= 1;
-      storedItems.push(`[${pref.category}] ${pref.text}`);
+      decisions.push({ kind: "preference", category: pref.category, text: pref.text, status: "saved", entryId: result.id });
+    } else {
+      decisions.push({ kind: "preference", category: pref.category, text: pref.text, status: "skipped", reason: result.reason ?? "duplicate" });
     }
   }
 
-  if ((storedLearnings > 0 || storedPrefs > 0) && ctx.hasUI) {
-    const total = storedLearnings + storedPrefs;
-    const prefix = `Auto-memory (${total}): `;
-    const maxLen = 120 - prefix.length;
-    const truncated: string[] = [];
-    let len = 0;
-    for (const item of storedItems) {
-      const short = item.length > 60 ? item.slice(0, 57) + "..." : item;
-      const quoted = `"${short}"`;
-      const added = len === 0 ? quoted.length : quoted.length + 3; // " | " separator
-      if (len + added > maxLen && truncated.length > 0) break;
-      truncated.push(quoted);
-      len += added;
-    }
-    const suffix = truncated.length < storedItems.length ? ` +${storedItems.length - truncated.length} more` : "";
-    ctx.ui.notify(`${prefix}${truncated.join(" | ")}${suffix}`, "info");
+  const skippedByReason: Record<string, number> = {};
+  for (const decision of decisions) {
+    if (decision.status !== "skipped") continue;
+    const reason = decision.reason ?? "unknown";
+    skippedByReason[reason] = (skippedByReason[reason] ?? 0) + 1;
   }
 
-  // Bust footer memory count cache so it updates immediately
-  memoryCacheMs = 0;
+  await appendAutoMemoryLog({
+    type: "auto_memory_run",
+    id: runId,
+    created: startedAt,
+    finishedAt: new Date().toISOString(),
+    status: "ok",
+    source,
+    trigger,
+    sessionId,
+    leafId,
+    model: { provider: model.provider, id: model.id, name: model.name },
+    conversation: {
+      messageCount: messages.length,
+      chars: conversationText.length,
+      hash: crypto.createHash("sha256").update(conversationText).digest("hex").slice(0, 16),
+    },
+    extracted: { learnings: extractedLearnings.length, preferences: extractedPreferences.length },
+    saved: { learnings: storedLearnings, preferences: storedPrefs, total: storedLearnings + storedPrefs },
+    skipped: skippedByReason,
+    decisions,
+  });
 
-  return { storedLearnings, storedPrefs };
+  if (notifyReceipt && ctx.hasUI && (storedLearnings + storedPrefs) > 0) {
+    const receipt: AutoMemoryRunResult = { storedLearnings, storedPrefs, decisions, runId, source, trigger };
+    ctx.ui.notify(formatAutoMemoryReceipt(receipt), "info");
+  }
+
+  if (storedLearnings > 0 || storedPrefs > 0) {
+    // Bust footer memory count cache so it updates immediately
+    memoryCacheMs = 0;
+  }
+
+  return { storedLearnings, storedPrefs, decisions, runId, source, trigger };
 }
 
 function bootstrapBrainDefaults(extensionDir: string): void {
@@ -2194,7 +2421,11 @@ Instructions:
     if (!IS_SUBAGENT && !autoMemoryInFlight && getAutoMemoryEffective().enabled) {
       autoMemoryInFlight = true;
       try {
-        const result = await runAutoMemoryExtraction(event.messages, ctx, { source: "auto" });
+        const result = await runAutoMemoryExtraction(event.messages, ctx, {
+          source: "auto",
+          trigger: "agent_end",
+          notifyReceipt: true,
+        });
         if (result && (result.storedLearnings > 0 || result.storedPrefs > 0)) {
         }
       } catch (error) {
@@ -2235,7 +2466,12 @@ Instructions:
 
     compactMemoryInFlight = true;
     try {
-      const result = await runAutoMemoryExtraction(messages, ctx, { source: "compaction", signal: event.signal });
+      const result = await runAutoMemoryExtraction(messages, ctx, {
+        source: "compaction",
+        trigger: "session_before_compact",
+        signal: event.signal,
+        notifyReceipt: false,
+      });
     } catch (error) {
       if (AUTO_MEMORY_DEBUG && ctx.hasUI) {
         ctx.ui.notify(`Auto-memory error: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -2718,7 +2954,7 @@ Instructions:
   // ── Command: /brain ────────────────────────────────────────────────────────
 
   pi.registerCommand("brain", {
-    description: "View brain stats or search (usage: /brain [stats|search <query>])",
+    description: "View brain stats, search, or auto-memory runs (usage: /brain [stats|search <query>|automemory [recent] [n]])",
     handler: async (args, ctx) => {
       const parts = args?.trim().split(/\s+/) || [];
       const subcmd = parts[0] || "stats";
@@ -2757,8 +2993,51 @@ Instructions:
           const more = matches.length > 10 ? `\n(+${matches.length - 10} more)` : "";
           ctx.ui.notify(`Found ${matches.length} matches:\n${lines.join("\n")}${more}`, "info");
         }
+      } else if (subcmd === "automemory" || subcmd === "auto") {
+        const modeToken = (parts[1] || "recent").toLowerCase();
+        const tokenIsCount = /^\d+$/.test(modeToken);
+        const mode = tokenIsCount ? "recent" : modeToken;
+        const countRaw = mode === "recent"
+          ? (tokenIsCount ? modeToken : parts[2])
+          : parts[1];
+        const parsedCount = countRaw ? Number.parseInt(countRaw, 10) : AUTO_MEMORY_RECENT_DEFAULT_LIMIT;
+        const count = Number.isFinite(parsedCount)
+          ? Math.max(1, Math.min(50, parsedCount))
+          : AUTO_MEMORY_RECENT_DEFAULT_LIMIT;
+
+        if (mode !== "recent" && mode !== "") {
+          ctx.ui.notify("Usage: /brain automemory [recent] [n]", "error");
+          return;
+        }
+
+        const runs = readRecentAutoMemoryRuns(count);
+        if (runs.length === 0) {
+          ctx.ui.notify(`No auto-memory runs logged yet (${AUTO_MEMORY_LOG_PATH})`, "info");
+          return;
+        }
+
+        const lines = runs.map((run) => {
+          const savedTotal = Number(run?.saved?.total ?? 0);
+          const skippedTotal = Object.values(run?.skipped ?? {}).reduce((sum, n) => sum + Number(n || 0), 0);
+          const savedItems = Array.isArray(run?.decisions)
+            ? run.decisions.filter((d: any) => d?.status === "saved")
+            : [];
+          const preview = savedItems
+            .slice(0, 2)
+            .map((d: any) => formatAutoMemorySavedItemPreview(d as AutoMemoryDecision))
+            .join(" | ");
+          const more = savedItems.length > 2 ? ` +${savedItems.length - 2} more` : "";
+          const created = typeof run.created === "string" ? run.created : "unknown-time";
+          const sourceLabel = typeof run.source === "string" ? run.source : "auto";
+          const base = `- [${created}] ${sourceLabel}: +${savedTotal} saved, ${skippedTotal} skipped`;
+          return preview ? `${base} :: ${preview}${more}` : base;
+        });
+
+        const maxDisplayed = Math.min(lines.length, count);
+        const heading = `Auto-memory recent (${maxDisplayed}/${runs.length})\nlog: ${AUTO_MEMORY_LOG_PATH}`;
+        ctx.ui.notify(`${heading}\n${lines.join("\n")}`, "info");
       } else {
-        ctx.ui.notify("Usage: /brain [stats|search <query>]", "error");
+        ctx.ui.notify("Usage: /brain [stats|search <query>|automemory [recent] [n]]", "error");
       }
     },
   });

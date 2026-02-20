@@ -1,0 +1,300 @@
+/* Make review panel behave like chat/brain panels inside app shell */
+.review-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.review-view .view-body {
+  max-width: none;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.reviewdash {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.reviewdash-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: var(--text-dim);
+  padding: 2rem 1rem;
+  text-align: center;
+  min-height: 16rem;
+}
+
+.reviewdash-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.reviewdash-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.reviewdash-branch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  margin-bottom: 0.6rem;
+  font-size: 0.72rem;
+}
+
+.reviewdash-branch-icon { color: var(--cyan); }
+.reviewdash-branch-name { color: var(--text); font-weight: 600; }
+.reviewdash-sep { color: var(--text-dim); }
+.reviewdash-summary { color: var(--text-muted); }
+
+.reviewdash-session-badge {
+  margin-bottom: 0.6rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  background: rgba(94, 234, 212, 0.05);
+  color: var(--cyan);
+  font-size: 0.68rem;
+}
+
+.reviewdash-section {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  margin-bottom: 0.6rem;
+}
+
+.reviewdash-section-title {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  text-transform: lowercase;
+}
+
+.reviewdash-review-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
+.reviewdash-review-row:hover { color: var(--green); }
+.reviewdash-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.reviewdash-review-files { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.reviewdash-files {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  margin-bottom: 0.6rem;
+}
+
+.reviewdash-entry + .reviewdash-entry { border-top: 1px solid var(--border); }
+
+.reviewdash-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.4rem;
+  padding: 0 0.65rem;
+  cursor: pointer;
+}
+
+.reviewdash-row:hover { background: rgba(255, 255, 255, 0.02); }
+
+.reviewdash-check { display: flex; align-items: center; }
+.reviewdash-check input { width: 15px; height: 15px; accent-color: var(--green); }
+
+.reviewdash-status {
+  width: 14px;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.reviewdash-status.modified { color: var(--yellow); }
+.reviewdash-status.added { color: var(--green); }
+.reviewdash-status.deleted { color: var(--red); }
+.reviewdash-status.renamed { color: var(--cyan); }
+.reviewdash-status.untracked { color: var(--text-dim); }
+
+.reviewdash-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.74rem;
+}
+
+.reviewdash-session-dot { color: var(--cyan); font-size: 0.55rem; }
+
+.reviewdash-stats {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.65rem;
+}
+
+.reviewdash-add { color: var(--green); }
+.reviewdash-del { color: var(--red); }
+.reviewdash-chevron { color: var(--text-dim); width: 14px; text-align: center; }
+
+.reviewdash-diff-wrap {
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  background: var(--bg);
+}
+
+.reviewdash-diff-loading,
+.reviewdash-diff-empty {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.reviewdash-diff-hunk {
+  padding: 0.2rem 0.75rem;
+  background: rgba(94, 234, 212, 0.04);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.66rem;
+}
+
+.reviewdash-diff-line {
+  display: flex;
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.reviewdash-ln {
+  width: 2.2rem;
+  min-width: 2.2rem;
+  text-align: right;
+  padding-right: 0.35rem;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.reviewdash-sign {
+  width: 1rem;
+  min-width: 1rem;
+  text-align: center;
+  user-select: none;
+}
+
+.reviewdash-text {
+  white-space: pre;
+  flex: 1;
+  padding-right: 0.5rem;
+}
+
+.reviewdash-diff-line.add { background: rgba(34, 197, 94, 0.08); }
+.reviewdash-diff-line.add .reviewdash-sign,
+.reviewdash-diff-line.add .reviewdash-ln { color: var(--green-dim); }
+
+.reviewdash-diff-line.del { background: rgba(239, 68, 68, 0.08); }
+.reviewdash-diff-line.del .reviewdash-sign,
+.reviewdash-diff-line.del .reviewdash-ln { color: #b91c1c; }
+
+.reviewdash-commits {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+}
+
+.reviewdash-commit-row {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.68rem;
+}
+
+.reviewdash-commit-hash { color: var(--cyan); }
+.reviewdash-commit-msg { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.reviewdash-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  min-height: 2.6rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  margin-top: 0.6rem;
+}
+
+.reviewdash-actions-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.reviewdash-actions-count { color: var(--text-muted); font-size: 0.68rem; }
+
+.reviewdash-actions-error {
+  color: var(--red);
+  font-size: 0.64rem;
+  max-width: 32rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewdash-actions-row { display: flex; gap: 0.45rem; }
+
+.reviewdash-btn {
+  height: 1.9rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.reviewdash-btn:hover { background: var(--border); color: var(--text); }
+
+.reviewdash-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reviewdash-btn.primary {
+  background: var(--green-dim);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.reviewdash-btn.primary:hover { background: var(--green); }
+
+@media (max-width: 720px) {
+  .reviewdash-row,
+  .reviewdash-btn { min-height: 44px; }
+
+  .reviewdash-ln { width: 1.8rem; min-width: 1.8rem; }
+  .reviewdash-diff-line { font-size: 0.66rem; }
+}

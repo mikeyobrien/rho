@@ -37,17 +37,24 @@
     "@sinclair/typebox": "*"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*",
-    "@sinclair/typebox": "*"
+    "@sinclair/typebox": "*",
+    "simple-git-hooks": "^2.13.1"
   },
   "scripts": {
     "build": "printf '%s\n' 'no build step'",
     "lint": "printf '%s\n' 'no lint step'",
     "typecheck": "printf '%s\n' 'no typecheck step'",
     "test": "for f in tests/test-*.ts; do if [ \"$f\" = \"tests/test-vault.ts\" ]; then continue; fi; npx -y tsx \"$f\" || exit 1; done",
-    "telegram:smoke": "npx -y tsx scripts/telegram-smoke.ts"
+    "telegram:smoke": "npx -y tsx scripts/telegram-smoke.ts",
+    "hooks:pre-commit": "bash scripts/pre-commit.sh",
+    "prepare": "simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npm run -s hooks:pre-commit"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",

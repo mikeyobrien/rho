@@ -350,7 +350,7 @@ async function handleUpdate(
     return { ok: false, message: `No entry with id "${id}"` };
   }
 
-  // Merge params over existing, preserving type and id
+  // Merge params over existing, preserving type, id, and created date
   const merged: Record<string, any> = { ...existing };
   for (const [k, v] of Object.entries(params)) {
     if (k === "action") continue;
@@ -361,7 +361,7 @@ async function handleUpdate(
     try { merged.cadence = JSON.parse(merged.cadence); } catch { /* leave as-is */ }
   }
   if ("tags" in merged) merged.tags = normalizeTags(merged.tags);
-  merged.created = new Date().toISOString();
+  // Preserve original created date - only update it for new entries
 
   const validation = validateEntry(merged as BrainEntry);
   if (!validation.ok) {
@@ -585,7 +585,7 @@ async function handleTaskDone(
     ...task,
     status: "done",
     completedAt: new Date().toISOString(),
-    created: new Date().toISOString(),
+    // Preserve original created date for age tracking
   };
 
   await appendBrainEntry(brainPath, updated);
@@ -649,7 +649,7 @@ async function handleReminderRun(
     last_result: result,
     last_error: error ?? null,
     next_due: computeNextDue(reminder.cadence, now),
-    created: now.toISOString(),
+    // Preserve original created date for age tracking
   };
 
   await appendBrainEntry(brainPath, updated);

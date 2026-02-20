@@ -673,20 +673,20 @@ export function getInjectedIds(
   }
 
   // ── Preferences ──
-  if (brain.preferences.length > 0) {
+  const prefByCat = new Map<string, typeof brain.preferences>();
+  for (const p of brain.preferences) {
+    const arr = prefByCat.get(p.category) || [];
+    arr.push(p);
+    prefByCat.set(p.category, arr);
+  }
+  if (prefByCat.size > 0) {
     const header = "## Preferences";
     let used = approxTokens(header + "\n");
-    // Group by category like buildBrainPrompt
-    const byCat = new Map<string, typeof brain.preferences>();
-    for (const p of brain.preferences) {
-      const arr = byCat.get(p.category) || [];
-      arr.push(p);
-      byCat.set(p.category, arr);
-    }
-    for (const [cat, prefs] of [...byCat.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    // Add preferences one by one, like buildBrainPrompt renders them
+    for (const [cat, prefs] of [...prefByCat.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const line = `**${cat}:** ${prefs.map((p) => p.text).join(". ")}`;
       const t = approxTokens(line + "\n");
-      if (used + t > prefsBudget) break;
+      if (used + t > prefsBudget && used > approxTokens(header + "\n")) break;
       for (const p of prefs) ids.add(p.id);
       used += t;
     }

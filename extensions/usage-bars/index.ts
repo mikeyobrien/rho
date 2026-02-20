@@ -150,12 +150,37 @@ export default function (pi: ExtensionAPI) {
     updateStatus();
   }
 
+  function formatBar(pct: number): string {
+    const clamped = Math.max(0, Math.min(100, pct));
+    const filled = Math.round(clamped / 10);
+    return "█".repeat(filled) + "░".repeat(10 - filled);
+  }
+
+  /** Normalize to 0-100 percentage — handles both 0-1 fractions and 0-100 values */
+  function toPct(value: number): number {
+    if (value > 0 && value <= 1) return Math.round(value * 100);
+    return Math.round(value);
+  }
+
   function updateStatus() {
     const active = state.activeProvider;
     const data = active === "codex" ? state.codex : active === "claude" ? state.claude : null;
     // Emit for custom footer consumption
     if (data && !data.error) {
       pi.events.emit("usage:update", { session: data.session, weekly: data.weekly });
+      // Push to UI (TUI footer + web footer via RPC)
+      const label = active === "codex" ? "Codex" : "Claude";
+      const sessionPct = toPct(data.session);
+      const weeklyPct = toPct(data.weekly);
+      let statusText = `${label} ▸ 5h ${formatBar(sessionPct)} ${sessionPct}%  7d ${formatBar(weeklyPct)} ${weeklyPct}%`;
+      if ("extraSpend" in data && data.extraSpend != null) {
+        statusText += `  extra: $${data.extraSpend.toFixed(2)}/$${data.extraLimit?.toFixed(2) ?? "?"}`;
+      }
+      if (ctx?.ui?.setStatus) {
+        ctx.ui.setStatus(statusText);
+      }
+    } else if (ctx?.ui?.setStatus) {
+      ctx.ui.setStatus("");
     }
   }
 

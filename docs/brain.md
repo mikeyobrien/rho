@@ -412,9 +412,11 @@ How it works:
 1. Fires on `agent_end` (every turn) and `session_before_compact` (context window getting full)
 2. The conversation is sent to the smallest available model from the same provider
 3. The model extracts up to 3 items per pass, each under 200 characters
-4. Items go through dedup — if an equivalent learning already exists, it's skipped
+4. Items go through dedup + limits — duplicates, empty items, over-length items, and over-limit items are skipped with reasons
 5. Existing memories are sent as context so the model avoids restating known facts
-6. Stored items appear as a notification
+6. A post-turn receipt appears in TUI notifications with a preview of saved items (`+N saved, M skipped: "..." | "..."`)
+7. Every extraction run is appended to `~/.rho/brain/auto-memory-log.jsonl` with run metadata, decisions, and skip reasons
+8. Saved auto-memory entries carry provenance fields (`source`, `sourceSessionId`, `sourceLeafId`, `sourceRunId`, `sourceTrigger`) for traceability
 
 ### Configuration
 
@@ -455,12 +457,15 @@ All writes to brain.jsonl use file locking (`brain.jsonl.lock`) to prevent corru
 
 ## The `/brain` Command
 
-Quick stats and search from the TUI:
+Quick stats, search, and auto-memory visibility from the TUI:
 
 ```
-/brain              # Show stats: counts by type (e.g., "🧠 5L 3P 2T 1R | 11beh 2id 1usr")
-/brain stats        # Same as above
-/brain search pnpm  # Search all entries for "pnpm"
+/brain                      # Show stats: counts by type (e.g., "🧠 5L 3P 2T 1R | 11beh 2id 1usr")
+/brain stats                # Same as above
+/brain search pnpm          # Search all entries for "pnpm"
+/brain automemory           # Show recent auto-memory extraction runs
+/brain automemory recent 20 # Show last 20 auto-memory runs (max 50)
+/brain auto 10              # Shortcut: last 10 runs
 ```
 
 ---

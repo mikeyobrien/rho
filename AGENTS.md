@@ -43,6 +43,22 @@ Conventions in this repo:
 - **Do not create `extensions/lib/index.ts` or `index.js`**. Pi will treat `extensions/lib/` as an extension and try to load it.
 - Use `extensions/lib/mod.ts` as the barrel export instead.
 
+### Web Code Layout (No-Build Split)
+Rho-web intentionally uses a no-build split between Node and browser runtime code:
+
+- `web/*.ts` = server/runtime code executed by Node (`tsx`/strip-types)
+- `web/public/js/*.js` = browser runtime modules served directly
+
+Rules:
+- Do **not** add browser `.ts` files under `web/public/` unless a compile step is introduced.
+- Keep browser modules explicit (ES module imports), avoid script-order/global coupling.
+- Keep `web/**/*.ts` and `web/**/*.js` at **<= 500 lines** per file.
+- Respect pre-commit backpressure gates: strict Biome on staged `.ts/.js` (`check --error-on-warnings`) + staged web 500-line limit (`scripts/pre-commit.sh`).
+
+### Documentation Entry Point
+- Generated architecture/reference docs live in `.agents/summary/`.
+- Start with `.agents/summary/index.md` for AI-oriented routing to deeper docs.
+
 ### Verification Before Declaration
 - Run tests before declaring code done.
 - Verify files were actually written/modified.

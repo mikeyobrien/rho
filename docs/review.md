@@ -1,150 +1,138 @@
 # Review Extension
 
-A lightweight code review tool for pi — leave line-level comments on any file, like a personal PR review. Works as both a `/review` command and a `review` tool callable by the agent.
+A lightweight code review tool for pi — leave line-level comments on any file, like a personal PR review.
+
+Supports:
+- `/review` command
+- `review` tool (always deferred, non-blocking)
+- `review_inbox` tool (list/get/claim/resolve deferred submissions)
 
 ## Quick Start
 
-```
+```bash
 /review src/server.ts
 /review --tui src/server.ts
 /review *.ts
 /review src/
 ```
 
-The agent can also invoke it:
+Agent tool examples:
 
+```ts
+review({ files: ["src/server.ts"], message: "Check error handling" })
+review_inbox({ action: "list" })
+review_inbox({ action: "get", id: "<review-id>" })
+review_inbox({ action: "claim", id: "<review-id>", actor: "tidepool" })
+review_inbox({ action: "resolve", id: "<review-id>", actor: "tidepool" })
 ```
-review({ files: ["src/server.ts"], message: "Check the error handling" })
-```
 
-## How It Works
+## Deferred Workflow (default for `review` tool)
 
-1. Files are resolved (paths, globs, directories)
-2. A review UI opens — browser by default, or TUI with `--tui`
-3. You comment on lines or ranges
-4. On submit, comments are formatted as markdown and injected into the conversation
-5. On cancel, nothing happens
+1. Agent calls `review(...)`.
+2. Review session URL is created and returned immediately.
+3. User submits comments later from browser review UI.
+4. Any future chat can retrieve with `review_inbox list/get`.
+5. Agent can claim/resolve via `review_inbox`.
 
-Comments are **session-only** — they exist in the conversation context, not saved to disk alongside the files.
+Review submissions are persisted in:
+
+- `~/.rho/review/reviews.jsonl`
 
 ## Modes
 
-### Browser (default)
+### Browser
 
-Opens a local web UI at `http://127.0.0.1:<port>`. Uses the rho web server on `:3141` if running, otherwise starts a standalone ephemeral server on a random port.
+Uses rho-web review UI (`/review/:id`) with token-gated access.
 
 Features:
 - Syntax highlighting via highlight.js
-- Click a line number to comment on it
-- Shift+click for multi-line range selection
-- Sidebar file picker (collapsible on mobile)
-- Edit/delete existing comments inline
-- Expand comment range with ▲/▼ buttons
-- WebSocket connection — closing the browser tab cancels the review
+- Click line numbers to comment
+- Shift+click range selection
+- Edit/delete comments inline
+- Submit/cancel via WebSocket
 
 ### TUI (`--tui`)
 
-Renders directly in the terminal using pi's custom UI system. No browser needed.
+Terminal-native interactive mode.
 
 | Key | Action |
 |---|---|
 | `j` / `k` / `↑` / `↓` | Scroll |
 | `g` / `G` | Top / bottom |
 | `Ctrl+d` / `Ctrl+u` | Page down / up |
-| `Enter` | Comment on current line |
+| `Enter` | Comment current line |
 | `v` | Start range selection |
 | `Tab` / `Shift+Tab` | Next / previous file |
 | `f` | File picker |
 | `c` | Comment list (edit/delete) |
-| `S` (shift+s) | Submit review |
-| `Esc` | Cancel review |
-| `?` | Help overlay |
-
-In range mode, move the cursor to extend the selection, then `Enter` to comment or `Esc` to cancel.
+| `S` | Submit |
+| `Esc` | Cancel |
+| `?` | Help |
 
 ## File Resolution
 
-The extension accepts:
+Accepted inputs:
 
 | Input | Behavior |
 |---|---|
-| `path/to/file.ts` | Single file |
-| `*.ts` | Glob pattern |
-| `src/` | All files in directory (non-recursive, one level) |
-| Multiple args | Mix of the above |
+| `path/to/file.ts` | single file |
+| `*.ts` | glob |
+| `src/` | one-level directory scan |
+| multiple args | mixed |
 
-**Skipped automatically:**
-- Binary files
-- Files over 500KB
-- Missing paths
+Auto-skipped:
+- binary files
+- files over 500KB
+- missing paths
 
-Skipped files appear as warnings in the review UI.
+Warnings are shown in the review UI.
 
-## Agent Tool
+## Tool APIs
 
-The `review` tool is available to the agent with this schema:
+### `review`
 
-```typescript
+```ts
 {
-  files: string[]    // required — file paths to open
-  message?: string   // optional — context message shown in the UI
+  files: string[];
+  message?: string;
 }
 ```
 
-Returns either:
-- Formatted review comments (markdown with file grouping, line numbers, quoted source)
-- `"Review cancelled by user."`
-- `"No files found matching the provided paths."`
+Behavior:
+- always deferred
+- returns `review_id` + `url` immediately
+- does not block waiting for submit
 
-The formatted output groups comments by file and includes quoted source context:
+### `review_inbox`
 
-```markdown
-## Review Comments
-
-### src/server.ts
-
-**Line 42:**
-> const result = await fetch(url);
-
-Consider adding a timeout here.
-
-**Lines 55-60:**
-> try {
->   await db.save(record);
-> } catch (err) {
->   console.log(err);
-> }
-
-This should rethrow or handle the error properly.
+```ts
+{
+  action: "list" | "get" | "claim" | "resolve";
+  id?: string;
+  status?: "inbox" | "submitted" | "claimed" | "resolved" | "cancelled" | "open" | "all";
+  claimedBy?: string;
+  actor?: string;
+  limit?: number;
+}
 ```
+
+- `list`: list persisted submissions
+- `get`: fetch comments for one review id
+- `claim`: claim review ownership
+- `resolve`: mark review resolved
 
 ## Architecture
 
-```
+```txt
 extensions/review/
-├── index.ts          # Extension entry — registers /review command + review tool
-├── files.ts          # File resolution (paths, globs, dirs, binary detection)
-├── format.ts         # Formats comments into markdown for the conversation
-├── server.ts         # HTTP + WebSocket server (standalone + rho web integration)
-├── tui.ts            # Terminal UI mode (pi custom component)
-├── web/
-│   ├── index.html    # Alpine.js SPA
-│   ├── css/review.css
-│   └── js/review.js
-└── *.test.ts         # Tests for each module
-```
+├── index.ts          # tools + /review command
+├── files.ts          # file resolution
+├── format.ts         # markdown formatter
+├── server.ts         # rho-web integration + standalone fallback
+├── tui.ts            # terminal UI mode
+└── web/*             # browser UI assets
 
-The browser mode has two server strategies:
-1. **Rho web integration** (preferred): Creates a review session on the existing rho web server at `:3141`, communicates via WebSocket
-2. **Standalone fallback**: Spins up an ephemeral HTTP server on a random port, shuts down on submit/cancel
-
-## Installation
-
-The extension lives at `~/.pi/agent/extensions/review/`. Pi discovers it automatically via the `extensions/review/index.ts` entrypoint.
-
-Dependencies are managed separately from the rho project:
-
-```bash
-cd ~/.pi/agent/extensions/review
-npm install
+web/
+├── server.ts         # review API/session routes
+└── review-store.ts   # durable review store (jsonl snapshots)
 ```
