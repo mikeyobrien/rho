@@ -137,6 +137,11 @@ Behavior requested:
    - When verification runs
    - Then automated tests pass, web line limit passes, and Playwriter manual verification covers all acceptance criteria.
 
+## Implementation Notes
+- Session-scoped repo context is persisted in `~/.rho/git-context-sessions.json` keyed by session ID.
+- RPC startup now resolves session ID hints and starts/reuses the RPC process with the session repo `cwd`.
+- This keeps AGENTS behavior automatic and idiomatic: pi discovers `AGENTS.md` from `cwd` via its normal context loader, with no manual pinning UX.
+
 ## Metadata
 - **Complexity**: Medium
 - **Labels**: rho-web, git, session-state, config, pi-context, security

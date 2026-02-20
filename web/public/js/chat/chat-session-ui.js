@@ -352,8 +352,28 @@ export const rhoChatSessionUiMethods = {
 		this.closeSlashAutocomplete();
 	},
 
+	publishActiveSession(sessionId) {
+		const normalized = typeof sessionId === "string" ? sessionId.trim() : "";
+		const store = globalThis?.localStorage;
+		if (store) {
+			if (normalized && typeof store.setItem === "function") {
+				store.setItem("rho-active-session-id", normalized);
+			} else if (!normalized && typeof store.removeItem === "function") {
+				store.removeItem("rho-active-session-id");
+			}
+		}
+		if (typeof window.dispatchEvent === "function") {
+			window.dispatchEvent(
+				new CustomEvent("rho:active-session-changed", {
+					detail: { sessionId: normalized },
+				}),
+			);
+		}
+	},
+
 	clearSelectedSession() {
 		this.activeSessionId = "";
+		this.publishActiveSession("");
 		this.activeSession = null;
 		this.renderedMessages = [];
 		this.allNormalizedMessages = [];
@@ -414,6 +434,8 @@ export const rhoChatSessionUiMethods = {
 		});
 
 		this.activeSessionId = sessionId;
+		this.publishActiveSession(sessionId);
+		this.refreshGitProject();
 		this.isLoadingSession = true;
 		this.error = "";
 		this.userScrolledUp = false;

@@ -17,6 +17,7 @@ export type RPCEvent = {
 export interface ActiveSession {
 	id: string;
 	sessionFile: string;
+	cwd: string;
 	startedAt: string;
 	lastActivityAt: string;
 	pid: number | null;
@@ -25,6 +26,7 @@ export interface ActiveSession {
 interface SessionState {
 	id: string;
 	sessionFile: string;
+	cwd: string;
 	process: ChildProcessWithoutNullStreams;
 	handlers: Set<EventHandler>;
 	buffer: string;
@@ -56,13 +58,14 @@ function toErrorMessage(error: unknown): string {
 export class RPCManager {
 	private readonly sessions = new Map<string, SessionState>();
 
-	startSession(sessionFile: string): string {
+	startSession(sessionFile: string, cwd = process.cwd()): string {
 		if (!sessionFile?.trim()) {
 			throw new Error("sessionFile is required");
 		}
 
 		const id = randomUUID();
 		const child = spawn("pi", ["--mode", "rpc"], {
+			cwd,
 			stdio: ["pipe", "pipe", "pipe"],
 			env: {
 				...process.env,
@@ -74,6 +77,7 @@ export class RPCManager {
 		const state: SessionState = {
 			id,
 			sessionFile,
+			cwd,
 			process: child,
 			handlers: new Set<EventHandler>(),
 			buffer: "",
@@ -244,15 +248,20 @@ export class RPCManager {
 		return [...this.sessions.values()].map((state) => ({
 			id: state.id,
 			sessionFile: state.sessionFile,
+			cwd: state.cwd,
 			startedAt: state.startedAt.toISOString(),
 			lastActivityAt: state.lastActivityAt.toISOString(),
 			pid: state.process.pid ?? null,
 		}));
 	}
 
-	findSessionByFile(sessionFile: string): string | null {
+	findSessionByFile(sessionFile: string, cwd?: string): string | null {
 		for (const [id, state] of this.sessions) {
-			if (state.sessionFile === sessionFile && !state.stopping) {
+			if (
+				state.sessionFile === sessionFile &&
+				!state.stopping &&
+				(!cwd || state.cwd === cwd)
+			) {
 				return id;
 			}
 		}

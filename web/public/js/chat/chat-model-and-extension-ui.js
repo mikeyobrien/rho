@@ -10,13 +10,6 @@ const {
 	normalizeThinkingLevel,
 } = { ...primitives, ...toolSemantics, ...renderingUsage, ...modelThinking };
 
-function gitProjectFromCwd(cwd) {
-	if (typeof cwd !== "string") return "";
-	const normalized = cwd.trim().replace(/[\\/]+$/, "");
-	if (!normalized || normalized === "/") return "";
-	return normalized.split(/[\\/]/).filter(Boolean).pop() ?? "";
-}
-
 export const rhoChatModelAndExtensionMethods = {
 	accumulateUsageFromMessage(message) {
 		if (!message || message.role !== "assistant") {
@@ -238,63 +231,6 @@ export const rhoChatModelAndExtensionMethods = {
 			this.focusComposer();
 		} else {
 			this.sendPrompt();
-		}
-	},
-
-	async refreshGitProject() {
-		try {
-			const response = await fetch("/api/git/status", { cache: "no-store" });
-			if (!response.ok) {
-				this.activeGitProject = "";
-				this.activeGitPath = "";
-				this.updateFooter();
-				return;
-			}
-			const payload = await response.json();
-			const cwd = typeof payload?.cwd === "string" ? payload.cwd : "";
-			const branch =
-				typeof payload?.branch === "string" ? payload.branch.trim() : "";
-			const project = gitProjectFromCwd(cwd);
-			this.activeGitProject = [project, branch].filter(Boolean).join("/");
-			this.activeGitPath = [cwd, branch].filter(Boolean).join("/");
-		} catch {
-			this.activeGitProject = "";
-			this.activeGitPath = "";
-		}
-		this.updateFooter();
-	},
-
-	updateFooter() {
-		const projectEl = document.querySelector(".footer .footer-project");
-		const tokensEl = document.querySelector(".footer .footer-tokens");
-		const costEl = document.querySelector(".footer .footer-cost");
-		const statusEl = document.querySelector(".footer .footer-status");
-		const extStatusEl = document.querySelector(".footer .footer-ext-status");
-
-		if (projectEl) {
-			const isDesktop =
-				window.matchMedia?.("(min-width: 1024px)")?.matches ?? false;
-			const project = isDesktop
-				? this.activeGitPath || this.activeGitProject
-				: this.activeGitProject;
-			projectEl.textContent = `project: ${project || "--"}`;
-			projectEl.title = this.activeGitPath || this.activeGitProject || "";
-		}
-		if (tokensEl) {
-			const tokens = toFiniteNumber(this.sessionStats?.tokens) ?? 0;
-			tokensEl.textContent = `tokens: ${tokens.toLocaleString()}`;
-		}
-		if (costEl) {
-			const cost = toFiniteNumber(this.sessionStats?.cost) ?? 0;
-			costEl.textContent = `cost: $${cost.toFixed(4)}`;
-		}
-		if (statusEl) {
-			statusEl.textContent = `status: ${this.isStreaming ? "streaming" : "idle"}`;
-			statusEl.classList.toggle("streaming", this.isStreaming);
-		}
-		if (extStatusEl) {
-			extStatusEl.textContent = this.extensionStatus || "";
-			extStatusEl.style.display = this.extensionStatus ? "inline" : "none";
 		}
 	},
 

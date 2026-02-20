@@ -5,6 +5,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getRhoHome } from "./config.ts";
+import { getSessionGitContext } from "./git-context-store.ts";
 import {
 	type ReviewFile,
 	type ReviewSession,
@@ -66,7 +67,7 @@ function startGitContextWatch(): void {
 
 startGitContextWatch();
 
-async function readGitContext(): Promise<GitContextFile | null> {
+async function readTrackedGitContext(): Promise<GitContextFile | null> {
 	try {
 		const raw = await readFile(
 			path.join(getRhoHome(), "git-context.json"),
@@ -78,28 +79,35 @@ async function readGitContext(): Promise<GitContextFile | null> {
 	}
 }
 
-async function getGitCwd(): Promise<string | null> {
-	const ctx = await readGitContext();
-	if (ctx?.cwd) {
-		try {
-			await execFileAsync("git", ["rev-parse", "--git-dir"], {
-				cwd: ctx.cwd,
-				timeout: 2000,
-			});
-			return ctx.cwd;
-		} catch {
-			/* not a git repo anymore */
-		}
-	}
+async function isGitRepo(cwd: string): Promise<boolean> {
 	try {
 		await execFileAsync("git", ["rev-parse", "--git-dir"], {
-			cwd: process.cwd(),
+			cwd,
 			timeout: 2000,
 		});
-		return process.cwd();
+		return true;
 	} catch {
-		return null;
+		return false;
 	}
+}
+
+async function getGitCwd(sessionId = ""): Promise<string | null> {
+	const normalizedSessionId = sessionId.trim();
+	if (normalizedSessionId) {
+		const sessionContext = await getSessionGitContext(normalizedSessionId);
+		if (sessionContext?.cwd && (await isGitRepo(sessionContext.cwd))) {
+			return sessionContext.cwd;
+		}
+	}
+
+	const trackedContext = await readTrackedGitContext();
+	if (trackedContext?.cwd && (await isGitRepo(trackedContext.cwd))) {
+		return trackedContext.cwd;
+	}
+	if (await isGitRepo(process.cwd())) {
+		return process.cwd();
+	}
+	return null;
 }
 
 async function gitExec(args: string[], cwd: string): Promise<string> {
@@ -218,11 +226,15 @@ async function isLikelyBinaryFile(filePath: string): Promise<boolean> {
 }
 
 app.get("/api/git/status", async (c) => {
-	const cwd = await getGitCwd();
+	const sessionId = c.req.query("sessionId")?.trim() ?? "";
+	const cwd = await getGitCwd(sessionId);
 	if (!cwd) return c.json({ error: "No git repository detected" }, 404);
 
-	const ctx = await readGitContext();
-	const sessionFiles = new Set(ctx?.sessionFiles ?? []);
+	const trackedContext = await readTrackedGitContext();
+	const sessionFiles =
+		trackedContext?.cwd === cwd
+			? new Set(trackedContext?.sessionFiles ?? [])
+			: new Set<string>();
 
 	try {
 		const [branch, porcelain, numstatRaw, cachedNumstatRaw, logRaw] =
@@ -278,6 +290,7 @@ app.get("/api/git/status", async (c) => {
 			files,
 			log,
 			sessionFiles: [...sessionFiles],
+			sessionId: sessionId || null,
 		});
 	} catch (err) {
 		return c.json({ error: (err as Error).message }, 500);
@@ -285,7 +298,8 @@ app.get("/api/git/status", async (c) => {
 });
 
 app.get("/api/git/diff", async (c) => {
-	const cwd = await getGitCwd();
+	const sessionId = c.req.query("sessionId")?.trim() ?? "";
+	const cwd = await getGitCwd(sessionId);
 	if (!cwd) return c.json({ error: "No git repository" }, 404);
 
 	const file = c.req.query("file");
@@ -325,15 +339,16 @@ app.get("/api/git/diff", async (c) => {
 });
 
 app.post("/api/review/from-git", async (c) => {
-	const cwd = await getGitCwd();
-	if (!cwd) return c.json({ error: "No git repository" }, 404);
-
-	let body: { files?: string[]; message?: string };
+	let body: { files?: string[]; message?: string; sessionId?: string };
 	try {
 		body = await c.req.json();
 	} catch {
 		return c.json({ error: "Invalid JSON" }, 400);
 	}
+
+	const sessionId = body.sessionId?.trim() ?? "";
+	const cwd = await getGitCwd(sessionId);
+	if (!cwd) return c.json({ error: "No git repository" }, 404);
 
 	const filePaths = Array.isArray(body.files) ? body.files : [];
 	if (filePaths.length === 0)

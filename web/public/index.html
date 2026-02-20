@@ -683,6 +683,37 @@
                 </form>
 
 
+                <!-- Git Project Picker Overlay -->
+                <div class="ext-dialog-overlay" x-show="showGitProjectPicker" x-cloak @click.self="closeGitProjectPicker()">
+                  <div class="ext-dialog">
+                    <div class="ext-dialog-header">
+                      <div class="ext-dialog-title">Select project context</div>
+                      <button class="ext-dialog-close" type="button" @click="closeGitProjectPicker()">&times;</button>
+                    </div>
+                    <div class="ext-dialog-description">Applies to the currently selected chat session.</div>
+                    <div class="ext-dialog-description" x-show="gitProjectsError" x-text="gitProjectsError"></div>
+                    <div class="chat-loading-inline" x-show="gitProjectsLoading">
+                      <span class="loading-spinner-sm"></span>
+                      <span>Loading repositories...</span>
+                    </div>
+                    <div class="chat-empty-state" x-show="!gitProjectsLoading && !gitProjectsError && gitProjects.length === 0">
+                      <span>No git repositories found under projects_dir.</span>
+                    </div>
+                    <div class="ext-dialog-options" x-show="!gitProjectsLoading && gitProjects.length > 0">
+                      <template x-for="repo in gitProjects" :key="repo.id">
+                        <button class="ext-dialog-option" :class="{ selected: selectedGitProjectId === repo.id }" type="button" @click="selectGitProject(repo.id)">
+                          <span class="ext-dialog-option-label" x-text="repo.name"></span>
+                          <span class="ext-dialog-option-desc" x-text="repo.cwd"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <div class="ext-dialog-actions">
+                      <button class="btn btn-ghost" type="button" @click="closeGitProjectPicker()">Cancel</button>
+                      <button class="btn" type="button" @click="applyGitProjectSelection()" :disabled="gitProjectsLoading || isStreaming || !selectedGitProjectId">Use project</button>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- Extension UI Dialog Overlay -->
                 <div class="ext-dialog-overlay" x-show="extensionDialog" x-cloak @click.self="dismissDialog(null)">
                   <!-- Select Dialog -->
@@ -1160,7 +1191,7 @@
 
       <footer class="footer">
         <div class="footer-inner">
-          <span class="footer-project">project: --</span>
+          <button class="footer-project" type="button" title="Select project context">project: --</button>
           <span class="footer-tokens">tokens: --</span>
           <span class="footer-cost">cost: --</span>
           <span class="footer-status">status: idle</span>

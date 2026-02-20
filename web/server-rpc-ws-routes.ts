@@ -1,3 +1,4 @@
+import { getSessionGitContext } from "./git-context-store.ts";
 import {
 	type WSIncomingMessage,
 	app,
@@ -12,6 +13,26 @@ import {
 	upgradeWebSocket,
 } from "./server-core.ts";
 import { registerUiSocket, unregisterUiSocket } from "./server-ui-events.ts";
+import { readSession } from "./session-reader.ts";
+
+async function resolveSessionIdHint(
+	payload: WSIncomingMessage,
+	sessionFile: string,
+): Promise<string> {
+	const directHint =
+		typeof payload.sessionIdHint === "string"
+			? payload.sessionIdHint.trim()
+			: "";
+	if (directHint) {
+		return directHint;
+	}
+	try {
+		const session = await readSession(sessionFile);
+		return session?.header?.id?.trim?.() ?? "";
+	} catch {
+		return "";
+	}
+}
 
 // --- RPC Observability API ---
 
@@ -92,12 +113,24 @@ app.get(
 					return;
 				}
 
-				const existingId = rpcManager.findSessionByFile(sessionFile);
+				const sessionIdHint = await resolveSessionIdHint(payload, sessionFile);
+				const sessionContext = sessionIdHint
+					? await getSessionGitContext(sessionIdHint)
+					: null;
+				const sessionCwd = sessionContext?.cwd?.trim() ?? "";
+
+				const existingId = rpcManager.findSessionByFile(
+					sessionFile,
+					sessionCwd || undefined,
+				);
 				if (existingId) {
 					sessionId = existingId;
 				} else {
 					try {
-						sessionId = rpcManager.startSession(sessionFile);
+						sessionId = rpcManager.startSession(
+							sessionFile,
+							sessionCwd || undefined,
+						);
 					} catch (error) {
 						sendWsMessage(ws, {
 							type: "error",
@@ -109,7 +142,12 @@ app.get(
 				}
 
 				subscribeToRpcSession(ws, sessionId);
-				sendWsMessage(ws, { type: "session_started", sessionId, sessionFile });
+				sendWsMessage(ws, {
+					type: "session_started",
+					sessionId,
+					sessionFile,
+					cwd: sessionCwd || undefined,
+				});
 				if (existingId) {
 					rpcManager.sendCommand(sessionId, {
 						type: "get_state",

@@ -1,4 +1,5 @@
 import { rhoChatDialogAndFocusMethods } from "./chat-dialog-and-focus.js";
+import { rhoChatGitContextMethods } from "./chat-git-context-picker.js";
 import { rhoChatInputRpcMethods } from "./chat-input-and-rpc-send.js";
 import { rhoChatModelAndExtensionMethods } from "./chat-model-and-extension-ui.js";
 import { rhoChatRpcEventMethods } from "./chat-rpc-event-routing.js";
@@ -30,6 +31,12 @@ export function registerRhoChat() {
 			showSessionsPanel: false,
 			activeGitProject: "",
 			activeGitPath: "",
+			activeGitCwd: "",
+			showGitProjectPicker: false,
+			gitProjects: [],
+			gitProjectsLoading: false,
+			gitProjectsError: "",
+			selectedGitProjectId: "",
 
 			toggleTheme() {
 				this.theme = this.theme === "light" ? "dark" : "light";
@@ -459,6 +466,7 @@ export function registerRhoChat() {
 				}
 				this.setupIdleDetection();
 				this.setupVisibilityDetection();
+				this.bindGitFooterPickerTrigger();
 				this.refreshGitProject();
 				await this.loadSessions();
 				await this.restorePersistedSessionRuntime(restored);
@@ -483,6 +491,7 @@ export function registerRhoChat() {
 			...rhoChatSessionActionMethods,
 			...rhoChatSlashAndStatsMethods,
 			...rhoChatModelAndExtensionMethods,
+			...rhoChatGitContextMethods,
 			...rhoChatSessionRestoreMethods,
 			...rhoChatDialogAndFocusMethods,
 		}));

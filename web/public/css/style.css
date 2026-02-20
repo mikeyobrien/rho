@@ -2273,6 +2273,24 @@ body.theme-light .chat-block-body pre {
 	flex-wrap: wrap;
 }
 
+.footer-project {
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--text-dim);
+	font-family: var(--mono);
+	font-size: inherit;
+	padding: 0.1rem 0.25rem;
+	margin: -0.1rem -0.25rem;
+	cursor: pointer;
+}
+
+.footer-project:hover,
+.footer-project:focus-visible {
+	color: var(--text);
+	border-color: var(--border);
+	outline: none;
+}
+
 .footer-status {
 	color: var(--green);
 }
@@ -2723,6 +2741,11 @@ body.theme-light .chat-block-body pre {
 
 .ext-dialog-option:hover {
 	border-color: var(--green-dim);
+}
+
+.ext-dialog-option.selected {
+	border-color: var(--green-dim);
+	background: var(--bg-alt);
 }
 
 .ext-dialog-option-label {

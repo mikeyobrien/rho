@@ -2,6 +2,7 @@ function rhoReviewDashboard() {
 	return {
 		loading: true,
 		gitStatus: null,
+		activeSessionId: "",
 		selected: [],
 		expanded: [],
 		diffs: {},
@@ -15,8 +16,10 @@ function rhoReviewDashboard() {
 		_onVisibilityChange: null,
 		_onUiEvent: null,
 		_onViewChange: null,
+		_onActiveSessionChange: null,
 
 		async init() {
+			this.activeSessionId = this.readActiveSessionId();
 			await this.refresh();
 			this.loading = false;
 
@@ -49,6 +52,20 @@ function rhoReviewDashboard() {
 				this.scheduleRefresh(80);
 			};
 			window.addEventListener("rho:ui-event", this._onUiEvent);
+
+			this._onActiveSessionChange = (event) => {
+				const nextId =
+					typeof event?.detail?.sessionId === "string"
+						? event.detail.sessionId.trim()
+						: "";
+				if (nextId === this.activeSessionId) return;
+				this.activeSessionId = nextId;
+				this.scheduleRefresh(0);
+			};
+			window.addEventListener(
+				"rho:active-session-changed",
+				this._onActiveSessionChange,
+			);
 		},
 
 		destroy() {
@@ -71,6 +88,20 @@ function rhoReviewDashboard() {
 				window.removeEventListener("rho:view-changed", this._onViewChange);
 				this._onViewChange = null;
 			}
+			if (this._onActiveSessionChange) {
+				window.removeEventListener(
+					"rho:active-session-changed",
+					this._onActiveSessionChange,
+				);
+				this._onActiveSessionChange = null;
+			}
+		},
+
+		readActiveSessionId() {
+			const store = globalThis?.localStorage;
+			if (!store || typeof store.getItem !== "function") return "";
+			const value = store.getItem("rho-active-session-id");
+			return typeof value === "string" ? value.trim() : "";
 		},
 
 		isPanelVisible() {
@@ -96,8 +127,11 @@ function rhoReviewDashboard() {
 				return;
 			}
 			try {
+				const sessionQuery = this.activeSessionId
+					? `?sessionId=${encodeURIComponent(this.activeSessionId)}`
+					: "";
 				const [statusRes, reviewsRes, submissionsRes] = await Promise.all([
-					fetch("/api/git/status"),
+					fetch(`/api/git/status${sessionQuery}`),
 					fetch("/api/review/sessions"),
 					fetch("/api/review/submissions?status=submitted&limit=20"),
 				]);
@@ -179,8 +213,11 @@ function rhoReviewDashboard() {
 		async loadDiff(path) {
 			this.diffs = { ...this.diffs, [path]: false };
 			try {
+				const sessionQuery = this.activeSessionId
+					? `&sessionId=${encodeURIComponent(this.activeSessionId)}`
+					: "";
 				const res = await fetch(
-					`/api/git/diff?file=${encodeURIComponent(path)}`,
+					`/api/git/diff?file=${encodeURIComponent(path)}${sessionQuery}`,
 				);
 				const text = res.ok ? await res.text() : "";
 				this.diffs = { ...this.diffs, [path]: text || "" };
@@ -202,7 +239,10 @@ function rhoReviewDashboard() {
 				const res = await fetch("/api/review/from-git", {
 					method: "POST",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ files: this.selected }),
+					body: JSON.stringify({
+						files: this.selected,
+						sessionId: this.activeSessionId || undefined,
+					}),
 				});
 
 				const data = await res.json().catch(() => null);

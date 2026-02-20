@@ -2,7 +2,6 @@ import * as primitives from "./constants-and-primitives.js";
 import * as modelThinking from "./model-thinking-and-toast.js";
 import * as renderingUsage from "./rendering-and-usage.js";
 import * as toolSemantics from "./tool-semantics.js";
-
 const {
 	slashContract,
 	clampString,
@@ -12,7 +11,6 @@ const {
 	normalizeMessage,
 	postJson,
 } = { ...primitives, ...toolSemantics, ...renderingUsage, ...modelThinking };
-
 export const rhoChatSessionActionMethods = {
 	applySession(session) {
 		if (this.activeRpcSessionId && (this.isStreaming || this.isSendingPrompt)) {
@@ -286,7 +284,6 @@ export const rhoChatSessionActionMethods = {
 		}
 		return Boolean(message?.canFork && this.activeSessionId);
 	},
-
 	async newSession() {
 		if (this.isForking) return;
 		this.error = "";
@@ -295,6 +292,7 @@ export const rhoChatSessionActionMethods = {
 		try {
 			const result = await postJson("/api/sessions/new", {});
 			this.activeSessionId = result.sessionId;
+			this.publishActiveSession(result.sessionId);
 			this.activeRpcSessionId = "";
 			this.activeRpcSessionFile = result.sessionFile;
 			this.lastRpcEventSeq = 0;
@@ -306,6 +304,7 @@ export const rhoChatSessionActionMethods = {
 			this.promptText = "";
 			this.renderedMessages = [];
 			this.applySession(result.session);
+			this.refreshGitProject();
 			await this.loadSessions(false);
 			this.startRpcSession(result.sessionFile);
 		} catch (error) {
@@ -313,7 +312,6 @@ export const rhoChatSessionActionMethods = {
 			this.isForking = false;
 		}
 	},
-
 	async forkFromEntry(entryId) {
 		if (!this.activeSessionId || !entryId || this.isForking) {
 			return;
@@ -367,6 +365,7 @@ export const rhoChatSessionActionMethods = {
 		const sent = this.sendWs({
 			type: "rpc_command",
 			sessionFile,
+			sessionIdHint: targetSessionId || undefined,
 			command: {
 				type: "switch_session",
 				sessionFile,
@@ -452,6 +451,7 @@ export const rhoChatSessionActionMethods = {
 			rpcPayload.sessionId = this.activeRpcSessionId;
 		} else if (sessionFile) {
 			rpcPayload.sessionFile = sessionFile;
+			rpcPayload.sessionIdHint = this.activeSessionId || undefined;
 			this.activeRpcSessionFile = sessionFile;
 			this.isForking = true;
 		}

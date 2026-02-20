@@ -12,37 +12,37 @@ import { compress } from "hono/compress";
 import type { WSContext } from "hono/ws";
 import type { WebSocket } from "ws";
 import {
-	appendBrainEntry,
-	type BehaviorEntry,
 	BRAIN_PATH,
+	type BehaviorEntry,
 	type BrainEntry,
 	type ContextEntry,
-	foldBrain,
 	type IdentityEntry,
 	type LearningEntry,
 	type PreferenceEntry,
 	type ReminderEntry,
-	readBrain,
 	type TaskEntry,
 	type UserEntry,
+	appendBrainEntry,
+	foldBrain,
+	readBrain,
 } from "../extensions/lib/brain-store.ts";
 import { getRhoHome } from "./config.ts";
 import {
+	type ReviewStatus,
+	ReviewStoreError,
+	type StoredReviewRecord,
 	cancelReviewRecord,
 	claimReviewRecord,
 	createReviewRecord,
 	getReviewRecord,
 	listReviewRecords,
-	type ReviewStatus,
-	ReviewStoreError,
 	resolveReviewRecord,
-	type StoredReviewRecord,
 	submitReviewRecord,
 } from "./review-store.ts";
 import {
-	getRpcSessionFile,
 	type RPCCommand,
 	type RPCEvent,
+	getRpcSessionFile,
 	rpcManager,
 } from "./rpc-manager.ts";
 import { RpcSessionReliability } from "./rpc-reliability.ts";
@@ -126,6 +126,7 @@ let sessionManagerModulePromise: Promise<{
 type WSIncomingMessage = {
 	type?: string;
 	sessionId?: string;
+	sessionIdHint?: string;
 	sessionFile?: string;
 	lastEventSeq?: number;
 	ts?: number;

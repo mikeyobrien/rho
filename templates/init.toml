@@ -2,6 +2,11 @@
 # Edit this file, then run `rho sync` to apply changes.
 # Docs: https://github.com/mikeyobrien/rho
 
+# ── Project Discovery ───────────────────────────────────
+
+projects_dir = "~/.rho/projects"      # Root directory used for local project/repo discovery
+# projects_dir = "~/projects"         # Example override (recommended if your repos live here)
+
 # ── Agent Identity ──────────────────────────────────────
 
 [agent]
