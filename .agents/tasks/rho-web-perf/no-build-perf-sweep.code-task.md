@@ -12,22 +12,22 @@ Rho-web is a chat UI + brain viewer + config editor for the rho agent system. It
 
 The codebase is ~6300 lines of frontend JS + ~2300 lines of server TS. No framework, no build step — and we want to keep it that way.
 
-## Current Status (2026-02-18)
+## Current Status (2026-02-20) ✅ COMPLETE
 
 ### Phase 1: Server quick wins ✅ DONE
-- [x] 1. Add `compress()` middleware to `server.ts` - DONE (verified)
-- [x] 2. Add `Cache-Control` headers to static asset routes - DONE (verified)
-- [x] 3. Add optional timing middleware (RHO_DEBUG=1) - DONE (verified)
-- [x] 4. Refactor `readSession()` to use streaming readline - DONE (verified: loadSessionEntries uses createReadStream + createInterface, not readFile + split)
+- [x] 1. Add `compress()` middleware to `server.ts` - DONE (server-core.ts line 21)
+- [x] 2. Add `Cache-Control` headers to static asset routes - DONE (server-static-routes.ts)
+- [x] 3. Add optional timing middleware (RHO_DEBUG=1) - DONE (server-core.ts lines 24-29)
+- [x] 4. Refactor `readSession()` to use streaming readline - DONE (session-reader-io.ts)
 
 ### Phase 2: Client rendering ✅ DONE
-- [x] 5. Lazy markdown rendering via IntersectionObserver - DONE (chat.js: setupLazyRendering(), data-message-id in index.html)
-- [x] 6. Batch streaming markdown renders (150ms debounce) - DONE (verified line 1544-1550)
-- [x] 7. Cap rendered messages (~100) with "Load earlier" button - DONE (verified line 2215-2218)
+- [x] 5. Lazy markdown rendering via IntersectionObserver - DONE (chat-input-and-rpc-send.js lines 42-72)
+- [x] 6. Batch streaming markdown renders (150ms debounce) - DONE (chat-streaming-parts.js line 175)
+- [x] 7. Cap rendered messages (~100) with "Load earlier" button - DONE (chat-session-actions.js lines 110-113)
 
 ### Phase 3: Network ✅ DONE
-- [x] 8. Add `<link rel="preload">` tags for CDN scripts - DONE (verified)
-- [x] 9. Replace polling with WebSocket push - DONE: server broadcasts `sessions_changed` on session create/fork, client listens for `rho:ui-event` and calls loadSessions()
+- [x] 8. Add `<link rel="preload">` tags for CDN scripts - DONE
+- [x] 9. Replace polling with WebSocket push - DONE (server broadcasts sessions_changed on create/fork, client listens for rho:ui-event)
 
 ### Server-side
 1. Add gzip/brotli compression via Hono's `compress()` middleware
