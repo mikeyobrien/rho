@@ -150,6 +150,40 @@ try {
 	assertEq(claim.status, "claimed", "claim status is claimed");
 	assertEq(claim.claimedBy, "flow-agent", "claim stores actor");
 
+	const submittedAfterClaimRes = await fetch(
+		`${base}/api/review/submissions?status=submitted`,
+	);
+	assertEq(
+		submittedAfterClaimRes.status,
+		200,
+		"submitted filter after claim succeeds",
+	);
+	const submittedAfterClaim = (await submittedAfterClaimRes.json()) as Array<{
+		id: string;
+	}>;
+	assert(
+		!submittedAfterClaim.some((entry) => entry.id === created.id),
+		"claimed review no longer appears in submitted filter",
+	);
+
+	const claimedListRes = await fetch(
+		`${base}/api/review/submissions?status=claimed`,
+	);
+	assertEq(claimedListRes.status, 200, "claimed filter succeeds");
+	const claimedList = (await claimedListRes.json()) as Array<{ id: string }>;
+	assert(
+		claimedList.some((entry) => entry.id === created.id),
+		"claimed filter includes claimed review",
+	);
+
+	const openListRes = await fetch(`${base}/api/review/submissions?status=open`);
+	assertEq(openListRes.status, 200, "open filter succeeds");
+	const openList = (await openListRes.json()) as Array<{ id: string }>;
+	assert(
+		!openList.some((entry) => entry.id === created.id),
+		"open filter excludes claimed review",
+	);
+
 	const resolveRes = await fetch(
 		`${base}/api/review/submissions/${created.id}/resolve`,
 		{
@@ -165,6 +199,32 @@ try {
 	};
 	assertEq(resolved.status, "resolved", "resolve status is resolved");
 	assertEq(resolved.resolvedBy, "flow-agent", "resolve stores actor");
+
+	const resolvedListRes = await fetch(
+		`${base}/api/review/submissions?status=resolved`,
+	);
+	assertEq(resolvedListRes.status, 200, "resolved filter succeeds");
+	const resolvedList = (await resolvedListRes.json()) as Array<{ id: string }>;
+	assert(
+		resolvedList.some((entry) => entry.id === created.id),
+		"resolved filter includes resolved review",
+	);
+
+	const claimedAfterResolveRes = await fetch(
+		`${base}/api/review/submissions?status=claimed`,
+	);
+	assertEq(
+		claimedAfterResolveRes.status,
+		200,
+		"claimed filter after resolve succeeds",
+	);
+	const claimedAfterResolve = (await claimedAfterResolveRes.json()) as Array<{
+		id: string;
+	}>;
+	assert(
+		!claimedAfterResolve.some((entry) => entry.id === created.id),
+		"resolved review no longer appears in claimed filter",
+	);
 
 	const inboxAfterResolveRes = await fetch(
 		`${base}/api/review/submissions?status=inbox`,

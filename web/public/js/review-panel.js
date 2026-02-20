@@ -99,7 +99,7 @@ function rhoReviewDashboard() {
 				const [statusRes, reviewsRes, submissionsRes] = await Promise.all([
 					fetch("/api/git/status"),
 					fetch("/api/review/sessions"),
-					fetch("/api/review/submissions?status=inbox&limit=20"),
+					fetch("/api/review/submissions?status=submitted&limit=20"),
 				]);
 
 				if (statusRes.ok) {
