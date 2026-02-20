@@ -19,6 +19,17 @@ function reviewApp() {
 	function createCommentId() {
 		return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 	}
+	function applyStoredTheme() {
+		let theme = "dark";
+		try {
+			theme = localStorage.getItem("rho-theme") === "light" ? "light" : "dark";
+		} catch {}
+		document.body.classList.toggle("theme-light", theme === "light");
+		const dark = document.getElementById("hljs-theme-dark");
+		const light = document.getElementById("hljs-theme-light");
+		if (dark) dark.disabled = theme === "light";
+		if (light) light.disabled = theme !== "light";
+	}
 	return {
 		files: [],
 		activeFileIndex: 0,
@@ -39,6 +50,7 @@ function reviewApp() {
 		_ws: null,
 		_beforeUnloadHandler: null,
 		async init() {
+			applyStoredTheme();
 			if (!sessionId || !token) {
 				this.reviewComplete = "Invalid review link (missing session or token)";
 				return;

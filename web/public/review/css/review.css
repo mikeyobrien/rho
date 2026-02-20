@@ -4,6 +4,30 @@
    This file adds review-specific components only.
    ═══════════════════════════════════════════════════════════════════ */
 
+body.review-page {
+  --review-pad-inline: clamp(8px, 1.4vw, 12px);
+  --review-code-line-height: 1.08rem;
+  --page-pad: var(--review-pad-inline);
+}
+
+.review-page .layout { min-height: 0; }
+
+.review-page .sidebar-toggle,
+.review-page .file-item,
+.review-page .file-header,
+.review-page .connection-lost-banner,
+.review-page .warning-banner,
+.review-page .context-banner,
+.review-page .action-bar {
+  padding-left: var(--review-pad-inline);
+  padding-right: var(--review-pad-inline);
+}
+
+.review-page .code-line { padding-right: var(--review-pad-inline); }
+.review-page .line-number { padding-right: calc(var(--review-pad-inline) - 2px); }
+
+body.theme-light .code-line:hover { background: rgba(0, 0, 0, 0.03); }
+
 /* ── Connection indicator ──────────────────────────────────────── */
 
 .connection-dot {
@@ -318,17 +342,19 @@
 .code-block {
   margin: 0;
   padding: 0;
-  white-space: pre;
+  white-space: normal;
   font-size: 0.75rem;
-  line-height: 1.6;
+  line-height: var(--review-code-line-height);
 }
 
 .code-line-wrapper { display: contents; }
 
 .code-line {
   display: flex;
-  min-height: 1.6em;
+  min-height: var(--review-code-line-height);
+  line-height: var(--review-code-line-height);
   padding-right: 12px;
+  align-items: center;
 }
 
 .code-line:hover { background: rgba(255, 255, 255, 0.02); }
@@ -343,6 +369,7 @@
   text-align: right;
   color: var(--text-dim);
   font-size: 0.7rem;
+  line-height: var(--review-code-line-height);
   user-select: none;
   flex-shrink: 0;
   cursor: pointer;
@@ -357,7 +384,19 @@
   background: var(--bg-alt);
 }
 
-.line-content { white-space: pre; flex: 1; min-width: 0; }
+.line-content {
+  white-space: pre;
+  flex: 1;
+  min-width: 0;
+  line-height: var(--review-code-line-height);
+}
+
+.line-content > * {
+  line-height: inherit;
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+}
 
 .code-viewer--wrap {
   overflow-x: hidden;
@@ -667,8 +706,16 @@
   .btn      { min-height: 44px; }
   .btn-icon { min-width: 44px; min-height: 44px; }
 
-  .code-line { min-height: 1.9rem; align-items: flex-start; }
-  .line-number { min-height: 1.9rem; padding-top: 0.15rem; }
+  .code-line {
+    min-height: 1.4rem;
+    line-height: 1.4rem;
+    align-items: flex-start;
+  }
+  .line-number {
+    min-height: 1.4rem;
+    line-height: 1.4rem;
+    padding-top: 0.05rem;
+  }
 
   .range-controls { gap: 6px; }
   .range-controls button { width: 32px; height: 32px; font-size: 0.68rem; }

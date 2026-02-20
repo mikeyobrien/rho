@@ -4,14 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Review</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
   <style>
     @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 400; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-400-normal.woff2) format('woff2'); }
     @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 500; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-500-normal.woff2) format('woff2'); }
     @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 700; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-700-normal.woff2) format('woff2'); }
   </style>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-  <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/review/css/review.css">
+  <link id="hljs-theme-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <link id="hljs-theme-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" disabled>
+  <link rel="stylesheet" href="/css/style.css?v=20260219v64">
+  <link rel="stylesheet" href="/review/css/review.css?v=20260220v3">
   <script>
     window.__RHO_REVIEW__ = {
       sessionId: "__SESSION_ID__",
@@ -19,7 +22,7 @@
     };
   </script>
 </head>
-<body x-data="reviewApp()" :class="{ 'review-nav-hidden': isNavHidden }" @keydown.window="handleKeydown($event)">
+<body class="review-page" x-data="reviewApp()" :class="{ 'review-nav-hidden': isNavHidden }" @keydown.window="handleKeydown($event)">
 
   <nav class="nav review-nav">
     <div class="nav-inner">
@@ -203,6 +206,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <script src="/review/js/review.js"></script>
+  <script src="/review/js/review.js?v=20260220v1"></script>
 </body>
 </html>
