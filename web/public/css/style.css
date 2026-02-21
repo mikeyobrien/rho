@@ -1861,10 +1861,7 @@ body.theme-light .chat-block-body pre {
 }
 
 .chat-control-label {
-	font-size: 0.65rem;
-	text-transform: uppercase;
-	letter-spacing: 0.08em;
-	color: var(--text-dim);
+	display: none;
 }
 
 .chat-control-select {
@@ -2181,6 +2178,7 @@ body.theme-light .chat-block-body pre {
 	align-items: center;
 	justify-content: space-between;
 	gap: 0.5rem;
+	flex-wrap: wrap;
 }
 
 .chat-composer-controls {
@@ -2188,7 +2186,8 @@ body.theme-light .chat-block-body pre {
 	align-items: center;
 	gap: 0.5rem;
 	min-width: 0;
-	flex: 1;
+	flex: 1 1 24rem;
+	flex-wrap: wrap;
 }
 
 .chat-composer-controls .chat-control-group,
@@ -2230,6 +2229,8 @@ body.theme-light .chat-block-body pre {
 	justify-content: flex-end;
 	gap: 0.5rem;
 	flex-shrink: 0;
+	flex-wrap: wrap;
+	margin-left: auto;
 }
 
 .chat-composer-input {
@@ -2604,7 +2605,7 @@ body.theme-light .chat-block-body pre {
 		padding-bottom: 0.15rem;
 	}
 
-	/* Keep model/thinking controls aligned with attach/send row */
+	/* Let controls wrap instead of forcing horizontal scroll */
 	.chat-composer-toolbar {
 		gap: 0.4rem;
 		align-items: center;
@@ -2612,8 +2613,8 @@ body.theme-light .chat-block-body pre {
 
 	.chat-composer-controls {
 		gap: 0.5rem;
-		flex-wrap: nowrap;
-		overflow-x: auto;
+		flex-wrap: wrap;
+		overflow-x: visible;
 	}
 
 	.chat-control-label {
@@ -3178,7 +3179,7 @@ body.theme-light .chat-block-body pre {
 		font-size: 0.8rem;
 	}
 
-	/* Composer controls + actions stay on one row */
+	/* Wrap controls on very small screens to prevent overflow */
 	.chat-composer-toolbar {
 		align-items: center;
 		gap: 0.35rem;
@@ -3186,8 +3187,8 @@ body.theme-light .chat-block-body pre {
 
 	.chat-composer-controls {
 		gap: 0.35rem;
-		flex-wrap: nowrap;
-		overflow-x: auto;
+		flex-wrap: wrap;
+		overflow-x: visible;
 	}
 
 	.chat-control-label {
