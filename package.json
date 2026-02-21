@@ -1,6 +1,6 @@
 {
 	"name": "@rhobot-dev/rho",
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"type": "module",
 	"description": "AI agent with persistent memory, heartbeat check-ins, and a knowledge vault",
 	"bin": {
@@ -22,8 +22,12 @@
 	},
 	"license": "MIT",
 	"pi": {
-		"extensions": ["./extensions"],
-		"skills": ["./skills"],
+		"extensions": [
+			"./extensions"
+		],
+		"skills": [
+			"./skills"
+		],
 		"image": "https://raw.githubusercontent.com/mikeyobrien/rho/main/docs/logo.png"
 	},
 	"peerDependencies": {
