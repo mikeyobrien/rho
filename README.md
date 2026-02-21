@@ -11,7 +11,7 @@ An always-on personal AI operator that:
 Runs on **macOS**, **Linux**, and **Android** (plus **iPhone/iPad via SSH**).
 
 <p align="center">
-  <img width="1816" height="1530" alt="rho web ui" src="https://github.com/user-attachments/assets/83f73af7-9016-4a8a-887e-e736d779deaa" />
+  <img alt="rho web ui" src="docs/web-ui-hero.jpg" />
 </p>
 
 Built on [pi coding agent](https://github.com/badlogic/pi-mono).
@@ -211,6 +211,7 @@ rho status               # daemon/module status
 rho trigger              # force heartbeat now
 rho logs                 # recent heartbeat output
 rho config               # show effective config
+rho calc "2 + 2 * 3"     # quick arithmetic calculator
 rho upgrade              # update and resync
 rho skills <args>        # skills provider wrapper
 ```
