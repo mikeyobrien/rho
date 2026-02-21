@@ -6,113 +6,114 @@
  */
 
 export interface ModuleEntry {
-  category: "core" | "knowledge" | "tools" | "ui" | "skills";
-  extensions: string[];   // paths relative to package root (empty for npm-backed modules)
-  skills: string[];       // paths relative to package root (empty for npm-backed modules)
-  description: string;    // one-line description for init.toml comments
-  alwaysOn?: boolean;     // core modules that cannot be disabled
-  npmPackage?: string;    // external npm package — installed/removed by sync based on enabled state
+	category: "core" | "knowledge" | "tools" | "ui" | "skills";
+	extensions: string[]; // paths relative to package root (empty for npm-backed modules)
+	skills: string[]; // paths relative to package root (empty for npm-backed modules)
+	description: string; // one-line description for init.toml comments
+	alwaysOn?: boolean; // core modules that cannot be disabled
+	npmPackage?: string; // external npm package — installed/removed by sync based on enabled state
 }
 
 /**
  * Module registry. Keys are module names as they appear in init.toml.
  */
 export const REGISTRY: Record<string, ModuleEntry> = {
-  // ── Core (always on) ──────────────────────────────────
-  heartbeat: {
-    category: "core",
-    extensions: ["extensions/rho"],
-    skills: ["skills/memory-consolidate", "skills/auto-memory"],
-    description: "Heartbeat daemon, check-ins, and memory consolidation",
-    alwaysOn: true,
-  },
-  memory: {
-    category: "core",
-    extensions: ["extensions/memory-viewer"],
-    skills: [],
-    description: "Memory browser and viewer",
-    alwaysOn: true,
-  },
+	// ── Core (always on) ──────────────────────────────────
+	heartbeat: {
+		category: "core",
+		extensions: ["extensions/rho"],
+		skills: ["skills/memory-consolidate", "skills/auto-memory"],
+		description: "Heartbeat daemon, check-ins, and memory consolidation",
+		alwaysOn: true,
+	},
+	memory: {
+		category: "core",
+		extensions: ["extensions/memory-viewer"],
+		skills: [],
+		description: "Memory browser and viewer",
+		alwaysOn: true,
+	},
 
-  // ── Knowledge ─────────────────────────────────────────
-  vault: {
-    category: "knowledge",
-    extensions: ["extensions/vault-search"],
-    skills: ["skills/vault-clean"],
-    description: "Knowledge vault with full-text search and orphan cleanup",
-  },
+	// ── Knowledge ─────────────────────────────────────────
+	vault: {
+		category: "knowledge",
+		extensions: ["extensions/vault-search"],
+		skills: ["skills/vault-clean"],
+		description: "Knowledge vault with full-text search and orphan cleanup",
+	},
 
-  // ── Tools ─────────────────────────────────────────────
-  "brave-search": {
-    category: "tools",
-    extensions: ["extensions/brave-search"],
-    skills: [],
-    description: "Web search via Brave Search API",
-  },
-  "x-search": {
-    category: "tools",
-    extensions: ["extensions/x-search"],
-    skills: [],
-    description: "X/Twitter search via xAI Grok",
-  },
-  telegram: {
-    category: "tools",
-    extensions: ["extensions/telegram"],
-    skills: [],
-    description: "Telegram channel adapter for chatting with your agent",
-  },
-  email: {
-    category: "tools",
-    extensions: ["extensions/email"],
-    skills: ["skills/rho-cloud-email", "skills/rho-cloud-onboard"],
-    description: "Agent email via Rho Cloud (rhobot.dev)",
-  },
+	// ── Tools ─────────────────────────────────────────────
+	"brave-search": {
+		category: "tools",
+		extensions: ["extensions/brave-search"],
+		skills: [],
+		description: "Web search via Brave Search API",
+	},
+	"x-search": {
+		category: "tools",
+		extensions: ["extensions/x-search"],
+		skills: [],
+		description: "X/Twitter search via xAI Grok",
+	},
+	telegram: {
+		category: "tools",
+		extensions: ["extensions/telegram"],
+		skills: [],
+		description: "Telegram channel adapter for chatting with your agent",
+	},
+	email: {
+		category: "tools",
+		extensions: ["extensions/email"],
+		skills: ["skills/rho-cloud-email", "skills/rho-cloud-onboard"],
+		description: "Agent email via Rho Cloud (rhobot.dev)",
+	},
 
-  // ── Skills ────────────────────────────────────────────
-  "session-search": {
-    category: "skills",
-    extensions: [],
-    skills: ["skills/session-search"],
-    description: "Search across pi session logs",
-  },
-  "update-pi": {
-    category: "skills",
-    extensions: [],
-    skills: ["skills/update-pi"],
-    description: "Update pi coding agent to latest version",
-  },
+	// ── Skills ────────────────────────────────────────────
+	"session-search": {
+		category: "skills",
+		extensions: [],
+		skills: ["skills/session-search"],
+		description: "Search across pi session logs",
+	},
+	"update-pi": {
+		category: "skills",
+		extensions: [],
+		skills: ["skills/update-pi"],
+		description: "Update pi coding agent to latest version",
+	},
 
-  subagents: {
-    category: "tools",
-    extensions: [],
-    skills: [],
-    npmPackage: "pi-subagents",
-    description: "Subagent delegation with chains, parallel execution, and async support",
-  },
+	subagents: {
+		category: "tools",
+		extensions: [],
+		skills: [],
+		npmPackage: "pi-subagents",
+		description:
+			"Subagent delegation with chains, parallel execution, and async support",
+	},
 
-  // ── Workflow Skills (SOP subtype) ─────────────────────
-  workflows: {
-    category: "skills",
-    extensions: [],
-    skills: [
-      "skills/code-assist",
-      "skills/code-task-generator",
-      "skills/codebase-summary",
-      "skills/create-sop",
-      "skills/eval",
-      "skills/pdd",
-      "skills/pdd-build",
-      "skills/small-improvement",
-    ],
-    description: "SOP-style workflow skills executed via /skill run",
-  },
+	// ── Workflow Skills (SOP subtype) ─────────────────────
+	workflows: {
+		category: "skills",
+		extensions: [],
+		skills: [
+			"skills/code-assist",
+			"skills/code-task-generator",
+			"skills/codebase-summary",
+			"skills/create-sop",
+			"skills/eval",
+			"skills/pdd",
+			"skills/pdd-build",
+			"skills/release-changelog",
+			"skills/small-improvement",
+		],
+		description: "SOP-style workflow skills executed via /skill run",
+	},
 
-  // ── UI ────────────────────────────────────────────────
-  "usage-bars": {
-    category: "ui",
-    extensions: ["extensions/usage-bars"],
-    skills: [],
-    description: "Token usage display bars",
-  },
-
+	// ── UI ────────────────────────────────────────────────
+	"usage-bars": {
+		category: "ui",
+		extensions: ["extensions/usage-bars"],
+		skills: [],
+		description: "Token usage display bars",
+	},
 };
