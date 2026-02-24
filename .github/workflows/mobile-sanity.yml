@@ -1,0 +1,35 @@
+name: Mobile Sanity Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  mobile-sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Mobile Dependencies
+        run: npm run mobile:install
+
+      - name: Mobile Typecheck
+        run: npm run mobile:typecheck
+
+      - name: Mobile Lint
+        run: npm run mobile:lint
+
+      - name: Mobile Build
+        run: npm run mobile:build
+
+      - name: Mobile Sync
+        run: npm run mobile:sync
