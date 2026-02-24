@@ -28,18 +28,18 @@
     </style>
     <link
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
     />
     <link rel="stylesheet" href="/css/style.css?v=20260219v64" />
     <link rel="stylesheet" href="/css/review-panel.css?v=20260219v2" />
     <!-- Preload CDN scripts for faster initial render -->
     <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
     <link rel="preload" href="https://cdn.jsdelivr.net/npm/marked/marked.min.js" as="script" />
-    <link rel="preload" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js" as="script" />
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" as="script" />
     <link rel="preload" href="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" as="script" />
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="/js/app.js?v=20260219v1" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
     <script type="module" src="/js/chat.js?v=20260219v38"></script>
@@ -848,6 +848,19 @@
                     :title="themeButtonLabel()"
                     x-text="themeButtonLabel()"
                   ></button>
+                </div>
+                <div class="config-preference-item" x-show="isMobileShell" x-cloak>
+                  <div class="config-preference-copy">
+                    <div class="config-preference-label">Profiles</div>
+                    <div class="config-preference-help">Return to the mobile profile picker.</div>
+                  </div>
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    type="button"
+                    @click="switchToProfilePicker()"
+                  >
+                    Change profile
+                  </button>
                 </div>
               </div>
               <div class="config-error" x-show="error" x-text="error"></div>
