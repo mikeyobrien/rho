@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>rho-android</title>
+  <link rel="stylesheet" href="css/rho-web-style.css">
+  <link rel="stylesheet" href="css/profile-picker.css">
+</head>
+<body>
+  <div class="app profile-app">
+    <nav class="nav">
+      <div class="nav-inner">
+        <div class="nav-seg nav-logo">rho</div>
+        <div class="nav-seg nav-title">android profiles</div>
+      </div>
+    </nav>
+
+    <main class="main profile-main">
+      <section class="view profile-view">
+        <div class="view-header">// mobile shell</div>
+        <div class="view-title">Connection profiles</div>
+        <div class="view-body profile-view-body">
+          <div class="profile-list" id="profile-list">
+            <!-- Profiles will be injected here -->
+          </div>
+        </div>
+
+        <div class="profile-toolbar">
+          <div class="profile-live-controls">
+            <span id="live-mode-status-picker" class="live-mode-status live-mode-status--idle">Idle</span>
+            <button id="btn-live-mode-picker" class="btn btn-ghost live-mode-btn" title="Toggle Live Mode foreground service for lock-screen continuity">Go Live</button>
+          </div>
+          <div class="profile-toolbar-actions">
+            <button class="btn btn-ghost" id="btn-add">Add Profile</button>
+            <button class="btn" id="btn-launch" disabled>Launch</button>
+          </div>
+        </div>
+        <p class="profile-live-note">
+          Live Mode keeps active streams alive while locked using a persistent notification and higher battery use. Idle mode uses push + replay resume and may pause during long lock windows.
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal" class="profile-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-content">
+      <h2 id="modal-title">Add Profile</h2>
+      <input type="hidden" id="input-id" />
+
+      <div class="form-group">
+        <label for="input-name">Name</label>
+        <input type="text" id="input-name" placeholder="e.g. Local Dev" />
+      </div>
+
+      <div class="form-group">
+        <label for="input-scheme">Scheme</label>
+        <select id="input-scheme">
+          <option value="http">HTTP</option>
+          <option value="https">HTTPS</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="input-host">Host</label>
+        <input type="text" id="input-host" placeholder="e.g. 192.168.1.100" />
+      </div>
+
+      <div class="form-group">
+        <label for="input-port">Port</label>
+        <input type="number" id="input-port" placeholder="e.g. 8080" />
+      </div>
+
+      <div class="form-group">
+        <label for="input-token">Token (optional)</label>
+        <input type="password" id="input-token" placeholder="Bearer token (optional for LAN/Tailscale)" />
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn-cancel">Cancel</button>
+        <button class="btn" id="btn-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="web-container" class="profile-web-container">
+    <div class="profile-web-topbar">
+      <span class="profile-web-title">Rho Web</span>
+      <div class="topbar-actions">
+        <span id="live-mode-status" class="live-mode-status live-mode-status--idle">Idle</span>
+        <button id="btn-live-mode" class="btn btn-ghost live-mode-btn" title="Toggle Live Mode foreground service for lock-screen continuity">Go Live</button>
+        <button id="btn-switch-profile" class="btn btn-ghost profile-switch-btn">Switch Profile</button>
+      </div>
+    </div>
+    <iframe id="web-frame" title="Rho web container"></iframe>
+  </div>
+
+  <script type="module" src="js/index.js"></script>
+</body>
+</html>
