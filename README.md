@@ -167,6 +167,24 @@ Guide: [docs/iphone-setup.md](docs/iphone-setup.md)
 
 ---
 
+## Mobile Live Mode (native Android wrapper)
+
+If you use the native Android wrapper (`mobile/rho-android`) to run rho-web, background behavior has two explicit modes:
+
+- **Idle Mode (default):** best battery behavior. No always-on background socket while the app is backgrounded; reconnect + replay happens when the app becomes active again.
+- **Live Mode (GO LIVE):** starts an Android foreground service with a persistent notification and lease heartbeats to keep active streams alive while locked/backgrounded.
+
+Use **Live Mode** when stream continuity matters (for example, long active responses while the phone is locked). Without it, WebView background limits can cause disconnect/orphan behavior around the default orphan window.
+
+Tradeoffs:
+- higher battery/network usage while Live Mode is active,
+- persistent foreground notification,
+- explicit user-controlled lifecycle (`GO LIVE` / `STOP LIVE`).
+
+Baseline Live Mode reliability does **not** require Firebase credentials.
+
+---
+
 ## Surfaces and modules
 
 ### Core runtime

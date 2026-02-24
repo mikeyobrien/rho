@@ -1,0 +1,126 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      policy_checklist_ack:
+        description: 'I acknowledge the release policy and dry-run checklist.'
+        required: true
+        type: boolean
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Mobile Dependencies
+        run: npm run -s mobile:install
+
+      - name: Require Keystore Secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "Error: One or more Android keystore secrets are missing! Failing fast."
+            exit 1
+          fi
+
+      - name: Parity Gate
+        run: npm run -s parity:gate
+
+      - name: Version Gate Check
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_VERSION=${GITHUB_REF#refs/tags/v}
+            PKG_VERSION=$(node -p "require('./package.json').version")
+            if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+              echo "Error: Tag version v$TAG_VERSION does not match package.json version $PKG_VERSION"
+              exit 1
+            fi
+            echo "Version match verified: $TAG_VERSION"
+          else
+            echo "Manual run, skipping tag version gate."
+          fi
+
+      - name: Policy Checklist Gate
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ github.event.inputs.policy_checklist_ack }}" != "true" ]]; then
+              echo "Error: Policy acknowledgement required for manual dispatch."
+              exit 1
+            fi
+            echo "Policy acknowledged via workflow dispatch."
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            if ! grep -q "## Dry-Run Checklist" docs/android-release-runbook.md; then
+              echo "Error: Dry-Run Checklist heading missing in runbook!"
+              exit 1
+            fi
+            echo "Runbook checklist verification passed."
+          fi
+
+      - name: Build Web App
+        run: npm run -s mobile:build
+
+      - name: Sync Capacitor
+        run: npm run -s mobile:sync
+
+      - name: Decode Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > mobile/rho-android/android/app/release-keystore.jks
+          echo "KEYSTORE_FILE=${{ github.workspace }}/mobile/rho-android/android/app/release-keystore.jks" >> $GITHUB_ENV
+
+      - name: Build Signed AAB
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: mobile/rho-android/android
+        run: ./gradlew bundleRelease
+
+      - name: Verify Artifact & Checksum
+        working-directory: mobile/rho-android/android/app/build/outputs/bundle/release
+        run: |
+          AAB_FILE="app-release.aab"
+          if [ ! -f "$AAB_FILE" ]; then
+            echo "Error: $AAB_FILE not found!"
+            exit 1
+          fi
+          echo "Artifact exists."
+          sha256sum "$AAB_FILE" > "$AAB_FILE.sha256"
+          cat "$AAB_FILE.sha256"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rho-android-release
+          path: |
+            mobile/rho-android/android/app/build/outputs/bundle/release/app-release.aab
+            mobile/rho-android/android/app/build/outputs/bundle/release/app-release.aab.sha256
+          retention-days: 7

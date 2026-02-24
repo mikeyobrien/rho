@@ -52,7 +52,15 @@
 		"test:web:playwriter": "npx -y tsx tests/playwriter/web-multi-session-gates.ts",
 		"telegram:smoke": "npx -y tsx scripts/telegram-smoke.ts",
 		"hooks:pre-commit": "bash scripts/pre-commit.sh",
-		"prepare": "command -v simple-git-hooks >/dev/null && simple-git-hooks || true"
+		"prepare": "command -v simple-git-hooks >/dev/null && simple-git-hooks || true",
+		"mobile:install": "cd mobile/rho-android && npm install",
+		"mobile:build": "cd mobile/rho-android && npm run build",
+		"mobile:sync": "cd mobile/rho-android && npm run sync",
+		"mobile:lint": "cd mobile/rho-android && npm run lint",
+		"mobile:typecheck": "cd mobile/rho-android && npm run typecheck",
+		"parity:smoke": "npx -y tsx tests/test-mobile-parity-smoke.ts",
+		"parity:web": "npm run -s parity:smoke && npx -y tsx tests/test-web-mobile-auth.ts && npx -y tsx tests/test-web-mobile-auth-gate.ts",
+		"parity:gate": "npm run -s parity:web && npm run -s mobile:typecheck && npm run -s mobile:lint"
 	},
 	"simple-git-hooks": {
 		"pre-commit": "npm run -s hooks:pre-commit"
