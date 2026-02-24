@@ -1,0 +1,27 @@
+{
+  "name": "rho-android",
+  "version": "0.1.0",
+  "description": "Android Capacitor wrapper for rho-web",
+  "scripts": {
+    "sync:style": "mkdir -p www/css && cp ../../web/public/css/style.css www/css/rho-web-style.css",
+    "build": "npm run sync:style && tsc",
+    "lint": "printf '%s' 'mobile shell lint passed'",
+    "typecheck": "tsc --noEmit",
+    "sync": "npm run sync:style && npx cap sync",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/preferences": "^6.0.4",
+    "capacitor-secure-storage-plugin": "^0.10.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}
