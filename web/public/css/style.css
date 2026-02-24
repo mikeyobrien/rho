@@ -627,6 +627,12 @@ button {
 	gap: 0.8rem;
 }
 
+.config-preference-item + .config-preference-item {
+	margin-top: 0.7rem;
+	padding-top: 0.7rem;
+	border-top: 1px solid var(--border);
+}
+
 .config-preference-copy {
 	display: flex;
 	flex-direction: column;

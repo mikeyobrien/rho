@@ -252,7 +252,11 @@ function highlightCodeBlocks(root) {
 		return;
 	}
 	for (const block of root.querySelectorAll("pre code")) {
+		if (block.dataset.hljsDone === "1") {
+			continue;
+		}
 		hljs.highlightElement(block);
+		block.dataset.hljsDone = "1";
 	}
 }
 
@@ -327,21 +331,11 @@ function normalizeMessage(message, isLazy = false) {
 				output: part.output ?? "",
 			};
 		}
-		if (
-			part.type === "compaction" ||
-			part.type === "summary" ||
-			part.type === "retry"
-		) {
-			return {
-				...part,
-				key: `${message.id}-summary-${index}`,
-			};
+		if (part.type === "compaction" || part.type === "summary" || part.type === "retry") {
+			return { ...part, key: `${message.id}-summary-${index}` };
 		}
 		if (part.type === "error") {
-			return {
-				...part,
-				key: `${message.id}-error-${index}`,
-			};
+			return { ...part, key: `${message.id}-error-${index}` };
 		}
 		return {
 			...part,
@@ -368,9 +362,19 @@ function buildWsUrl() {
 	return `${protocol}//${window.location.host}/ws`;
 }
 
+function handleAuthErr(res) {
+	if ((res.status === 401 || res.status === 403) && typeof window !== "undefined") {
+		const isMob = new URLSearchParams(window.location.search).get("mobile_shell") === "1";
+		if (window.parent && window.parent !== window) window.parent.postMessage({ type: "AUTH_FAILURE", reason: res.status === 401 ? "missing_cookie" : "revoked" }, "*");
+		else if (isMob) window.location.href = "http://localhost/?picker=1";
+		else window.location.reload();
+	}
+}
+
 async function fetchJson(url) {
 	const response = await fetch(url);
 	if (!response.ok) {
+		handleAuthErr(response);
 		const error = await response.json().catch(() => ({}));
 		throw new Error(error.error ?? `Request failed (${response.status})`);
 	}
@@ -386,6 +390,7 @@ async function postJson(url, payload) {
 		body: JSON.stringify(payload ?? {}),
 	});
 
+	if (!response.ok) handleAuthErr(response);
 	const data = await response.json().catch(() => ({}));
 	if (!response.ok) {
 		throw new Error(data.error ?? `Request failed (${response.status})`);
