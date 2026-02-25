@@ -11,7 +11,8 @@ export interface ModuleEntry {
 	skills: string[]; // paths relative to package root (empty for npm-backed modules)
 	description: string; // one-line description for init.toml comments
 	alwaysOn?: boolean; // core modules that cannot be disabled
-	npmPackage?: string; // external npm package — installed/removed by sync based on enabled state
+	npmPackage?: string; // external npm package name (legacy shorthand)
+	packageSource?: string; // external package source (e.g., npm:foo, git:github.com/user/repo)
 }
 
 /**
@@ -67,6 +68,49 @@ export const REGISTRY: Record<string, ModuleEntry> = {
 		skills: ["skills/rho-cloud-email", "skills/rho-cloud-onboard"],
 		description: "Agent email via Rho Cloud (rhobot.dev)",
 	},
+	subagents: {
+		category: "tools",
+		extensions: [],
+		skills: [],
+		npmPackage: "pi-subagents",
+		description:
+			"Subagent delegation with chains, parallel execution, and async support",
+	},
+	messenger: {
+		category: "tools",
+		extensions: [],
+		skills: [],
+		npmPackage: "pi-messenger",
+		description: "Multi-agent communication extension for pi coding agent",
+	},
+	"interactive-shell": {
+		category: "tools",
+		extensions: [],
+		skills: [],
+		npmPackage: "pi-interactive-shell",
+		description: "Observable PTY shell control for interactive CLI workflows",
+	},
+	"web-access": {
+		category: "tools",
+		extensions: [],
+		skills: [],
+		npmPackage: "pi-web-access",
+		description: "Web search and content extraction extension for pi",
+	},
+	"mcp-adapter": {
+		category: "tools",
+		extensions: [],
+		skills: [],
+		npmPackage: "pi-mcp-adapter",
+		description: "Token-efficient adapter for MCP server integration",
+	},
+	"interview-tool": {
+		category: "tools",
+		extensions: [],
+		skills: [],
+		npmPackage: "pi-interview",
+		description: "Structured interview assistant for discovery workflows",
+	},
 
 	// ── Skills ────────────────────────────────────────────
 	"session-search": {
@@ -81,14 +125,13 @@ export const REGISTRY: Record<string, ModuleEntry> = {
 		skills: ["skills/update-pi"],
 		description: "Update pi coding agent to latest version",
 	},
-
-	subagents: {
-		category: "tools",
+	"visual-explainer": {
+		category: "skills",
 		extensions: [],
 		skills: [],
-		npmPackage: "pi-subagents",
+		packageSource: "git:github.com/nicobailon/visual-explainer",
 		description:
-			"Subagent delegation with chains, parallel execution, and async support",
+			"Generate polished HTML diagrams, reviews, and comparison tables",
 	},
 
 	// ── Workflow Skills (SOP subtype) ─────────────────────

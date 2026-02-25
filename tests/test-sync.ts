@@ -65,6 +65,7 @@ import {
 	type SyncPlan,
 	buildRhoPackageEntry,
 	buildSyncLock,
+	collectExternalModulePackages,
 	findRhoEntryIndex,
 	planSync,
 } from "../cli/sync-core.ts";
@@ -87,8 +88,24 @@ function makeConfig(overrides?: {
 	const modules: ModulesConfig = {
 		core: { heartbeat: true, memory: true },
 		knowledge: { vault: true },
-		tools: { "brave-search": true, "x-search": true, email: true },
-		skills: { workflows: true, "session-search": true, "update-pi": true },
+		tools: {
+			"brave-search": true,
+			"x-search": true,
+			telegram: true,
+			email: true,
+			subagents: true,
+			messenger: true,
+			"interactive-shell": true,
+			"web-access": true,
+			"mcp-adapter": true,
+			"interview-tool": true,
+		},
+		skills: {
+			workflows: true,
+			"session-search": true,
+			"update-pi": true,
+			"visual-explainer": true,
+		},
 		ui: { "usage-bars": true },
 	};
 	if (overrides?.modules) {
@@ -325,6 +342,57 @@ console.log("\n-- buildRhoPackageEntry: all non-core modules disabled --");
 	// Count: vault-clean, rho-cloud-email, rho-cloud-onboard, workflows(9), session-search, update-pi = 14 exclusions
 	const skillExclusions = skills.filter((p) => p.startsWith("!"));
 	assertEq(skillExclusions.length, 14, "14 skill exclusions");
+}
+
+console.log("\n-- collectExternalModulePackages: enabled modules --");
+{
+	const config = makeConfig();
+	const entries = collectExternalModulePackages(config);
+	const sources = entries.map((entry) => entry.source);
+
+	assertEq(
+		sources,
+		[
+			"npm:pi-subagents",
+			"npm:pi-messenger",
+			"npm:pi-interactive-shell",
+			"npm:pi-web-access",
+			"npm:pi-mcp-adapter",
+			"npm:pi-interview",
+			"git:github.com/nicobailon/visual-explainer",
+		],
+		"collects default external package sources",
+	);
+}
+
+console.log("\n-- collectExternalModulePackages: disabled modules omitted --");
+{
+	const config = makeConfig({
+		modules: {
+			tools: { subagents: false, messenger: false, "interview-tool": false },
+			skills: { "visual-explainer": false },
+		},
+	});
+	const entries = collectExternalModulePackages(config);
+	const sources = entries.map((entry) => entry.source);
+
+	assertNotIncludes(sources, "npm:pi-subagents", "disabled subagents omitted");
+	assertNotIncludes(sources, "npm:pi-messenger", "disabled messenger omitted");
+	assertNotIncludes(
+		sources,
+		"npm:pi-interview",
+		"disabled interview-tool omitted",
+	);
+	assertNotIncludes(
+		sources,
+		"git:github.com/nicobailon/visual-explainer",
+		"disabled visual-explainer omitted",
+	);
+	assertIncludes(
+		sources,
+		"npm:pi-mcp-adapter",
+		"other enabled external modules remain",
+	);
 }
 
 // ================================================================

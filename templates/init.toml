@@ -26,15 +26,21 @@ vault = true                          # Knowledge vault with full-text search an
 [modules.tools]
 brave-search = true                   # Web search via Brave Search API
 x-search = true                       # X/Twitter search via xAI Grok
-telegram = true                       # Telegram channel adapter (polling-first)
+telegram = true                       # Telegram channel adapter for chatting with your agent
 email = false                         # Agent email via Rho Cloud (rhobot.dev)
-subagents = true                      # Subagent delegation with chains, parallel, and async
+subagents = true                      # Subagent delegation with chains, parallel execution, and async support
+messenger = true                      # Multi-agent communication extension for pi coding agent
+interactive-shell = true              # Observable PTY shell control for interactive CLI workflows
+web-access = true                     # Web search and content extraction extension for pi
+mcp-adapter = true                    # Token-efficient adapter for MCP server integration
+interview-tool = true                 # Structured interview assistant for discovery workflows
 
-# Skills-only modules (no extensions, just SKILL.md files)
+# Skills-only modules (no local extensions, mostly external SKILL packages)
 [modules.skills]
-workflows = true                      # SOP-style workflow skills (run via /skill run <name>)
+workflows = true                      # SOP-style workflow skills executed via /skill run
 session-search = true                 # Search across pi session logs
 update-pi = true                      # Update pi coding agent to latest version
+visual-explainer = true               # Generate polished HTML diagrams, reviews, and comparison tables
 
 [modules.ui]
 usage-bars = true                     # Token usage display bars

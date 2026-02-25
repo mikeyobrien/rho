@@ -5,61 +5,85 @@
  * generates sync locks. All functions are pure and testable.
  */
 
+import type { PackagesConfig, RhoConfig } from "./config.ts";
 import { REGISTRY } from "./registry.ts";
-import type { RhoConfig, PackagesConfig } from "./config.ts";
 
 // ---- Types ----
 
 export interface RhoPackageEntry {
-  source: string;
-  _managed_by: "rho";
-  extensions?: string[];
-  skills?: string[];
+	source: string;
+	_managed_by: "rho";
+	extensions?: string[];
+	skills?: string[];
 }
 
 export interface SyncLock {
-  /** The package source string for Rho in pi settings.json (path or npm:...) */
-  rho_source?: string;
-  /** Rho package version at the time of sync (best-effort). */
-  rho_version?: string;
-  /** Package sources managed from ~/.rho/packages.toml */
-  managed_packages: string[];
-  /** ISO timestamp when sync last ran */
-  last_sync: string;
+	/** The package source string for Rho in pi settings.json (path or npm:...) */
+	rho_source?: string;
+	/** Rho package version at the time of sync (best-effort). */
+	rho_version?: string;
+	/** Package sources managed from ~/.rho/packages.toml */
+	managed_packages: string[];
+	/** ISO timestamp when sync last ran */
+	last_sync: string;
 }
 
 export interface SyncPlan {
-  rhoEntry: RhoPackageEntry;
-  packagesToInstall: string[];
-  packagesToRemove: string[];
-  settingsJson: Record<string, any>;
-  newSyncLock: SyncLock;
+	rhoEntry: RhoPackageEntry;
+	packagesToInstall: string[];
+	packagesToRemove: string[];
+	settingsJson: Record<string, unknown>;
+	newSyncLock: SyncLock;
 }
 
-// ---- Collect external (npm-backed) module packages ----
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function getPackageSource(value: unknown): string | null {
+	if (typeof value === "string") return value;
+	if (!isRecord(value)) return null;
+	const source = value.source;
+	return typeof source === "string" ? source : null;
+}
+
+function isRhoManagedPackage(value: unknown): boolean {
+	if (!isRecord(value)) return false;
+	return value._managed_by === "rho";
+}
+
+// ---- Collect external module packages ----
 
 /**
- * Collect npm package sources for registry modules that have `npmPackage` set.
+ * Collect package sources for registry modules that declare an external package.
+ * Supports:
+ *  - `packageSource` (full source string, e.g. git:github.com/user/repo)
+ *  - `npmPackage` (legacy shorthand; converted to npm:<name>)
+ *
  * Returns sources for modules that are enabled in the config.
- * Disabled npm-backed modules are omitted — the sync lock diff handles removal.
+ * Disabled modules are omitted — sync.lock diff handles removal.
  */
-export function collectExternalModulePackages(config: RhoConfig): PackageEntry[] {
-  const entries: PackageEntry[] = [];
+export function collectExternalModulePackages(
+	config: RhoConfig,
+): PackageEntry[] {
+	const entries: PackageEntry[] = [];
 
-  const allCategories = ["core", "knowledge", "tools", "ui", "skills"] as const;
-  for (const [name, reg] of Object.entries(REGISTRY)) {
-    if (!reg.npmPackage) continue;
+	const allCategories = ["core", "knowledge", "tools", "ui", "skills"] as const;
+	for (const [name, reg] of Object.entries(REGISTRY)) {
+		const source =
+			reg.packageSource ?? (reg.npmPackage ? `npm:${reg.npmPackage}` : null);
+		if (!source) continue;
 
-    // Check if module is enabled in config (default: false for npm-backed)
-    const catModules = config.modules[reg.category as typeof allCategories[number]] ?? {};
-    const enabled = catModules[name] === true;
+		const catModules =
+			config.modules[reg.category as (typeof allCategories)[number]] ?? {};
+		const enabled = catModules[name] === true;
 
-    if (enabled) {
-      entries.push({ source: `npm:${reg.npmPackage}` });
-    }
-  }
+		if (enabled) {
+			entries.push({ source });
+		}
+	}
 
-  return entries;
+	return entries;
 }
 
 // ---- Build the Rho package entry ----
@@ -71,72 +95,72 @@ export function collectExternalModulePackages(config: RhoConfig): PackageEntry[]
  *
  * Core (alwaysOn) modules are never excluded regardless of config.
  */
-export function buildRhoPackageEntry(config: RhoConfig, rhoRoot: string): RhoPackageEntry {
-  const extExclusions: string[] = [];
-  const skillExclusions: string[] = [];
+export function buildRhoPackageEntry(
+	config: RhoConfig,
+	rhoRoot: string,
+): RhoPackageEntry {
+	const extExclusions: string[] = [];
+	const skillExclusions: string[] = [];
 
-  const toExtensionExcludePattern = (p: string): string => {
-    // Pi filters match discovered extension entrypoints (files), e.g.
-    //   extensions/<name>/index.ts
-    // Our registry uses extension directories (extensions/<name>), so exclude
-    // everything under that directory.
-    if (p.endsWith(".ts") || p.endsWith(".js")) return `!${p}`;
-    return `!${p}/**`;
-  };
+	const toExtensionExcludePattern = (p: string): string => {
+		// Pi filters match discovered extension entrypoints (files), e.g.
+		//   extensions/<name>/index.ts
+		// Our registry uses extension directories (extensions/<name>), so exclude
+		// everything under that directory.
+		if (p.endsWith(".ts") || p.endsWith(".js")) return `!${p}`;
+		return `!${p}/**`;
+	};
 
-  const toSkillExcludePattern = (p: string): string => {
-    // Skills are discovered as skills/<name>/SKILL.md.
-    // Pi's matcher special-cases SKILL.md to also match the parent directory,
-    // so excluding skills/<name> works.
-    return `!${p}`;
-  };
+	const toSkillExcludePattern = (p: string): string => {
+		// Skills are discovered as skills/<name>/SKILL.md.
+		// Pi's matcher special-cases SKILL.md to also match the parent directory,
+		// so excluding skills/<name> works.
+		return `!${p}`;
+	};
 
-  // Iterate all module categories
-  const allCategories = ["core", "knowledge", "tools", "ui", "skills"] as const;
-  for (const cat of allCategories) {
-    const mods = config.modules[cat] ?? {};
-    for (const [name, enabled] of Object.entries(mods)) {
-      if (enabled) continue;
+	// Iterate all module categories
+	const allCategories = ["core", "knowledge", "tools", "ui", "skills"] as const;
+	for (const cat of allCategories) {
+		const mods = config.modules[cat] ?? {};
+		for (const [name, enabled] of Object.entries(mods)) {
+			if (enabled) continue;
 
-      const reg = REGISTRY[name];
-      if (!reg) continue;
+			const reg = REGISTRY[name];
+			if (!reg) continue;
 
-      // Core/alwaysOn modules cannot be disabled
-      if (reg.alwaysOn) continue;
+			// Core/alwaysOn modules cannot be disabled
+			if (reg.alwaysOn) continue;
 
-      for (const ext of reg.extensions) {
-        extExclusions.push(toExtensionExcludePattern(ext));
-      }
-      for (const skill of reg.skills) {
-        skillExclusions.push(toSkillExcludePattern(skill));
-      }
-    }
-  }
+			for (const ext of reg.extensions) {
+				extExclusions.push(toExtensionExcludePattern(ext));
+			}
+			for (const skill of reg.skills) {
+				skillExclusions.push(toSkillExcludePattern(skill));
+			}
+		}
+	}
 
-  const entry: RhoPackageEntry = {
-    source: rhoRoot,
-    _managed_by: "rho",
-  };
+	const entry: RhoPackageEntry = {
+		source: rhoRoot,
+		_managed_by: "rho",
+	};
 
-  if (extExclusions.length > 0) {
-    // Include discovered extension entrypoints (index.ts + any direct .ts/.js).
-    // Then layer on exclusions for disabled modules.
-    entry.extensions = [
-      "extensions/**/*.ts",
-      "extensions/**/*.js",
-      ...extExclusions,
-    ];
-  }
+	if (extExclusions.length > 0) {
+		// Include discovered extension entrypoints (index.ts + any direct .ts/.js).
+		// Then layer on exclusions for disabled modules.
+		entry.extensions = [
+			"extensions/**/*.ts",
+			"extensions/**/*.js",
+			...extExclusions,
+		];
+	}
 
-  if (skillExclusions.length > 0) {
-    // Skills are directories with SKILL.md.
-    entry.skills = [
-      "skills/*",
-      ...skillExclusions,
-    ];
-  }
+	if (skillExclusions.length > 0) {
+		// Skills are directories with SKILL.md.
+		entry.skills = ["skills/*", ...skillExclusions];
+	}
 
-  return entry;
+	return entry;
 }
 
 // ---- Find Rho entry in settings.json packages ----
@@ -146,29 +170,29 @@ export function buildRhoPackageEntry(config: RhoConfig, rhoRoot: string): RhoPac
  * Prefers `_managed_by: "rho"` marker, falls back to source path match.
  * Returns -1 if not found.
  */
-export function findRhoEntryIndex(packages: any[], rhoRoot?: string): number {
-  // First pass: look for _managed_by marker
-  for (let i = 0; i < packages.length; i++) {
-    const pkg = packages[i];
-    if (typeof pkg === "object" && pkg !== null && pkg._managed_by === "rho") {
-      return i;
-    }
-  }
+export function findRhoEntryIndex(
+	packages: unknown[],
+	rhoRoot?: string,
+): number {
+	// First pass: look for _managed_by marker
+	for (let i = 0; i < packages.length; i++) {
+		const pkg = packages[i];
+		if (isRhoManagedPackage(pkg)) {
+			return i;
+		}
+	}
 
-  // Second pass: look for source path match
-  if (rhoRoot) {
-    for (let i = 0; i < packages.length; i++) {
-      const pkg = packages[i];
-      if (typeof pkg === "string" && pkg === rhoRoot) {
-        return i;
-      }
-      if (typeof pkg === "object" && pkg !== null && pkg.source === rhoRoot) {
-        return i;
-      }
-    }
-  }
+	// Second pass: look for source path match
+	if (rhoRoot) {
+		for (let i = 0; i < packages.length; i++) {
+			const pkg = packages[i];
+			if (getPackageSource(pkg) === rhoRoot) {
+				return i;
+			}
+		}
+	}
 
-  return -1;
+	return -1;
 }
 
 // ---- Build sync lock ----
@@ -178,26 +202,26 @@ export function findRhoEntryIndex(packages: any[], rhoRoot?: string): number {
  * Tracks which packages are managed by rho (from packages.toml).
  */
 export function buildSyncLock(
-  pkgConfig: PackagesConfig,
-  meta?: { rho_source?: string; rho_version?: string; now?: string },
+	pkgConfig: PackagesConfig,
+	meta?: { rho_source?: string; rho_version?: string; now?: string },
 ): SyncLock {
-  return {
-    rho_source: meta?.rho_source,
-    rho_version: meta?.rho_version,
-    managed_packages: pkgConfig.packages.map((p) => p.source),
-    last_sync: meta?.now ?? new Date().toISOString(),
-  };
+	return {
+		rho_source: meta?.rho_source,
+		rho_version: meta?.rho_version,
+		managed_packages: pkgConfig.packages.map((p) => p.source),
+		last_sync: meta?.now ?? new Date().toISOString(),
+	};
 }
 
 // ---- Plan the full sync operation ----
 
 interface PlanSyncInput {
-  config: RhoConfig;
-  pkgConfig: PackagesConfig;
-  settingsJson: Record<string, any> | null;
-  syncLock: SyncLock | null;
-  rhoRoot: string;
-  rhoVersion?: string;
+	config: RhoConfig;
+	pkgConfig: PackagesConfig;
+	settingsJson: Record<string, unknown> | null;
+	syncLock: SyncLock | null;
+	rhoRoot: string;
+	rhoVersion?: string;
 }
 
 /**
@@ -206,62 +230,72 @@ interface PlanSyncInput {
  * updated settings.json, and new sync lock.
  */
 export function planSync(input: PlanSyncInput): SyncPlan {
-  const { config, pkgConfig, syncLock, rhoRoot } = input;
+	const { config, pkgConfig, syncLock, rhoRoot } = input;
 
-  // Build the new Rho package entry
-  const rhoEntry = buildRhoPackageEntry(config, rhoRoot);
+	// Build the new Rho package entry
+	const rhoEntry = buildRhoPackageEntry(config, rhoRoot);
 
-  // Start with existing settings or create fresh
-  const settingsJson: Record<string, any> = input.settingsJson
-    ? JSON.parse(JSON.stringify(input.settingsJson)) // deep clone
-    : {};
+	// Start with existing settings or create fresh
+	const settingsJson: Record<string, unknown> = input.settingsJson
+		? (JSON.parse(JSON.stringify(input.settingsJson)) as Record<
+				string,
+				unknown
+			>)
+		: {};
 
-  if (!settingsJson.packages) {
-    settingsJson.packages = [];
-  }
+	if (!Array.isArray(settingsJson.packages)) {
+		settingsJson.packages = [];
+	}
+	const packages = settingsJson.packages as unknown[];
 
-  // Find and replace/insert the Rho entry
-  const existingIdx = findRhoEntryIndex(settingsJson.packages, rhoRoot);
-  if (existingIdx >= 0) {
-    settingsJson.packages[existingIdx] = rhoEntry;
-  } else {
-    settingsJson.packages.push(rhoEntry);
-  }
+	// Find and replace/insert the Rho entry
+	const existingIdx = findRhoEntryIndex(packages, rhoRoot);
+	if (existingIdx >= 0) {
+		packages[existingIdx] = rhoEntry;
+	} else {
+		packages.push(rhoEntry);
+	}
 
-  // Determine packages to install (in packages.toml but not in settings)
-  const currentSources = new Set(
-    settingsJson.packages.map((p: any) =>
-      typeof p === "string" ? p : p.source
-    )
-  );
-  const packagesToInstall = pkgConfig.packages
-    .filter((p) => !currentSources.has(p.source))
-    .map((p) => p.source);
+	// Determine packages to install (in packages.toml but not in settings)
+	const currentSources = new Set(
+		packages
+			.map((pkg) => getPackageSource(pkg))
+			.filter((source): source is string => source !== null),
+	);
+	const packagesToInstall = pkgConfig.packages
+		.filter((pkg) => !currentSources.has(pkg.source))
+		.map((pkg) => pkg.source);
 
-  // Determine packages to remove (in previous sync.lock but not in packages.toml)
-  const newManagedSources = new Set(pkgConfig.packages.map((p) => p.source));
-  const prevManagedSources = syncLock?.managed_packages ?? [];
-  const packagesToRemove = prevManagedSources.filter(
-    (src) => !newManagedSources.has(src)
-  );
+	// Determine packages to remove (in previous sync.lock but not in packages.toml)
+	const newManagedSources = new Set(
+		pkgConfig.packages.map((pkg) => pkg.source),
+	);
+	const prevManagedSources = syncLock?.managed_packages ?? [];
+	const packagesToRemove = prevManagedSources.filter(
+		(source) => !newManagedSources.has(source),
+	);
 
-  // Remove packages flagged for removal from settings.json
-  if (packagesToRemove.length > 0) {
-    const removeSet = new Set(packagesToRemove);
-    settingsJson.packages = settingsJson.packages.filter((p: any) => {
-      const src = typeof p === "string" ? p : p.source;
-      return !removeSet.has(src);
-    });
-  }
+	// Remove packages flagged for removal from settings.json
+	if (packagesToRemove.length > 0) {
+		const removeSet = new Set(packagesToRemove);
+		settingsJson.packages = packages.filter((pkg) => {
+			const source = getPackageSource(pkg);
+			if (!source) return true;
+			return !removeSet.has(source);
+		});
+	}
 
-  // Build new sync lock
-  const newSyncLock = buildSyncLock(pkgConfig, { rho_source: rhoRoot, rho_version: input.rhoVersion });
+	// Build new sync lock
+	const newSyncLock = buildSyncLock(pkgConfig, {
+		rho_source: rhoRoot,
+		rho_version: input.rhoVersion,
+	});
 
-  return {
-    rhoEntry,
-    packagesToInstall,
-    packagesToRemove,
-    settingsJson,
-    newSyncLock,
-  };
+	return {
+		rhoEntry,
+		packagesToInstall,
+		packagesToRemove,
+		settingsJson,
+		newSyncLock,
+	};
 }
