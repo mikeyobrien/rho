@@ -46,6 +46,7 @@ interface RpcSessionState {
   process: ChildProcessWithoutNullStreams;
   buffer: string;
   connected: boolean;
+  exited: boolean;
   pending: PendingPrompt | null;
   commandIndex: Map<string, SlashCommandEntry>;
   commandsLoaded: boolean;
@@ -207,13 +208,11 @@ export class TelegramRpcRunner {
     }
 
     setTimeout(() => {
-      const current = this.sessions.get(sessionFile);
-      if (!current) return;
-      if (current.process.killed) return;
+      if (session.exited) return;
       try {
-        current.process.kill("SIGKILL");
+        session.process.kill("SIGKILL");
       } catch {
-        // ignore
+        // ignore — process may have exited between check and kill
       }
     }, 2_000);
 
@@ -222,7 +221,7 @@ export class TelegramRpcRunner {
 
   private ensureSession(sessionFile: string): RpcSessionState {
     const existing = this.sessions.get(sessionFile);
-    if (existing && !existing.process.killed) return existing;
+    if (existing && !existing.exited) return existing;
 
     const child = this.spawnProcess("pi", ["--mode", "rpc"], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -240,6 +239,7 @@ export class TelegramRpcRunner {
       process: child,
       buffer: "",
       connected: false,
+      exited: false,
       pending: null,
       commandIndex: new Map(),
       commandsLoaded: false,
@@ -271,6 +271,7 @@ export class TelegramRpcRunner {
     });
 
     child.once("exit", (code, signal) => {
+      state.exited = true;
       if (state.pending) {
         this.rejectPending(state, `RPC exited (code=${code ?? "null"}, signal=${signal ?? "null"})`);
       }
