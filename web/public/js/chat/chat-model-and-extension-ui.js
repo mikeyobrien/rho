@@ -295,6 +295,38 @@ export const rhoChatModelAndExtensionMethods = {
 			this.showEditorDialog(id, request, timeout);
 			return;
 		}
+
+		// Fire-and-forget extension UI methods (no response expected)
+		if (method === "notify") {
+			this.showToast(
+				request.message ?? request.text ?? "",
+				request.notifyType ?? request.level ?? "info",
+				request.duration,
+			);
+			return;
+		}
+
+		if (method === "setStatus") {
+			this.extensionStatus = request.statusText ?? request.text ?? "";
+			this.updateFooter();
+			return;
+		}
+
+		if (method === "setWidget") {
+			const lines = request.widgetLines ?? request.lines ?? null;
+			this.extensionWidget = lines ?? request.widget ?? request.content ?? null;
+			return;
+		}
+
+		if (method === "setTitle") {
+			const title = request.title ?? request.text ?? "";
+			if (title) {
+				document.title = `${title} - Rho Web UI`;
+			} else {
+				document.title = "Rho Web UI";
+			}
+			return;
+		}
 	},
 
 	showSelectDialog(id, request, timeout) {
