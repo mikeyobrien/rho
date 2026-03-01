@@ -506,7 +506,7 @@ export class TelegramRpcRunner {
         pending.slashAckTimer = setTimeout(() => {
           const active = session.pending;
           if (!active || active.requestId !== pending.requestId) return;
-          if (active.lastAssistantText || active.sawAgentEnd) return;
+          if (active.sawAgentEnd) return;
           this.resolvePending(session, this.resolvePromptText(active));
         }, 1_500);
       }
