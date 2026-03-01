@@ -11,6 +11,9 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -56,13 +59,23 @@ jobs:
       - name: Version Gate Check
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAG_VERSION=${GITHUB_REF#refs/tags/v}
+            TAG_NAME=${GITHUB_REF#refs/tags/}
             PKG_VERSION=$(node -p "require('./package.json').version")
-            if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-              echo "Error: Tag version v$TAG_VERSION does not match package.json version $PKG_VERSION"
+
+            if [[ "$TAG_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-rc\.[0-9]+$ ]]; then
+              TAG_BASE_VERSION="${BASH_REMATCH[1]}"
+            elif [[ "$TAG_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              TAG_BASE_VERSION="${BASH_REMATCH[1]}"
+            else
+              echo "Error: Unsupported tag format for version gate: $TAG_NAME"
               exit 1
             fi
-            echo "Version match verified: $TAG_VERSION"
+
+            if [ "$TAG_BASE_VERSION" != "$PKG_VERSION" ]; then
+              echo "Error: Tag base version $TAG_BASE_VERSION does not match package.json version $PKG_VERSION"
+              exit 1
+            fi
+            echo "Version match verified: $TAG_NAME -> $TAG_BASE_VERSION"
           else
             echo "Manual run, skipping tag version gate."
           fi
@@ -102,9 +115,17 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         working-directory: mobile/rho-android/android
-        run: ./gradlew bundleRelease
+        run: ./gradlew :app:bundleRelease
 
-      - name: Verify Artifact & Checksum
+      - name: Build Signed APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: mobile/rho-android/android
+        run: ./gradlew :app:assembleRelease
+
+      - name: Verify AAB Artifact & Checksum
         working-directory: mobile/rho-android/android/app/build/outputs/bundle/release
         run: |
           AAB_FILE="app-release.aab"
@@ -112,9 +133,56 @@ jobs:
             echo "Error: $AAB_FILE not found!"
             exit 1
           fi
-          echo "Artifact exists."
+          echo "AAB artifact exists."
           sha256sum "$AAB_FILE" > "$AAB_FILE.sha256"
           cat "$AAB_FILE.sha256"
+
+      - name: Verify APK Artifact & Checksum
+        working-directory: mobile/rho-android/android/app/build/outputs/apk/release
+        run: |
+          APK_FILE="app-release.apk"
+          if [ ! -f "$APK_FILE" ]; then
+            echo "Error: $APK_FILE not found!"
+            exit 1
+          fi
+          echo "APK artifact exists."
+          sha256sum "$APK_FILE" > "$APK_FILE.sha256"
+          cat "$APK_FILE.sha256"
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          PRERELEASE=false
+          if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            PRERELEASE=true
+          elif [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            PRERELEASE=false
+          else
+            echo "Error: Unsupported tag format for release classification: $TAG_NAME"
+            exit 1
+          fi
+
+          gh release create "$TAG_NAME" \
+            --title "Rho Mobile $TAG_NAME" \
+            --notes "See CHANGELOG for details" \
+            --draft=false \
+            --prerelease=$PRERELEASE
+
+      - name: Upload Release Assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG_NAME" \
+            mobile/rho-android/android/app/build/outputs/bundle/release/app-release.aab \
+            mobile/rho-android/android/app/build/outputs/bundle/release/app-release.aab.sha256 \
+            mobile/rho-android/android/app/build/outputs/apk/release/app-release.apk \
+            mobile/rho-android/android/app/build/outputs/apk/release/app-release.apk.sha256 \
+            --clobber
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -123,4 +191,6 @@ jobs:
           path: |
             mobile/rho-android/android/app/build/outputs/bundle/release/app-release.aab
             mobile/rho-android/android/app/build/outputs/bundle/release/app-release.aab.sha256
+            mobile/rho-android/android/app/build/outputs/apk/release/app-release.apk
+            mobile/rho-android/android/app/build/outputs/apk/release/app-release.apk.sha256
           retention-days: 7
