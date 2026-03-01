@@ -3,6 +3,12 @@ import * as modelThinking from "./model-thinking-and-toast.js";
 import * as renderingUsage from "./rendering-and-usage.js";
 import * as toolSemantics from "./tool-semantics.js";
 
+// biome-ignore lint: ANSI escape code pattern is intentionally complex
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?(?:\x07|\x1b\\)/g;
+function stripAnsi(text) {
+	return typeof text === "string" ? text.replace(ANSI_RE, "") : text;
+}
+
 const {
 	slashContract,
 	toFiniteNumber,
@@ -299,7 +305,7 @@ export const rhoChatModelAndExtensionMethods = {
 		// Fire-and-forget extension UI methods (no response expected)
 		if (method === "notify") {
 			this.showToast(
-				request.message ?? request.text ?? "",
+				stripAnsi(request.message ?? request.text ?? ""),
 				request.notifyType ?? request.level ?? "info",
 				request.duration,
 			);
@@ -307,7 +313,9 @@ export const rhoChatModelAndExtensionMethods = {
 		}
 
 		if (method === "setStatus") {
-			this.extensionStatus = request.statusText ?? request.text ?? "";
+			this.extensionStatus = stripAnsi(
+				request.statusText ?? request.text ?? "",
+			);
 			this.updateFooter();
 			return;
 		}

@@ -1,6 +1,12 @@
 import * as primitives from "./constants-and-primitives.js";
 import * as modelThinking from "./model-thinking-and-toast.js";
 import * as renderingUsage from "./rendering-and-usage.js";
+
+// biome-ignore lint: ANSI escape code pattern is intentionally complex
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?(?:\x07|\x1b\\)/g;
+function stripAnsi(text) {
+	return typeof text === "string" ? text.replace(ANSI_RE, "") : text;
+}
 import {
 	recoverSessionByFile,
 	replayPendingRpcCommandsForSession,
@@ -454,7 +460,7 @@ export const rhoChatRpcEventMethods = {
 		// Fire-and-forget extension events
 		if (event.type === "notify" || event.type === "extension_notify") {
 			this.showToast(
-				event.message ?? event.text ?? "",
+				stripAnsi(event.message ?? event.text ?? ""),
 				event.level ?? "info",
 				event.duration,
 			);
@@ -462,7 +468,7 @@ export const rhoChatRpcEventMethods = {
 		}
 
 		if (event.type === "setStatus" || event.type === "extension_status") {
-			this.extensionStatus = event.text ?? event.message ?? "";
+			this.extensionStatus = stripAnsi(event.text ?? event.message ?? "");
 			this.updateFooter();
 			return;
 		}
