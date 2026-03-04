@@ -9,11 +9,34 @@ import {
 	rpcReliability,
 	rpcSessionSubscribers,
 } from "./server-core.ts";
+import { getRhoHome } from "./config.ts";
+
+// --- User CSS ---
+
+const USER_CSS_PATH = path.join(getRhoHome(), "user.css");
+const USER_CSS_LINK = '<link rel="stylesheet" href="/user.css">';
+
+app.get("/user.css", async (c) => {
+	try {
+		const css = await readFile(USER_CSS_PATH, "utf-8");
+		c.header("Content-Type", "text/css");
+		c.header("Cache-Control", "no-cache");
+		return c.body(css);
+	} catch {
+		return c.body("", 404);
+	}
+});
 
 // --- Static files ---
 
 app.get("/", async (c) => {
-	const html = await readFile(path.join(publicDir, "index.html"), "utf-8");
+	let html = await readFile(path.join(publicDir, "index.html"), "utf-8");
+	try {
+		await readFile(USER_CSS_PATH, "utf-8");
+		html = html.replace("</head>", `${USER_CSS_LINK}\n</head>`);
+	} catch {
+		// No user.css — serve unmodified
+	}
 	return c.html(html);
 });
 
