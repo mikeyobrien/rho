@@ -758,5 +758,70 @@ console.log(
 	);
 }
 
+console.log(
+	"\n-- stale OPEN socket forces reconnect before sending command --",
+);
+{
+	const chat = await loadChatVm();
+	chat.activeSessionId = "sess-stale";
+	chat.activeRpcSessionId = "rpc-stale";
+	chat.activeRpcSessionFile = "/tmp/sess-stale.jsonl";
+
+	chat.connectWebSocket();
+	const ws1 = MockWebSocket.instances[0];
+	if (!ws1) {
+		throw new Error("expected websocket instance");
+	}
+	ws1.open();
+	chat.wsLastPongAt = Date.now() - 120_000;
+
+	const sent = chat.sendWs({
+		type: "rpc_command",
+		sessionId: "rpc-stale",
+		command: { type: "prompt", message: "stale-send" },
+	});
+	assertEq(sent, true, "stale socket path still accepts outbound command");
+
+	const ws2 = MockWebSocket.instances[1];
+	assert(Boolean(ws2), "stale socket triggers an immediate reconnect");
+	assertEq(
+		ws1.readyState,
+		MockWebSocket.CLOSED,
+		"stale websocket is closed before retrying command send",
+	);
+
+	ws2?.open();
+	const replayed = ws2?.jsonSent().find((m) => {
+		const command = asRecord(m.command);
+		return (
+			m.type === "rpc_command" &&
+			m.sessionId === "rpc-stale" &&
+			command.type === "prompt" &&
+			command.message === "stale-send"
+		);
+	});
+	assert(
+		Boolean(replayed),
+		"pending command is sent after stale reconnect opens",
+	);
+}
+
+console.log("\n-- rpc_pong refreshes websocket liveness timestamp --");
+{
+	const chat = await loadChatVm();
+	chat.connectWebSocket();
+	const ws = MockWebSocket.instances[0];
+	if (!ws) {
+		throw new Error("expected websocket instance");
+	}
+	ws.open();
+	const before = Number(chat.wsLastPongAt ?? 0);
+	ws.message({ type: "rpc_pong", ts: Date.now() });
+	assert(
+		Number(chat.wsLastPongAt ?? 0) >= before,
+		"rpc_pong updates wsLastPongAt for stale-socket detection",
+	);
+}
+
 console.log(`\n=== Results: ${PASS} passed, ${FAIL} failed ===\n`);
 process.exit(FAIL > 0 ? 1 : 0);

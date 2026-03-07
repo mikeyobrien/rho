@@ -2,6 +2,12 @@
 
 This document describes the process and CI pipeline for building and releasing the Rho Capacitor Android app.
 
+Tag-triggered releases publish four assets to the GitHub Release page:
+- `rho-<tag>.apk`
+- `rho-<tag>.apk.sha256`
+- `rho-<tag>.aab`
+- `rho-<tag>.aab.sha256`
+
 ## CI Pipeline Overview
 
 The Android release pipeline is automated via GitHub Actions (`.github/workflows/android-release.yml`).
@@ -12,13 +18,14 @@ It is triggered on:
 ### Release Gates
 The pipeline enforces the following gates before building the artifact:
 1. **Versioning Checks**: Enforced via tag requirements and package alignment.
-2. **Artifact Verification**: Validates the output `app-release.aab` exists and computes its SHA256 checksum.
+2. **Artifact Verification**: Validates both `app-release.aab` and `app-release.apk`, then computes SHA256 checksums for each.
 3. **Parity Gate**: Executes `npm run -s parity:gate` to ensure cross-platform compatibility metrics are met.
-4. **Policy Checklist Tasks**: (Implemented as part of PR reviews and pre-tag audits).
+4. **Policy Checklist Tasks**: Requires the dry-run checklist to remain in this runbook and manual acknowledgement for workflow dispatches.
+5. **Release Asset Publishing**: Publishes the signed APK/AAB plus checksum files to the GitHub Release page for tag builds.
 
 ## Required GitHub Secrets
 
-To successfully build a signed AAB for Google Play Store distribution, the repository must have the following secrets configured in GitHub Actions:
+To successfully build signed Android release artifacts, the repository must have the following secrets configured in GitHub Actions:
 
 - `ANDROID_KEYSTORE_BASE64`: The base64-encoded string of the release keystore `.jks` file.
   *(Generate via: `base64 -i my-release-key.jks > encoded.txt`)*
@@ -39,7 +46,9 @@ Before creating a release tag or deploying to production, verify the following:
   ```bash
   npm run -s mobile:build
   npm run -s mobile:sync
-  cd mobile/rho-android/android && ./gradlew bundleRelease
+  cd mobile/rho-android/android && ./gradlew bundleRelease assembleRelease
   ```
 - [ ] Trigger a manual workflow run on GitHub to verify the CI process completes without errors.
-- [ ] Download the generated `app-release.aab` from the GitHub Actions artifact and test it on a device using bundletool.
+- [ ] Confirm the tag build created a GitHub Release and uploaded all four assets (APK, AAB, and both `.sha256` files).
+- [ ] Download the generated `rho-<tag>.apk` and verify install/smoke test on a device or emulator.
+- [ ] Optionally validate the AAB with bundletool if Play Store distribution is in scope.

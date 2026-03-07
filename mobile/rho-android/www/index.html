@@ -95,6 +95,25 @@
     <iframe id="web-frame" title="Rho web container"></iframe>
   </div>
 
+  <script>
+    // Seed default profile if none exists (for easier local testing)
+    (function() {
+      try {
+        const existing = localStorage.getItem('rho_profiles');
+        if (!existing || JSON.parse(existing).length === 0) {
+          const defaultProfile = [{
+            id: 'local-dev',
+            name: 'Local Dev',
+            scheme: 'http',
+            host: 'localhost',
+            port: 3141
+          }];
+          localStorage.setItem('rho_profiles', JSON.stringify(defaultProfile));
+          localStorage.setItem('rho_last_used_profile', 'local-dev');
+        }
+      } catch(e) {}
+    })();
+  </script>
   <script type="module" src="js/index.js"></script>
 </body>
 </html>

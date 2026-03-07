@@ -46,6 +46,30 @@ export const rhoChatRpcEventMethods = {
 			return true;
 		}
 
+		if (this.ws.readyState === WebSocket.OPEN) {
+			const stale =
+				typeof this.isWsConnectionStale === "function" &&
+				this.isWsConnectionStale();
+			if (stale) {
+				this.trackPendingRpcCommand(preparedPayload, options);
+				this.showReconnectBanner = true;
+				this.reconnectBannerMessage = "Connection stale. Reconnecting…";
+				this.connectWebSocket(true);
+				if (this.ws?.readyState === WebSocket.CONNECTING) {
+					this.ws.addEventListener(
+						"open",
+						() => {
+							this.ws?.send(JSON.stringify(preparedPayload));
+						},
+						{ once: true },
+					);
+					return true;
+				}
+				this.error = "WebSocket not connected";
+				return false;
+			}
+		}
+
 		if (this.ws.readyState !== WebSocket.OPEN) {
 			this.error = "WebSocket not connected";
 			return false;
@@ -85,11 +109,10 @@ export const rhoChatRpcEventMethods = {
 			return;
 		}
 
-		if (!payload || typeof payload !== "object") {
-			return;
-		}
+		if (!payload || typeof payload !== "object") return;
 
 		if (payload.type === "rpc_pong") {
+			this.wsLastPongAt = Date.now();
 			return;
 		}
 
@@ -261,9 +284,6 @@ export const rhoChatRpcEventMethods = {
 						event.error ?? `RPC command failed: ${event.command ?? "unknown"}`;
 				}
 			}
-			// Clear sending flag once RPC acknowledges the prompt.
-			// For normal prompts, isStreaming (agent_start/agent_end) gates the UI.
-			// For slash commands that bypass the LLM, this prevents a permanent lock.
 			if (event.command === "prompt") {
 				this.isSendingPrompt = false;
 				this.pendingSlashClassification = null;
@@ -271,7 +291,6 @@ export const rhoChatRpcEventMethods = {
 			if (event.command === "switch_session" && event.success) {
 				this.requestSessionStats();
 			}
-			// Handle get_state response
 			if (event.command === "get_state") {
 				if (event.success) {
 					const state = event.state ?? event.data ?? {};
@@ -292,18 +311,15 @@ export const rhoChatRpcEventMethods = {
 					}
 				}
 			}
-			// Handle get_available_models response
 			if (event.command === "get_available_models" && event.success) {
 				const models = event.models ?? event.data?.models ?? [];
 				this.availableModels = models;
 				this.syncThinkingLevels();
 			}
-			// Handle get_session_stats response
 			if (event.command === "get_session_stats" && event.success) {
 				const stats = event.stats ?? event.data ?? {};
 				this.handleSessionStatsUpdate(stats);
 			}
-			// Handle get_commands response
 			if (event.command === "get_commands") {
 				this.slashCommandsLoading = false;
 				if (event.success) {
@@ -445,13 +461,11 @@ export const rhoChatRpcEventMethods = {
 			return;
 		}
 
-		// Extension UI events
 		if (event.type === "extension_ui_request") {
 			this.handleExtensionUIRequest(event);
 			return;
 		}
 
-		// Fire-and-forget extension events
 		if (event.type === "notify" || event.type === "extension_notify") {
 			this.showToast(
 				event.message ?? event.text ?? "",

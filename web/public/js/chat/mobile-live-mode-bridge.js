@@ -1,5 +1,6 @@
 const CONTEXT_POLL_INTERVAL_MS = 2000;
 const LEASE_TTL_MS = 3 * 60_000;
+const UNKNOWN_RUNTIME_CLEAR_GRACE_MS = 30_000;
 
 function normalizeRpcSessionId(value) {
 	if (typeof value !== "string") {
@@ -13,7 +14,9 @@ function isMobileShellRoute() {
 		return false;
 	}
 	try {
-		return new URLSearchParams(window.location.search).get("mobile_shell") === "1";
+		return (
+			new URLSearchParams(window.location.search).get("mobile_shell") === "1"
+		);
 	} catch {
 		return false;
 	}
@@ -56,9 +59,22 @@ function resolveChatViewModel() {
 	return null;
 }
 
+function stateLooksStreaming(state) {
+	if (!state || typeof state !== "object") {
+		return false;
+	}
+	return Boolean(
+		state.isStreaming ||
+			state.isSendingPrompt ||
+			state.recoveringRpcSession ||
+			state.status === "streaming" ||
+			state.status === "starting",
+	);
+}
+
 function resolveActiveRuntime(vm) {
 	if (!vm || typeof vm !== "object") {
-		return { rpcSessionId: "", streaming: false };
+		return { ready: false, rpcSessionId: "", streaming: false };
 	}
 
 	const rpcSessionId = normalizeRpcSessionId(vm.activeRpcSessionId);
@@ -70,59 +86,102 @@ function resolveActiveRuntime(vm) {
 	);
 
 	if (rpcSessionId) {
-		return { rpcSessionId, streaming };
+		return { ready: true, rpcSessionId, streaming };
 	}
 
-	if (!(vm.sessionStateById instanceof Map)) {
-		return { rpcSessionId: "", streaming: false };
+	const map = vm.sessionStateById instanceof Map ? vm.sessionStateById : null;
+	const focused =
+		typeof vm.focusedSessionId === "string" ? vm.focusedSessionId.trim() : "";
+	const bootstrapping = Boolean(
+		vm.isLoadingSessions || vm.isRestoringPersistedSessionState,
+	);
+
+	if (!map) {
+		return {
+			ready: !bootstrapping && Boolean(focused),
+			rpcSessionId: "",
+			streaming: false,
+		};
 	}
 
-	const focused = typeof vm.focusedSessionId === "string" ? vm.focusedSessionId.trim() : "";
-	if (!focused) {
-		return { rpcSessionId: "", streaming: false };
+	if (focused) {
+		const state = map.get(focused);
+		return {
+			ready: !bootstrapping,
+			rpcSessionId: normalizeRpcSessionId(state?.rpcSessionId),
+			streaming: stateLooksStreaming(state),
+		};
 	}
 
-	const state = vm.sessionStateById.get(focused);
+	const hasAnySessionState = map.size > 0;
 	return {
-		rpcSessionId: normalizeRpcSessionId(state?.rpcSessionId),
-		streaming: Boolean(
-			state?.isStreaming ||
-				state?.isSendingPrompt ||
-				state?.recoveringRpcSession ||
-				state?.status === "streaming" ||
-				state?.status === "starting",
-		),
+		ready: !bootstrapping && hasAnySessionState,
+		rpcSessionId: "",
+		streaming: false,
 	};
 }
 
 async function syncLiveContext(state) {
-	const vm = resolveChatViewModel();
-	const runtime = resolveActiveRuntime(vm);
-	const nextKey = runtime.streaming && runtime.rpcSessionId ? runtime.rpcSessionId : "";
-
-	if (nextKey === state.lastKey) {
+	if (state.syncing) {
 		return;
 	}
-
-	state.lastKey = nextKey;
-
-	if (!nextKey) {
-		try {
-			await state.plugin.clearLiveContext();
-		} catch (error) {
-			console.debug("[mobile-live-mode] clearLiveContext failed", error);
-		}
-		return;
-	}
+	state.syncing = true;
 
 	try {
-		await state.plugin.setLiveContext({
-			baseUrl: window.location.origin,
-			rpcSessionId: nextKey,
-			ttlMs: LEASE_TTL_MS,
-		});
-	} catch (error) {
-		console.debug("[mobile-live-mode] setLiveContext failed", error);
+		if (!state.plugin) {
+			state.plugin = getLiveModePlugin();
+			if (!state.plugin) {
+				return;
+			}
+		}
+
+		const vm = resolveChatViewModel();
+		const runtime = resolveActiveRuntime(vm);
+		if (!runtime.ready) {
+			const elapsedMs = Date.now() - state.startedAt;
+			if (elapsedMs < UNKNOWN_RUNTIME_CLEAR_GRACE_MS) {
+				return;
+			}
+			if (state.lastAppliedKey === "") {
+				return;
+			}
+			try {
+				await state.plugin.clearLiveContext();
+				state.lastAppliedKey = "";
+			} catch (error) {
+				console.debug("[mobile-live-mode] clearLiveContext failed", error);
+			}
+			return;
+		}
+
+		const nextKey =
+			runtime.streaming && runtime.rpcSessionId ? runtime.rpcSessionId : "";
+		if (nextKey === state.lastAppliedKey) {
+			return;
+		}
+
+		if (!nextKey) {
+			try {
+				await state.plugin.clearLiveContext();
+				state.lastAppliedKey = "";
+			} catch (error) {
+				console.debug("[mobile-live-mode] clearLiveContext failed", error);
+			}
+			return;
+		}
+
+		try {
+			await state.plugin.setLiveContext({
+				baseUrl: window.location.origin,
+				rpcSessionId: nextKey,
+				ttlMs: LEASE_TTL_MS,
+			});
+			state.lastAppliedKey = nextKey;
+		} catch (error) {
+			console.debug("[mobile-live-mode] setLiveContext failed", error);
+		}
+	} finally {
+		state.syncing = false;
 	}
 }
 
@@ -131,15 +190,12 @@ export function initMobileLiveModeBridge() {
 		return;
 	}
 
-	const plugin = getLiveModePlugin();
-	if (!plugin) {
-		return;
-	}
-
 	const state = {
-		plugin,
-		lastKey: null,
+		plugin: getLiveModePlugin(),
+		lastAppliedKey: null,
 		timer: null,
+		syncing: false,
+		startedAt: Date.now(),
 	};
 
 	const tick = () => {
