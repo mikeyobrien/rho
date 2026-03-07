@@ -93,10 +93,23 @@ Apply the importance lens:
 - 🟡 Merge or tighten wording
 - 🟢 Remove if stale/noisy/redundant
 
+**Apply the 30-day test to every entry:** "Would this change a decision I make 30 days from now?" If no, it's noise — remove it.
+
+**Auto-remove categories (these should never have been stored):**
+- Version numbers or update confirmations ("updated X to v1.2.3")
+- Heartbeat or check-in status reports ("Heartbeat Feb 19: all clear")
+- Benchmark scores or run results ("scored 42/89 = 47.2%")
+- Bug sweep summaries without a generalizable root cause ("reviewed X, no bugs found")
+- UI/feature implementation details ("button text changed to X", "layout uses 3 columns")
+- Task completion status ("task X is complete", "run Y failed")
+- Project-specific transient state that won't inform future decisions
+- Duplicates — keep the best-worded version, remove the rest
+
 **Constraints:**
 - You MUST NOT remove preferences unless contradicted/superseded.
 - You MUST NOT invent new facts while merging.
 - When uncertain, keep.
+- You SHOULD be aggressive about pruning — a smaller, high-signal brain is better than a large, noisy one.
 
 ### 6) Vault relocation for reference-heavy entries
 
