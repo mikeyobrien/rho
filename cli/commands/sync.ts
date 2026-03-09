@@ -21,6 +21,7 @@ import {
 } from "../config.ts";
 import { planSync, collectExternalModulePackages, type SyncLock, findRhoEntryIndex } from "../sync-core.ts";
 import { PID_FILE } from "../daemon-core.ts";
+import { migrateLegacyMemoryConfigToInitToml } from "../../extensions/lib/memory-settings.ts";
 
 const HOME = process.env.HOME || os.homedir();
 const RHO_DIR = path.join(HOME, ".rho");
@@ -57,6 +58,13 @@ Options:
   if (!fs.existsSync(INIT_TOML)) {
     console.error(`Error: ${INIT_TOML} not found.\nRun \`rho init\` first.`);
     process.exit(1);
+  }
+
+  const migratedMemorySettings = migrateLegacyMemoryConfigToInitToml(INIT_TOML);
+  if (migratedMemorySettings.changed && verbose) {
+    console.log(
+      `  Migrated legacy memory settings to init.toml: ${migratedMemorySettings.migratedKeys.join(", ")}`,
+    );
   }
 
   let config;

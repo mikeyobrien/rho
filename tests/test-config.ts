@@ -246,6 +246,33 @@ nested_num = 42
 	assertEq(cfg.settings.heartbeat.nested_num, 42, "settings number value");
 }
 
+console.log("\n-- parseInitToml: memory auto_memory_model preserved --");
+{
+	const toml = `
+[agent]
+name = "test"
+
+[modules.core]
+heartbeat = true
+memory = true
+
+[settings.memory]
+auto_memory_model = "openai/gpt-5-mini"
+auto_memory = true
+`;
+	const cfg = parseInitToml(toml);
+	assertEq(
+		cfg.settings.memory.auto_memory_model,
+		"openai/gpt-5-mini",
+		"memory auto_memory_model preserved",
+	);
+	assertEq(
+		cfg.settings.memory.auto_memory,
+		true,
+		"memory auto_memory preserved",
+	);
+}
+
 // ================================================================
 // parsePackagesToml
 // ================================================================

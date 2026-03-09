@@ -410,42 +410,47 @@ Rho automatically extracts memories from conversations. After each agent turn (a
 How it works:
 
 1. Fires on `agent_end` (every turn) and `session_before_compact` (context window getting full)
-2. The conversation is sent to the smallest available model from the same provider
-3. The model extracts up to 3 items per pass, each under 200 characters
-4. Items go through dedup + limits — duplicates, empty items, over-length items, and over-limit items are skipped with reasons
-5. Existing memories are sent as context so the model avoids restating known facts
-6. A post-turn receipt appears in TUI notifications with a preview of saved items (`+N saved, M skipped: "..." | "..."`)
-7. Every extraction run is appended to `~/.rho/brain/auto-memory-log.jsonl` with run metadata, decisions, and skip reasons
-8. Saved auto-memory entries carry provenance fields (`source`, `sourceSessionId`, `sourceLeafId`, `sourceRunId`, `sourceTrigger`) for traceability
+2. By default, the conversation is sent to the smallest available model from the same provider as the active session model
+3. If `[settings.memory].auto_memory_model` is set in `~/.rho/init.toml`, that explicit model is used instead
+4. The model extracts up to 3 items per pass, each under 200 characters
+5. Items go through dedup + limits — duplicates, empty items, over-length items, and over-limit items are skipped with reasons
+6. Existing memories are sent as context so the model avoids restating known facts
+7. A post-turn receipt appears in TUI notifications with a preview of saved items (`+N saved, M skipped: "..." | "..."`)
+8. Every extraction run is appended to `~/.rho/brain/auto-memory-log.jsonl` with run metadata, decisions, skip reasons, and resolved model metadata
+9. Saved auto-memory entries carry provenance fields (`source`, `sourceSessionId`, `sourceLeafId`, `sourceRunId`, `sourceTrigger`) for traceability
 
 ### Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `autoMemory` | `true` | Enable/disable. Also: `RHO_AUTO_MEMORY=0` env var |
+| `auto_memory` | `true` | Enable/disable. Also: `RHO_AUTO_MEMORY=0` env var |
+| `auto_memory_model` | unset (`auto` behavior) | Set in `~/.rho/init.toml` under `[settings.memory]`. Leave unset or set to `"auto"` to use default same-provider cheapest-model behavior, or set `"provider/model-id"` to pin a specific model. |
 | — | disabled | Auto-disabled when `RHO_SUBAGENT=1` (avoids noisy extraction from automated runs) |
 
 ---
 
 ## Configuration
 
-All brain-related settings live in `~/.rho/config.json`:
+Memory settings live in `~/.rho/init.toml` under `[settings.memory]`.
 
-```json
-{
-  "autoMemory": true,
-  "decayAfterDays": 90,
-  "decayMinScore": 3,
-  "promptBudget": 2000
-}
+```toml
+[settings.memory]
+auto_memory = true
+auto_memory_model = "auto"
+prompt_budget = 2000
+decay_after_days = 90
+decay_min_score = 3
 ```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `autoMemory` | boolean | `true` | Enable auto-memory extraction (also accepts `auto_memory`) |
-| `decayAfterDays` | number | `90` | Days without update before a learning is eligible for decay |
-| `decayMinScore` | number | `3` | Score threshold — learnings at or above this are exempt from decay |
-| `promptBudget` | number | `2000` | Total token budget for the injected brain prompt |
+| `auto_memory` | boolean | `true` | Enable auto-memory extraction. `RHO_AUTO_MEMORY` env var still overrides this at runtime. |
+| `auto_memory_model` | string | unset (`auto` behavior) | Leave unset or set to `"auto"` to use same-provider cheapest-model behavior, or set `"provider/model-id"` to pin a specific model. |
+| `prompt_budget` | number | `2000` | Total token budget for the injected brain prompt. |
+| `decay_after_days` | number | `90` | Days without update before a learning is eligible for decay. |
+| `decay_min_score` | number | `3` | Score threshold — learnings at or above this are exempt from decay. |
+
+Legacy installs with old memory values in `~/.rho/config.json` are migrated into missing `[settings.memory]` keys when rho syncs or starts up. Existing init values win.
 
 ---
 
