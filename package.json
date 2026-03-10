@@ -1,6 +1,6 @@
 {
 	"name": "@rhobot-dev/rho",
-	"version": "0.1.9",
+	"version": "0.1.10",
 	"type": "module",
 	"description": "AI agent with persistent memory, heartbeat check-ins, and a knowledge vault",
 	"bin": {
