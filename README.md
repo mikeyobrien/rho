@@ -266,6 +266,7 @@ Inside a session:
 - [Demo walkthrough](docs/demo.md)
 - [Telegram setup + troubleshooting](docs/telegram.md)
 - [iPhone/iPad setup](docs/iphone-setup.md)
+- [Android mobile app over Tailscale](docs/mobile-tailscale.md)
 - [VPS setup guide](docs/vps-setup.md)
 - [Skills providers (vercel + clawhub)](docs/skills.md)
 - [Brain bootstrapping guide](docs/bootstrapping-brain.md)
