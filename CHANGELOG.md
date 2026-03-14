@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-03-14
+
+### Added
+
+- Added the rho-android wrapper app with a native Live Mode foreground service and release workflows/docs for mobile validation.
+
+### Changed
+
+- Unified memory settings under `init.toml` and wired rho-web auth/live-mode integration for the mobile client.
+
+### Fixed
+
+- npm packaging now excludes local `.worktrees/` directories so `npm pack` and releases do not scoop up sibling worktree contents.
+- rho-web runtime now avoids TypeScript parameter properties in Node strip-types paths.
+
 ## [0.1.10] - 2026-03-10
 
 ### Fixed
@@ -45,7 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Review panel no longer keeps stale submitted inbox items after status transitions.
 - Chat composer action overlap on narrow widths (Abort vs Attach/Queue controls).
 
-[Unreleased]: https://github.com/mikeyobrien/rho/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/mikeyobrien/rho/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/mikeyobrien/rho/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/mikeyobrien/rho/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/mikeyobrien/rho/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/mikeyobrien/rho/compare/v0.1.7...v0.1.8
