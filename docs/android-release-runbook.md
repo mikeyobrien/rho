@@ -2,6 +2,8 @@
 
 This document describes the process and CI pipeline for building and releasing the Rho Capacitor Android app.
 
+For manual store submission work after CI artifacts exist, see `docs/android-store-submission.md`.
+
 Tag-triggered releases publish four assets to the GitHub Release page:
 - `rho-<tag>.apk`
 - `rho-<tag>.apk.sha256`
@@ -17,7 +19,7 @@ It is triggered on:
 
 ### Release Gates
 The pipeline enforces the following gates before building the artifact:
-1. **Versioning Checks**: Enforced via tag requirements and package alignment.
+1. **Versioning Checks**: Enforced via tag requirements, root/mobile package alignment, and Android semver-derived versioning.
 2. **Artifact Verification**: Validates both `app-release.aab` and `app-release.apk`, then computes SHA256 checksums for each.
 3. **Parity Gate**: Executes `npm run -s parity:gate` to ensure cross-platform compatibility metrics are met.
 4. **Policy Checklist Tasks**: Requires the dry-run checklist to remain in this runbook and manual acknowledgement for workflow dispatches.
@@ -41,7 +43,8 @@ Before creating a release tag or deploying to production, verify the following:
 
 - [ ] Ensure all tests pass (`npm test`).
 - [ ] Ensure the parity gate passes locally (`npm run parity:gate`).
-- [ ] Verify `package.json` and Android app versions (`versionCode`, `versionName`) match the intended release.
+- [ ] Verify root `package.json`, `mobile/rho-android/package.json`, and Android app versions (`versionCode`, `versionName`) match the intended release.
+- [ ] Verify Android compile/target SDK remain current for Play submission (currently API 35 for new phone/tablet apps).
 - [ ] Run a local build to ensure compiling works:
   ```bash
   npm run -s mobile:build

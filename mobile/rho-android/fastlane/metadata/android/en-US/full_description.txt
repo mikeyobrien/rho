@@ -1,0 +1,12 @@
+rho is a persistent AI operator for your own machines and accounts.
+
+The Android app is a native wrapper around rho-web that lets you connect to your self-hosted rho server, manage sessions, and keep long-running responses alive with an explicit Live Mode foreground service.
+
+Highlights:
+- persistent memory and task management
+- web workspace optimized for mobile control
+- optional Live Mode foreground service for lock-screen continuity
+- local-first setup with your own provider credentials
+- no Firebase dependency required for baseline background reliability
+
+This app is intended for people running rho themselves. You can connect to localhost during development, to LAN/Tailscale hosts you control, or to an HTTPS-accessible rho deployment.

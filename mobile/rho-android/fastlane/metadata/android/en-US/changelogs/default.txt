@@ -1,0 +1,1 @@
+Initial store-ready rho Android wrapper release with unified versioning, API 35 targeting, and Live Mode policy/docs for distribution.

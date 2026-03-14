@@ -1,4 +1,35 @@
+import groovy.json.JsonSlurper
+
 apply plugin: 'com.android.application'
+
+def repoPackageJson = new JsonSlurper().parse(file('../../../../package.json'))
+def mobilePackageJson = new JsonSlurper().parse(file('../../package.json'))
+def appVersionName = (repoPackageJson.version ?: '0.0.0').toString()
+def appVersionCode = semverToVersionCode(appVersionName)
+
+def mobileVersion = (mobilePackageJson.version ?: '').toString()
+if (mobileVersion != appVersionName) {
+    throw new GradleException("mobile/rho-android/package.json version ${mobileVersion} must match root package.json version ${appVersionName}")
+}
+
+int semverToVersionCode(String versionName) {
+    def matcher = (versionName =~ /^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/)
+    if (!matcher.matches()) {
+        throw new GradleException("Unsupported version format for Android release: ${versionName}. Expected x.y.z or x.y.z-rc.n")
+    }
+
+    int major = matcher[0][1].toInteger()
+    int minor = matcher[0][2].toInteger()
+    int patch = matcher[0][3].toInteger()
+    String rcRaw = matcher[0][4]
+    int stageCode = rcRaw != null ? rcRaw.toInteger() : 99
+
+    if (stageCode > 99) {
+        throw new GradleException("RC number must be <= 99 for Android versionCode derivation: ${versionName}")
+    }
+
+    return (major * 1_000_000) + (minor * 10_000) + (patch * 100) + stageCode
+}
 
 android {
     namespace "dev.rhobot.rhoandroid"
@@ -7,8 +38,8 @@ android {
         applicationId "dev.rhobot.rhoandroid"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

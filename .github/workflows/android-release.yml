@@ -58,16 +58,23 @@ jobs:
 
       - name: Version Gate Check
         run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          MOBILE_PKG_VERSION=$(node -p "require('./mobile/rho-android/package.json').version")
+
+          if [ "$MOBILE_PKG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Error: mobile/rho-android/package.json version $MOBILE_PKG_VERSION does not match root package.json version $PKG_VERSION"
+            exit 1
+          fi
+
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_VERSION=${GITHUB_REF#refs/tags/v}
-            PKG_VERSION=$(node -p "require('./package.json').version")
             if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
               echo "Error: Tag version v$TAG_VERSION does not match package.json version $PKG_VERSION"
               exit 1
             fi
-            echo "Version match verified: $TAG_VERSION"
+            echo "Version match verified across tag + package manifests: $TAG_VERSION"
           else
-            echo "Manual run, skipping tag version gate."
+            echo "Manual run, package version match verified."
           fi
 
       - name: Policy Checklist Gate

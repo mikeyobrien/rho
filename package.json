@@ -56,6 +56,7 @@
 		"mobile:install": "cd mobile/rho-android && npm install",
 		"mobile:build": "cd mobile/rho-android && npm run build",
 		"mobile:sync": "cd mobile/rho-android && npm run sync",
+		"mobile:test": "cd mobile/rho-android && npm test",
 		"mobile:lint": "cd mobile/rho-android && npm run lint",
 		"mobile:typecheck": "cd mobile/rho-android && npm run typecheck",
 		"parity:smoke": "npx -y tsx tests/test-mobile-parity-smoke.ts",
