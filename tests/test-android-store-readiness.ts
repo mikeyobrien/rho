@@ -59,6 +59,22 @@ assert(
 	"app build.gradle uses computed versionCode",
 );
 assert(
+	/rhoApplicationIdSuffix/.test(appBuildGradle),
+	"app build.gradle supports applicationId suffix override",
+);
+assert(
+	/rhoAppNameSuffix/.test(appBuildGradle),
+	"app build.gradle supports app name suffix override",
+);
+assert(
+	/rhoUseDebugSigningForRelease/.test(appBuildGradle),
+	"app build.gradle supports local debug signing for release builds",
+);
+assert(
+	/resValue\s+"string",\s+"app_name"/.test(appBuildGradle),
+	"app build.gradle can override app display name",
+);
+assert(
 	mobilePkg.version === rootPkg.version,
 	"mobile package version matches root package version",
 );

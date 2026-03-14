@@ -6,6 +6,12 @@ def repoPackageJson = new JsonSlurper().parse(file('../../../../package.json'))
 def mobilePackageJson = new JsonSlurper().parse(file('../../package.json'))
 def appVersionName = (repoPackageJson.version ?: '0.0.0').toString()
 def appVersionCode = semverToVersionCode(appVersionName)
+def baseApplicationId = 'dev.rhobot.rhoandroid'
+def applicationIdSuffixValue = (project.findProperty('rhoApplicationIdSuffix') ?: '').toString()
+def appNameSuffixValue = (project.findProperty('rhoAppNameSuffix') ?: '').toString()
+def useDebugSigningForRelease = ((project.findProperty('rhoUseDebugSigningForRelease') ?: 'false').toString()).toBoolean()
+def resolvedApplicationId = "${baseApplicationId}${applicationIdSuffixValue}"
+def resolvedAppName = "rho${appNameSuffixValue}"
 
 def mobileVersion = (mobilePackageJson.version ?: '').toString()
 if (mobileVersion != appVersionName) {
@@ -35,12 +41,16 @@ android {
     namespace "dev.rhobot.rhoandroid"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "dev.rhobot.rhoandroid"
+        applicationId resolvedApplicationId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode
         versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        resValue "string", "app_name", "\"${resolvedAppName}\""
+        resValue "string", "title_activity_main", "\"${resolvedAppName}\""
+        resValue "string", "package_name", "\"${resolvedApplicationId}\""
+        resValue "string", "custom_url_scheme", "\"${resolvedApplicationId}\""
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -63,6 +73,8 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             if (System.getenv("KEYSTORE_FILE")) {
                 signingConfig signingConfigs.release
+            } else if (useDebugSigningForRelease) {
+                signingConfig signingConfigs.debug
             }
         }
     }
