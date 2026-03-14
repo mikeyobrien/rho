@@ -20,13 +20,19 @@ function normalizeLeaseTtlMs(value: unknown): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) {
 		return DEFAULT_LEASE_TTL_MS;
 	}
-	return Math.max(MIN_LEASE_TTL_MS, Math.min(MAX_LEASE_TTL_MS, Math.floor(value)));
+	return Math.max(
+		MIN_LEASE_TTL_MS,
+		Math.min(MAX_LEASE_TTL_MS, Math.floor(value)),
+	);
 }
 
 export class RpcLiveModeLeaseRegistry {
 	private readonly leases = new Map<string, RpcLiveModeLease>();
+	private readonly now: () => number;
 
-	constructor(private readonly now: () => number = () => Date.now()) {}
+	constructor(now: () => number = () => Date.now()) {
+		this.now = now;
+	}
 
 	upsert(rpcSessionId: unknown, ttlMs?: unknown): RpcLiveModeLease | null {
 		const normalizedId = normalizeRpcSessionId(rpcSessionId);
@@ -84,7 +90,9 @@ export class RpcLiveModeLeaseRegistry {
 
 	snapshot(): RpcLiveModeLease[] {
 		this.sweepExpired();
-		return [...this.leases.values()].sort((a, b) => a.rpcSessionId.localeCompare(b.rpcSessionId));
+		return [...this.leases.values()].sort((a, b) =>
+			a.rpcSessionId.localeCompare(b.rpcSessionId),
+		);
 	}
 
 	sweepExpired(): number {
