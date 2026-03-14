@@ -343,6 +343,7 @@ export const rhoChatRpcEventMethods = {
 		if (event.type === "agent_end") {
 			this.isStreaming = false;
 			this.isSendingPrompt = false;
+			this.streamMessageId = "";
 			if (this.streamDisconnectedDuringResponse && this.isWsConnected) {
 				this.streamDisconnectedDuringResponse = false;
 				this.showReconnectBanner = false;

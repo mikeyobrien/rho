@@ -1,3 +1,4 @@
+import { groupSessionMessagesIntoTurns } from "./assistant-turns.js";
 import * as primitives from "./constants-and-primitives.js";
 import * as modelThinking from "./model-thinking-and-toast.js";
 import * as renderingUsage from "./rendering-and-usage.js";
@@ -23,49 +24,15 @@ export const rhoChatSessionActionMethods = {
 		}
 		this.activeSession = session;
 
-		const rawMessages = session.messages ?? [];
-		const mergedMessages = [];
-		for (let i = 0; i < rawMessages.length; i++) {
-			const msg = rawMessages[i];
-			if (
-				msg.role === "toolResult" ||
-				msg.role === "tool_result" ||
-				msg.role === "tool"
-			) {
-				for (let j = mergedMessages.length - 1; j >= 0; j--) {
-					if (mergedMessages[j].role === "assistant") {
-						const content = mergedMessages[j].content;
-						if (Array.isArray(content)) {
-							const call = content.find(
-								(c) =>
-									(c.type === "toolCall" ||
-										c.type === "tool_call" ||
-										c.type === "tool_use") &&
-									!c._merged,
-							);
-							if (call) {
-								const resultText = Array.isArray(msg.content)
-									? msg.content.map((c) => c.text ?? c.output ?? "").join("\n")
-									: typeof msg.content === "string"
-										? msg.content
-										: "";
-								call.output = resultText;
-								call._merged = true;
-							}
-						}
-						break;
-					}
-				}
-				continue;
-			}
-			mergedMessages.push({ ...msg });
-		}
+		const groupedMessages = groupSessionMessagesIntoTurns(
+			session.messages ?? [],
+		);
 
-		this.syncSessionStatsFromSession(session, mergedMessages);
-		this.seedUsageAccumulator(mergedMessages);
+		this.syncSessionStatsFromSession(session, groupedMessages);
+		this.seedUsageAccumulator(groupedMessages);
 
 		const seenIds = new Set();
-		const allMessages = mergedMessages
+		const allMessages = groupedMessages
 			.map((msg) => normalizeMessage(msg, true))
 			.filter((msg) => {
 				if (!msg.parts || msg.parts.length === 0) {
