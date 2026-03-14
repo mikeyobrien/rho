@@ -78,6 +78,13 @@ require_mention_in_groups = true      # Ignore group chatter unless activated
 # [settings.brave-search]
 # api_key_env = "BRAVE_API_KEY"       # Environment variable for API key
 
+# [settings.memory]
+# prompt_budget = 2000                 # Max tokens for brain prompt in system prompt
+# decay_after_days = 90                # Days before unused learnings are decayed
+# decay_min_score = 3                  # Learnings with this score or higher are exempt from decay
+# auto_memory = true                   # Auto-extract learnings/preferences from conversations
+# auto_memory_model = "auto"          # "auto" or pin a model like "openai/gpt-5-mini"
+
 # ── Web UI ─────────────────────────────────────────────
 # Browser-based chat interface and state file editor.
 # Launch with: rho web

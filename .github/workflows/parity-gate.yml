@@ -1,0 +1,74 @@
+name: Mobile Parity Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "mobile/**"
+      - "package.json"
+      - "tests/test-mobile-parity-smoke.ts"
+      - "tests/test-web-mobile-auth.ts"
+      - "tests/test-web-mobile-auth-gate.ts"
+      - "tests/parity-checklist.md"
+      - ".github/workflows/parity-gate.yml"
+
+jobs:
+  parity-smoke:
+    name: Parity Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Run parity web tests
+        run: npm run -s parity:web
+
+  mobile-checks:
+    name: Mobile Typecheck + Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install mobile dependencies
+        run: npm run -s mobile:install
+
+      - name: Mobile typecheck
+        run: npm run -s mobile:typecheck
+
+      - name: Mobile lint
+        run: npm run -s mobile:lint
+
+  parity-gate:
+    name: Parity Gate (required)
+    needs: [parity-smoke, mobile-checks]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all parity jobs passed
+        run: |
+          if [ "${{ needs.parity-smoke.result }}" != "success" ]; then
+            echo "FAIL: parity-smoke job did not pass"
+            exit 1
+          fi
+          if [ "${{ needs.mobile-checks.result }}" != "success" ]; then
+            echo "FAIL: mobile-checks job did not pass"
+            exit 1
+          fi
+          echo "PASS: all parity gate checks green"

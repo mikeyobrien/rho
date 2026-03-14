@@ -1,6 +1,10 @@
 import * as primitives from "./constants-and-primitives.js";
 import * as modelThinking from "./model-thinking-and-toast.js";
 import * as renderingUsage from "./rendering-and-usage.js";
+import {
+	bumpPendingRpcQueuedAt,
+	hasStalePendingRpcCommands,
+} from "./rpc-health-watchdog.js";
 import { resumeReconnectSessions } from "./rpc-reconnect-runtime.js";
 import * as toolSemantics from "./tool-semantics.js";
 
@@ -16,7 +20,6 @@ export const rhoChatInputRpcMethods = {
 		this.$nextTick(() => {
 			const app = this.$root;
 			if (!app || typeof PullToRefresh === "undefined") return;
-			// Guard against double-init (Alpine re-init / HMR)
 			if (this._ptr) {
 				this._ptr.destroy();
 				this._ptr = null;
@@ -48,7 +51,6 @@ export const rhoChatInputRpcMethods = {
 
 						const wasNearBottom = this.isThreadNearBottom(120);
 
-						// Find and render the message
 						const msg = this.renderedMessages.find((m) => m.id === msgId);
 						if (!msg || !msg.parts) continue;
 
@@ -96,7 +98,6 @@ export const rhoChatInputRpcMethods = {
 	setupKeyboardShortcuts() {
 		document.addEventListener("keydown", (e) => {
 			if (e.key === "Escape") {
-				// Close dialogs first
 				if (this.extensionDialog) {
 					this.dismissDialog(null);
 					e.preventDefault();
@@ -107,11 +108,9 @@ export const rhoChatInputRpcMethods = {
 	},
 
 	handleComposerKeydown(e) {
-		// Slash autocomplete intercepts first
 		if (this.handleSlashAcKeydown(e)) {
 			return;
 		}
-		// Enter to send (without shift)
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
 			this.handlePromptSubmit();
@@ -138,7 +137,6 @@ export const rhoChatInputRpcMethods = {
 	},
 
 	handleDragOver(event) {
-		// Only show drop zone if dragging files that include images
 		if (!event.dataTransfer?.types?.includes("Files")) return;
 		event.preventDefault();
 		event.dataTransfer.dropEffect = "copy";
@@ -151,7 +149,6 @@ export const rhoChatInputRpcMethods = {
 
 	handleDragLeave(event) {
 		event.preventDefault();
-		// Debounce drag leave to avoid flicker when moving between child elements
 		if (this.dragLeaveTimeout) clearTimeout(this.dragLeaveTimeout);
 		this.dragLeaveTimeout = setTimeout(() => {
 			this.isDraggingOver = false;
@@ -175,7 +172,6 @@ export const rhoChatInputRpcMethods = {
 				addedAny = true;
 			}
 		}
-		// Focus the composer after dropping images
 		if (addedAny) {
 			this.$nextTick(() => {
 				this.$refs.composerInput?.focus();
@@ -191,7 +187,6 @@ export const rhoChatInputRpcMethods = {
 				this.addImageFile(file);
 			}
 		}
-		// Reset input so the same file can be re-selected
 		event.target.value = "";
 	},
 
@@ -199,7 +194,6 @@ export const rhoChatInputRpcMethods = {
 		const reader = new FileReader();
 		reader.onload = () => {
 			const dataUrl = reader.result;
-			// Extract base64 data (strip "data:image/png;base64," prefix)
 			const base64 = dataUrl.split(",")[1];
 			this.pendingImages.push({
 				dataUrl,
@@ -226,25 +220,17 @@ export const rhoChatInputRpcMethods = {
 		const el = this.$refs.thread;
 		if (!el) return;
 
-		// Always track position, even during programmatic scrolls
 		const prevTop = this._prevScrollTop;
 		this._prevScrollTop = el.scrollTop;
 
-		// Ignore events from our own programmatic scrolling
 		if (Date.now() < this._programmaticScrollUntil) return;
 
 		const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-
-		// Near the bottom → re-enable auto-scroll (also lets users
-		// scroll back down to resume without clicking "New messages")
 		if (distFromBottom <= 80) {
 			this.userScrolledUp = false;
 			return;
 		}
 
-		// Only mark scrolled-up when the user actively scrolled upward
-		// by a meaningful amount (ignores content growing below and
-		// tiny accidental trackpad impulses)
 		if (typeof prevTop === "number" && el.scrollTop < prevTop - 10) {
 			this.userScrolledUp = true;
 		}
@@ -258,9 +244,7 @@ export const rhoChatInputRpcMethods = {
 			this.stopWsHeartbeat();
 			try {
 				staleWs.close();
-			} catch {
-				// Ignore close errors on stale sockets.
-			}
+			} catch {}
 		}
 		if (
 			this.ws &&
@@ -284,6 +268,7 @@ export const rhoChatInputRpcMethods = {
 			this.isWsConnected = true;
 			this.wsReconnectAttempts = 0;
 			this.error = "";
+			this.wsLastPongAt = Date.now();
 			this.startWsHeartbeat();
 
 			if (this.awaitingStreamReconnectState) {
@@ -314,6 +299,7 @@ export const rhoChatInputRpcMethods = {
 		ws.addEventListener("close", () => {
 			if (this.ws === ws) {
 				this.stopWsHeartbeat();
+				this.wsLastPongAt = 0;
 				const lostDuringResponse = this.isStreaming || this.isSendingPrompt;
 				if (lostDuringResponse) {
 					this.streamDisconnectedDuringResponse = true;
@@ -335,6 +321,7 @@ export const rhoChatInputRpcMethods = {
 				return;
 			}
 			this.stopWsHeartbeat();
+			this.wsLastPongAt = 0;
 			this.isWsConnected = false;
 		});
 
@@ -345,7 +332,6 @@ export const rhoChatInputRpcMethods = {
 		this.wsReconnectAttempts++;
 		this.showReconnectBanner = true;
 
-		// Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
 		const delay = Math.min(
 			this.wsBaseReconnectDelay * 2 ** (this.wsReconnectAttempts - 1),
 			this.wsMaxReconnectDelay,
@@ -367,10 +353,35 @@ export const rhoChatInputRpcMethods = {
 		this.connectWebSocket(true);
 	},
 
+	isWsConnectionStale(now = Date.now()) {
+		const lastPongAt = Number(this.wsLastPongAt ?? 0);
+		if (!Number.isFinite(lastPongAt) || lastPongAt <= 0) {
+			return false;
+		}
+		const staleAfterMs = Number(this.wsHeartbeatStaleMs ?? 45_000);
+		const threshold =
+			Number.isFinite(staleAfterMs) && staleAfterMs > 0 ? staleAfterMs : 45_000;
+		return now - lastPongAt >= threshold;
+	},
+
 	startWsHeartbeat() {
 		this.stopWsHeartbeat();
 		this.wsPingTimer = setInterval(() => {
 			if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+				return;
+			}
+			if (this.isWsConnectionStale()) {
+				this.reconnectBannerMessage = "Connection stalled. Reconnecting…";
+				this.showReconnectBanner = true;
+				this.connectWebSocket(true);
+				return;
+			}
+			if (hasStalePendingRpcCommands(this)) {
+				bumpPendingRpcQueuedAt(this);
+				this.reconnectBannerMessage =
+					"Command response timed out. Reconnecting…";
+				this.showReconnectBanner = true;
+				this.connectWebSocket(true);
 				return;
 			}
 			this.ws.send(

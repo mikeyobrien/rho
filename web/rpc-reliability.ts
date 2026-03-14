@@ -26,6 +26,8 @@ export type RpcSessionReliabilityOptions = {
 	orphanAbortDelayMs?: number;
 	now?: () => number;
 	hasSubscribers?: (sessionId: string) => boolean;
+	hasLiveLease?: (sessionId: string) => boolean;
+	liveLeaseRemainingMs?: (sessionId: string) => number;
 	onAbort?: (sessionId: string) => void;
 	onStop?: (sessionId: string) => void;
 	setTimeoutFn?: typeof setTimeout;
@@ -45,6 +47,8 @@ const DEFAULT_EVENT_BUFFER_SIZE = 800;
 const DEFAULT_COMMAND_RETENTION_MS = 5 * 60_000;
 const DEFAULT_ORPHAN_GRACE_MS = 60_000;
 const DEFAULT_ORPHAN_ABORT_DELAY_MS = 5_000;
+const MIN_ORPHAN_RECHECK_MS = 250;
+const MAX_ORPHAN_LEASE_RECHECK_MS = 5_000;
 
 function isResponseEvent(event: RPCEvent): event is RPCEvent & { id: string } {
 	return (
@@ -63,6 +67,8 @@ export class RpcSessionReliability {
 	private readonly orphanAbortDelayMs: number;
 	private readonly now: () => number;
 	private readonly hasSubscribers: (sessionId: string) => boolean;
+	private readonly hasLiveLease: (sessionId: string) => boolean;
+	private readonly liveLeaseRemainingMs: (sessionId: string) => number;
 	private readonly onAbort: (sessionId: string) => void;
 	private readonly onStop: (sessionId: string) => void;
 	private readonly setTimeoutFn: typeof setTimeout;
@@ -88,6 +94,8 @@ export class RpcSessionReliability {
 		);
 		this.now = options.now ?? (() => Date.now());
 		this.hasSubscribers = options.hasSubscribers ?? (() => false);
+		this.hasLiveLease = options.hasLiveLease ?? (() => false);
+		this.liveLeaseRemainingMs = options.liveLeaseRemainingMs ?? (() => 0);
 		this.onAbort = options.onAbort ?? (() => {});
 		this.onStop = options.onStop ?? (() => {});
 		this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
@@ -175,33 +183,10 @@ export class RpcSessionReliability {
 	}
 
 	scheduleOrphan(sessionId: string): void {
-		const state = this.getOrCreateState(sessionId);
 		this.cancelOrphan(sessionId);
-
+		const state = this.getOrCreateState(sessionId);
 		state.orphanTimer = this.setTimeoutFn(() => {
-			state.orphanTimer = null;
-			if (this.hasSubscribers(sessionId)) {
-				return;
-			}
-
-			this.onAbort(sessionId);
-
-			if (this.orphanAbortDelayMs <= 0) {
-				if (!this.hasSubscribers(sessionId)) {
-					this.onStop(sessionId);
-					this.clearSession(sessionId);
-				}
-				return;
-			}
-
-			state.orphanStopTimer = this.setTimeoutFn(() => {
-				state.orphanStopTimer = null;
-				if (this.hasSubscribers(sessionId)) {
-					return;
-				}
-				this.onStop(sessionId);
-				this.clearSession(sessionId);
-			}, this.orphanAbortDelayMs);
+			this.runOrphanCheck(sessionId);
 		}, this.orphanGraceMs);
 	}
 
@@ -232,6 +217,53 @@ export class RpcSessionReliability {
 		this.sessions.clear();
 	}
 
+	private runOrphanCheck(sessionId: string): void {
+		const state = this.sessions.get(sessionId);
+		if (!state) {
+			return;
+		}
+		state.orphanTimer = null;
+
+		if (this.hasSubscribers(sessionId)) {
+			return;
+		}
+
+		if (this.hasLiveLease(sessionId)) {
+			const remaining = this.liveLeaseRemainingMs(sessionId);
+			const boundedRemaining =
+				Number.isFinite(remaining) && remaining > 0
+					? Math.floor(remaining)
+					: this.orphanGraceMs;
+			const retryMs = Math.max(
+				MIN_ORPHAN_RECHECK_MS,
+				Math.min(MAX_ORPHAN_LEASE_RECHECK_MS, boundedRemaining),
+			);
+			state.orphanTimer = this.setTimeoutFn(() => {
+				this.runOrphanCheck(sessionId);
+			}, retryMs);
+			return;
+		}
+
+		this.onAbort(sessionId);
+
+		if (this.orphanAbortDelayMs <= 0) {
+			if (!this.hasSubscribers(sessionId) && !this.hasLiveLease(sessionId)) {
+				this.onStop(sessionId);
+				this.clearSession(sessionId);
+			}
+			return;
+		}
+
+		state.orphanStopTimer = this.setTimeoutFn(() => {
+			state.orphanStopTimer = null;
+			if (this.hasSubscribers(sessionId) || this.hasLiveLease(sessionId)) {
+				return;
+			}
+			this.onStop(sessionId);
+			this.clearSession(sessionId);
+		}, this.orphanAbortDelayMs);
+	}
+
 	private getOrCreateState(sessionId: string): SessionReliabilityState {
 		let state = this.sessions.get(sessionId);
 		if (!state) {
@@ -239,7 +271,10 @@ export class RpcSessionReliability {
 				nextSeq: 1,
 				events: [],
 				seenCommandIds: new Map<string, number>(),
-				responseByCommandId: new Map<string, RPCEvent>(),
+				responseByCommandId: new Map<
+					string,
+					{ event: RPCEvent; seq: number }
+				>(),
 				orphanTimer: null,
 				orphanStopTimer: null,
 			};

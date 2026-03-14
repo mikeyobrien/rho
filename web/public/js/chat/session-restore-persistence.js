@@ -1,8 +1,13 @@
 import { fetchJson } from "./rendering-and-usage.js";
+import { resumeReconnectSessions } from "./rpc-reconnect-runtime.js";
 
 const SESSION_RESTORE_STORAGE_KEY = "rho-chat-restore-v1";
 const SESSION_RESTORE_VERSION = 1;
 const SESSION_RESTORE_DRAFT_DEBOUNCE_MS = 220;
+
+const MOBILE_CAPTURE_REPLAY_TYPE = "RHO_CAPTURE_REPLAY";
+const MOBILE_REPLAY_STATE_TYPE = "RHO_REPLAY_STATE";
+const MOBILE_REPLAY_RESUME_TYPE = "RHO_REPLAY_RESUME";
 
 function normalizeSessionId(value) {
 	if (typeof value !== "string") {
@@ -46,6 +51,14 @@ function normalizeSavedAt(value) {
 		return parsed;
 	}
 	return Date.now();
+}
+
+function normalizeEventSeq(value) {
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		return 0;
+	}
+	return Math.floor(parsed);
 }
 
 function hasReplayablePending(state) {
@@ -176,8 +189,129 @@ export const rhoChatSessionRestoreMethods = {
 	sessionRestoreDraftDebounceMs: SESSION_RESTORE_DRAFT_DEBOUNCE_MS,
 	persistedRestoreTimer: null,
 	isRestoringPersistedSessionState: false,
+	mobileReplayBridgeBound: false,
+	mobileReplayMessageHandler: null,
+
+	setupMobileReplayBridge() {
+		if (this.mobileReplayBridgeBound || typeof window === "undefined") {
+			return;
+		}
+
+		const messageHandler = (event) => {
+			const payload = event?.data;
+			if (!payload || typeof payload !== "object") {
+				return;
+			}
+
+			if (payload.type === MOBILE_CAPTURE_REPLAY_TYPE) {
+				const replayState = this.buildReplayStateForMobile(payload.sessionId);
+				const source = event?.source;
+				if (source && typeof source.postMessage === "function") {
+					source.postMessage(
+						{
+							type: MOBILE_REPLAY_STATE_TYPE,
+							...replayState,
+						},
+						"*",
+					);
+				}
+				return;
+			}
+
+			if (payload.type === MOBILE_REPLAY_RESUME_TYPE) {
+				this.handleMobileReplayResume(payload);
+			}
+		};
+
+		window.addEventListener("message", messageHandler);
+		this.mobileReplayBridgeBound = true;
+		this.mobileReplayMessageHandler = messageHandler;
+	},
+
+	buildReplayStateForMobile(requestedSessionId = "") {
+		const preferredSessionId =
+			normalizeSessionId(requestedSessionId) ||
+			normalizeSessionId(this.activeSessionId) ||
+			normalizeSessionId(this.focusedSessionId);
+
+		const fallbackState =
+			typeof this.getFocusedSessionState === "function"
+				? this.getFocusedSessionState()
+				: null;
+
+		const targetState = preferredSessionId
+			? this.ensureSessionState(preferredSessionId)
+			: fallbackState;
+
+		const sessionId =
+			preferredSessionId || normalizeSessionId(this.focusedSessionId);
+		const rpcSessionId = normalizeSessionId(targetState?.rpcSessionId);
+		const lastEventSeq = normalizeEventSeq(
+			targetState?.lastEventSeq ?? this.lastRpcEventSeq,
+		);
+
+		return {
+			sessionId,
+			rpcSessionId,
+			lastEventSeq,
+		};
+	},
+
+	handleMobileReplayResume(payload) {
+		if (!payload || typeof payload !== "object") {
+			return;
+		}
+
+		const sessionId = normalizeSessionId(payload.sessionId);
+		const rpcSessionId = normalizeSessionId(payload.rpcSessionId);
+		const lastEventSeq = normalizeEventSeq(payload.lastEventSeq);
+		const targetSessionId =
+			sessionId ||
+			normalizeSessionId(this.activeSessionId) ||
+			normalizeSessionId(this.focusedSessionId);
+
+		if (!targetSessionId) {
+			if (!this.isWsConnected && typeof this.manualReconnect === "function") {
+				this.manualReconnect();
+			}
+			return;
+		}
+
+		const state = this.ensureSessionState(targetSessionId);
+		if (state) {
+			if (rpcSessionId) {
+				state.rpcSessionId = rpcSessionId;
+			}
+			state.lastEventSeq = lastEventSeq;
+			state.recoveringRpcSession = true;
+		}
+
+		const resume = () => {
+			if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isWsConnected) {
+				resumeReconnectSessions(this);
+				return;
+			}
+			if (typeof this.manualReconnect === "function") {
+				this.manualReconnect();
+			}
+		};
+
+		if (
+			targetSessionId &&
+			targetSessionId !== this.activeSessionId &&
+			typeof this.selectSession === "function"
+		) {
+			this.selectSession(targetSessionId, { updateHash: false })
+				.catch(() => {})
+				.finally(resume);
+			return;
+		}
+
+		resume();
+	},
 
 	preparePersistedRestoreSnapshot(hashSessionId = "") {
+		this.setupMobileReplayBridge();
 		const storage = restoreStorage();
 		if (!storage) {
 			return null;

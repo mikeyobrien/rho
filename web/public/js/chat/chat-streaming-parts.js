@@ -172,8 +172,8 @@ export const rhoChatStreamingMethods = {
 		}
 		this.markdownRenderQueue.get(messageId).add(key);
 
-		// Use 150ms debounced setTimeout instead of requestAnimationFrame
-		// to batch rapid streaming token deltas
+		// Keep streaming lightweight in WebView: batch plain-text UI updates,
+		// and defer markdown + highlighting until message_end.
 		if (this.markdownTimeout != null) {
 			return;
 		}
@@ -181,7 +181,7 @@ export const rhoChatStreamingMethods = {
 		this.markdownTimeout = setTimeout(() => {
 			this.markdownTimeout = null;
 			this.flushMarkdownRender();
-		}, 150);
+		}, 100);
 	},
 
 	flushMarkdownRender() {
@@ -201,20 +201,16 @@ export const rhoChatStreamingMethods = {
 				const part = this.ensurePart(message, partKey, () => ({
 					type: "text",
 					key: partKey,
-					render: "html",
+					render: "text",
 					content: "",
 				}));
-				part.render = "html";
-				part.content = renderMarkdown(text);
+				part.render = "text";
+				part.content = text;
 			}
 		}
 
 		this.markdownRenderQueue.clear();
-
-		this.$nextTick(() => {
-			highlightCodeBlocks(this.$refs.thread);
-			this.scrollThreadToBottom();
-		});
+		this.scrollThreadToBottom();
 	},
 
 	handleAssistantDelta(event) {
@@ -273,10 +269,7 @@ export const rhoChatStreamingMethods = {
 			}));
 			part.content = renderMarkdown(nextText);
 
-			this.$nextTick(() => {
-				highlightCodeBlocks(this.$refs.thread);
-				this.scrollThreadToBottom();
-			});
+			this.scrollThreadToBottom();
 			return;
 		}
 

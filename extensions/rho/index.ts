@@ -47,6 +47,14 @@ import { readBrain, foldBrain, buildBrainPrompt, appendBrainEntryWithDedup, getI
 import { detectMigration, runMigration } from "../lib/brain-migration.ts";
 import { LeaseHandle, isLeaseStale, readLeaseMeta, tryAcquireLeaseLock } from "../lib/lease-lock.ts";
 import { withFileLock } from "../lib/file-lock.ts";
+import { readInitAutoMemoryModelSetting, resolveAutoMemoryModel } from "../lib/auto-memory-model.ts";
+import {
+  getAutoMemoryEffective,
+  migrateLegacyMemoryConfigToInitToml,
+  readConfiguredMemorySettings,
+  readMemorySettings,
+  setInitAutoMemoryEnabled,
+} from "../lib/memory-settings.ts";
 import { handleBootstrapSlash, runBootstrapCliFromExtension } from "./bootstrap/slash-bootstrap.ts";
 
 export { parseFrontmatter, extractWikilinks };
@@ -75,7 +83,6 @@ const BRAIN_DIR = path.join(RHO_DIR, "brain");
 export const VAULT_DIR = path.join(RHO_DIR, "vault");
 const RESULTS_DIR = path.join(RHO_DIR, "results");
 const STATE_PATH = path.join(RHO_DIR, "rho-state.json");
-const CONFIG_PATH = path.join(RHO_DIR, "config.json");
 const SETTINGS_PATH = path.join(RHO_DIR, "rho-settings.json");
 const AUTO_MEMORY_LOG_PATH = path.join(BRAIN_DIR, "auto-memory-log.jsonl");
 const AUTO_MEMORY_LOG_LOCK_PATH = `${AUTO_MEMORY_LOG_PATH}.lock`;
@@ -104,72 +111,6 @@ function getMemoryCount(): number {
 }
 
 const HEARTBEAT_PROMPT_FILE = path.join(RHO_DIR, "heartbeat-prompt.txt");
-
-// ─── Shared Config ────────────────────────────────────────────────────────────
-
-interface RhoConfig {
-  autoMemory?: boolean;
-  decayAfterDays?: number;
-  decayMinScore?: number;
-  promptBudget?: number;
-}
-
-function readConfig(): RhoConfig {
-  try {
-    if (!fs.existsSync(CONFIG_PATH)) return {};
-    const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object") {
-      const obj = parsed as Record<string, unknown>;
-      const autoMemory =
-        typeof obj.autoMemory === "boolean"
-          ? obj.autoMemory
-          : typeof obj.auto_memory === "boolean"
-            ? obj.auto_memory
-            : undefined;
-      const decayAfterDays = typeof obj.decayAfterDays === "number" ? obj.decayAfterDays : undefined;
-      const decayMinScore = typeof obj.decayMinScore === "number" ? obj.decayMinScore : undefined;
-      const promptBudget = typeof obj.promptBudget === "number" ? obj.promptBudget : undefined;
-      return { autoMemory, decayAfterDays, decayMinScore, promptBudget };
-    }
-  } catch {
-    // ignore
-  }
-  return {};
-}
-
-function writeConfig(next: Partial<RhoConfig>): void {
-  try {
-    fs.mkdirSync(RHO_DIR, { recursive: true });
-    let base: Record<string, unknown> = {};
-    try {
-      const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === "object") base = parsed as Record<string, unknown>;
-    } catch {
-      // ignore
-    }
-    if (typeof next.autoMemory === "boolean") base.autoMemory = next.autoMemory;
-    if (typeof next.decayAfterDays === "number") base.decayAfterDays = next.decayAfterDays;
-    if (typeof next.decayMinScore === "number") base.decayMinScore = next.decayMinScore;
-    if (typeof next.promptBudget === "number") base.promptBudget = next.promptBudget;
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));
-  } catch {
-    // ignore
-  }
-}
-
-function getAutoMemoryEffective(): { enabled: boolean; source: "env" | "config" | "default" } {
-  if (process.env.RHO_SUBAGENT === "1") return { enabled: false, source: "env" };
-
-  const env = (process.env.RHO_AUTO_MEMORY || "").trim().toLowerCase();
-  if (env === "0" || env === "false" || env === "off") return { enabled: false, source: "env" };
-  if (env === "1" || env === "true" || env === "on") return { enabled: true, source: "env" };
-
-  const cfg = readConfig();
-  if (typeof cfg.autoMemory === "boolean") return { enabled: cfg.autoMemory, source: "config" };
-  return { enabled: true, source: "default" };
-}
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
 
@@ -239,31 +180,15 @@ const AUTO_MEMORY_ALLOWED_CATEGORIES = new Set(["Communication", "Code", "Tools"
 const AUTO_MEMORY_RECEIPT_MAX_WIDTH = 200;
 const AUTO_MEMORY_RECENT_DEFAULT_LIMIT = 10;
 const COMPACT_MEMORY_FLUSH_ENABLED = process.env.RHO_COMPACT_MEMORY_FLUSH !== "0";
+const autoMemoryWarningsSeen = new Set<string>();
 
-// ─── Brain: Model Resolution ─────────────────────────────────────────────────
-
-async function resolveSmallModel(
-  ctx: ExtensionContext
-): Promise<{ model: Model<Api>; apiKey: string } | null> {
-  const currentModel = ctx.model;
-  if (!currentModel) return null;
-
-  const currentApiKey = await ctx.modelRegistry.getApiKey(currentModel);
-  if (!currentApiKey) return null;
-
-  const sameProvider = ctx.modelRegistry
-    .getAll()
-    .filter((m) => m.provider === currentModel.provider)
-    .sort((a, b) => a.cost.output - b.cost.output);
-
-  for (const candidate of sameProvider) {
-    const apiKey = await ctx.modelRegistry.getApiKey(candidate);
-    if (apiKey) {
-      return { model: candidate, apiKey };
-    }
+function warnAutoMemoryConfig(ctx: ExtensionContext, warning: string): void {
+  if (autoMemoryWarningsSeen.has(warning)) return;
+  autoMemoryWarningsSeen.add(warning);
+  console.warn(`Auto-memory: ${warning}`);
+  if (ctx.hasUI) {
+    ctx.ui.notify(`Auto-memory: ${warning}`, "warning");
   }
-
-  return { model: currentModel, apiKey: currentApiKey };
 }
 
 // ─── Brain: Store Functions ───────────────────────────────────────────────────
@@ -567,8 +492,16 @@ async function runAutoMemoryExtraction(
   const runId = crypto.randomBytes(6).toString("hex");
   const startedAt = new Date().toISOString();
 
-  const resolved = await resolveSmallModel(ctx);
+  const configuredModel = readInitAutoMemoryModelSetting();
+  const resolved = await resolveAutoMemoryModel({
+    configuredModel,
+    currentModel: ctx.model,
+    registry: ctx.modelRegistry,
+  });
   if (!resolved) return null;
+  if (resolved.warning) {
+    warnAutoMemoryConfig(ctx, resolved.warning);
+  }
   const { model } = resolved;
 
   const conversationText = serializeConversation(convertToLlm(messages));
@@ -598,7 +531,10 @@ async function runAutoMemoryExtraction(
 
   let response;
   const candidates = [resolved];
-  if (resolved.model.id !== ctx.model?.id && ctx.model) {
+  if (
+    ctx.model &&
+    (resolved.model.provider !== ctx.model.provider || resolved.model.id !== ctx.model.id)
+  ) {
     const fallbackKey = await ctx.modelRegistry.getApiKey(ctx.model);
     if (fallbackKey) candidates.push({ model: ctx.model, apiKey: fallbackKey });
   }
@@ -642,6 +578,9 @@ async function runAutoMemoryExtraction(
       sessionId,
       leafId,
       model: { provider: model.provider, id: model.id, name: model.name },
+      modelSource: resolved.source,
+      requestedModel: resolved.requestedModel,
+      warning: resolved.warning,
       conversation: { messageCount: messages.length, chars: conversationText.length },
     });
     return null;
@@ -666,6 +605,9 @@ async function runAutoMemoryExtraction(
       sessionId,
       leafId,
       model: { provider: model.provider, id: model.id, name: model.name },
+      modelSource: resolved.source,
+      requestedModel: resolved.requestedModel,
+      warning: resolved.warning,
       conversation: { messageCount: messages.length, chars: conversationText.length },
       responsePreview: responseText.slice(0, 500),
     });
@@ -766,6 +708,9 @@ async function runAutoMemoryExtraction(
     sessionId,
     leafId,
     model: { provider: model.provider, id: model.id, name: model.name },
+    modelSource: resolved.source,
+    requestedModel: resolved.requestedModel,
+    warning: resolved.warning,
     conversation: {
       messageCount: messages.length,
       chars: conversationText.length,
@@ -1512,6 +1457,13 @@ export default function (pi: ExtensionAPI) {
 
   // ── Brain state ────────────────────────────────────────────────────────────
 
+  const memoryMigration = migrateLegacyMemoryConfigToInitToml();
+  if (memoryMigration.changed) {
+    console.warn(
+      `Migrated legacy memory settings to init.toml: ${memoryMigration.migratedKeys.join(", ")}`,
+    );
+  }
+
   let autoMemoryInFlight = false;
   let compactMemoryInFlight = false;
   let cachedBrainPrompt: string | null = null;
@@ -1527,14 +1479,7 @@ export default function (pi: ExtensionAPI) {
   let brainCache: BrainCache | null = null;
   let currentCwd: string = process.cwd();
 
-  const memorySettings = (() => {
-    const cfg = readConfig();
-    return {
-      decayAfterDays: cfg.decayAfterDays ?? 90,
-      decayMinScore: cfg.decayMinScore ?? 3,
-      promptBudget: cfg.promptBudget ?? 2000,
-    };
-  })();
+  const memorySettings = readMemorySettings();
 
   function isBrainCacheStale(): boolean {
     if (!brainCache) return true;
@@ -3234,12 +3179,12 @@ Instructions:
           case "automemory": {
             const mode = arg.trim().toLowerCase();
             const current = getAutoMemoryEffective();
-            const cfg = readConfig();
+            const cfg = readConfiguredMemorySettings();
             const cfgVal = typeof cfg.autoMemory === "boolean" ? cfg.autoMemory : undefined;
 
             if (!mode || mode === "status") {
               let text = `Auto-memory: ${current.enabled ? "on" : "off"} (${current.source})`;
-              if (cfgVal !== undefined) text += `, config=${cfgVal ? "on" : "off"}`;
+              if (cfgVal !== undefined) text += `, init=${cfgVal ? "on" : "off"}`;
               const envRaw = (process.env.RHO_AUTO_MEMORY || "").trim();
               if (envRaw) text += `, env=${envRaw}`;
               ctx.ui.notify(text, "info");
@@ -3252,9 +3197,17 @@ Instructions:
             else if (mode === "toggle") nextConfig = !(typeof cfgVal === "boolean" ? cfgVal : true);
             else { ctx.ui.notify("Usage: /rho automemory [on|off|toggle|status]", "warning"); return; }
 
-            writeConfig({ autoMemory: nextConfig });
+            const changed = setInitAutoMemoryEnabled(nextConfig, path.join(RHO_DIR, "init.toml"));
             const after = getAutoMemoryEffective();
-            if (after.source === "env") ctx.ui.notify("Note: RHO_AUTO_MEMORY env var overrides config", "warning");
+            if (after.source === "env") ctx.ui.notify("Note: RHO_AUTO_MEMORY env var overrides init.toml", "warning");
+            if (!changed && cfgVal === nextConfig) {
+              ctx.ui.notify(`Auto-memory already ${nextConfig ? "on" : "off"} in init.toml`, "info");
+              return;
+            }
+            if (!changed) {
+              ctx.ui.notify("Could not update init.toml for auto-memory setting", "error");
+              return;
+            }
             ctx.ui.notify(`Auto-memory: ${after.enabled ? "on" : "off"} (${after.source})`, "success");
             break;
           }

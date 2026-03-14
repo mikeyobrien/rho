@@ -36,9 +36,17 @@ Scan the conversation and classify each substantive exchange into one of these c
 - Obvious facts any model would know
 - One-off task details ("fix the bug on line 42")
 - Anything the user explored but didn't commit to
+- Version numbers or update confirmations ("updated X to v1.2.3")
+- Heartbeat or check-in status reports ("Heartbeat Feb 19: all clear")
+- Benchmark scores or run results ("scored 42/89 = 47.2%")
+- Bug sweep summaries without a generalizable root cause ("reviewed X, no bugs found")
+- UI/feature implementation details ("button text changed to X", "layout uses 3 columns")
+- Task completion status ("task X is complete", "run Y failed")
+- Project-specific state that won't inform future decisions
 
 **Constraints:**
 - You MUST only extract from the "extractable" category
+- You MUST apply the 30-day test: "Would this change a decision I make 30 days from now?" If no, do not extract it. Most conversations produce zero durable knowledge — that's fine.
 - You MUST NOT extract intermediate discussion states as settled facts because conversations explore options before deciding, and capturing exploration as truth produces wrong memories
 - You MUST NOT extract transient information (outages, temporary workarounds, "currently broken") because these become stale and misleading
 - You MUST prefer the final state of a decision over earlier states because users change their mind during conversations
@@ -51,7 +59,7 @@ Compare each candidate extraction against the existing memories list.
 - You MUST NOT extract anything that restates, overlaps with, or is a subset of an existing memory
 - You MUST NOT extract a weaker version of something already stored (e.g., don't store "use ripgrep" if "Always use ripgrep instead of grep for searching" already exists)
 - You SHOULD flag when a new extraction contradicts an existing memory — extract the new one with updated information, as it represents a more recent decision
-- You MUST NOT extract more than 3 items total per conversation because high volume degrades memory quality over time
+- You MUST NOT extract more than 1 item total per conversation — force yourself to pick only the single most valuable extraction, or nothing. Most conversations should produce nothing.
 
 ### 3. Draft Extractions
 
@@ -159,6 +167,25 @@ Returning empty is better than returning noise.
 ```
 
 The task was executed but no durable knowledge was produced.
+
+### Example 4: Tempting But Not Durable
+
+These look like learnings but fail the 30-day test:
+
+| Candidate | Why it fails |
+|-----------|-------------|
+| "pi-coding-agent updated to 0.55.4 on 2026-03-04" | Version snapshot — stale tomorrow |
+| "Heartbeat Feb 19 08:02 UTC: rho-web healthy" | Status report — not a decision or pattern |
+| "ChefBench scored 42/89 = 47.2% on Terminal-Bench 2.0" | Benchmark result — won't change future behavior |
+| "Fresh-eyes bug sweep: reviewed X, no bugs found" | Sweep status — no generalizable root cause |
+| "The sessions hamburger button should use an icon-only button" | UI detail — too specific to one feature |
+| "All 224 unit tests pass with no failures" | Test status — transient fact |
+| "Task X is complete and verified" | Completion status — belongs in task tracking, not memory |
+
+**Correct output for all of the above:**
+```json
+{"learnings": [], "preferences": []}
+```
 
 ## Troubleshooting
 

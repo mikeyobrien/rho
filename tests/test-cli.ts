@@ -4,12 +4,13 @@
  * NOTE: these tests must NOT start daemons or mutate user config.
  * We only call `--help` / `--version` and check basic routing.
  *
- * Run: node --experimental-strip-types tests/test-cli.ts
+ * Run: npx -y tsx tests/test-cli.ts
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import { createServer } from "node:net";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,18 +57,36 @@ function assertNotIncludes(
 const THIS_DIR =
 	import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = path.resolve(THIS_DIR, "../cli/index.ts");
+const TSX_BIN = path.resolve(THIS_DIR, "../node_modules/.bin/tsx");
+const TEST_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "rho-cli-test-"));
+const TEST_RHO_DIR = path.join(TEST_HOME, ".rho");
+const TEST_TMUX_SOCKET = `rho-cli-test-${process.pid}`;
+
+fs.mkdirSync(TEST_RHO_DIR, { recursive: true });
+fs.writeFileSync(
+	path.join(TEST_RHO_DIR, "init.toml"),
+	"[settings.web]\nenabled = false\nport = 3141\n",
+	"utf-8",
+);
+
+process.on("exit", () => {
+	fs.rmSync(TEST_HOME, { recursive: true, force: true });
+});
 
 function run(args: string): { stdout: string; stderr: string; code: number } {
+	const argv = args.trim() ? args.trim().split(/\s+/) : [];
 	try {
-		const stdout = execSync(
-			`node --experimental-strip-types ${CLI_PATH} ${args}`,
-			{
-				encoding: "utf-8",
-				env: { ...process.env, NODE_NO_WARNINGS: "1" },
-				timeout: 10_000,
-				stdio: ["ignore", "pipe", "pipe"],
+		const stdout = execFileSync(TSX_BIN, [CLI_PATH, ...argv], {
+			encoding: "utf-8",
+			env: {
+				...process.env,
+				NODE_NO_WARNINGS: "1",
+				HOME: TEST_HOME,
+				RHO_TMUX_SOCKET: TEST_TMUX_SOCKET,
 			},
-		);
+			timeout: 10_000,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
 		return { stdout, stderr: "", code: 0 };
 	} catch (e: unknown) {
 		const err = e as { stdout?: string; stderr?: string; status?: number };
@@ -106,15 +125,13 @@ console.log("-- --help --");
 	}
 }
 
-// -- no args runs start (not help) --
-// Bare `rho` dispatches to `start --foreground`. In a test environment without
-// tmux, this may fail — that's expected. We just verify it doesn't show help.
+// -- no args routes to start without executing real daemon state --
 console.log("\n-- no args --");
 {
-	const r = run("");
-	// Start may fail without tmux, but it should NOT show the help text.
-	assert(
-		!r.stdout.includes("Commands:"),
+	const cliSource = fs.readFileSync(CLI_PATH, "utf-8");
+	assertIncludes(
+		cliSource,
+		'await cmd.run(["--foreground"]);',
 		"no args dispatches to start (not help)",
 	);
 }

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { setCookie } from "hono/cookie";
 import {
 	app,
 	clearRpcSubscriptions,
@@ -10,6 +11,12 @@ import {
 	rpcSessionSubscribers,
 } from "./server-core.ts";
 import { getRhoHome } from "./config.ts";
+import { rpcLiveModeLeases } from "./rpc-live-mode-lease.ts";
+import {
+	activeSessions,
+	pendingBootstrapTokens,
+	SESSION_COOKIE_NAME,
+} from "./server-mobile-auth-state.ts";
 
 // --- User CSS ---
 
@@ -30,6 +37,41 @@ app.get("/user.css", async (c) => {
 // --- Static files ---
 
 app.get("/", async (c) => {
+	const mobileShell = c.req.query("mobile_shell") === "1";
+	const bootstrapToken = c.req.query("auth_bootstrap")?.trim();
+	if (bootstrapToken) {
+		const pending = pendingBootstrapTokens.get(bootstrapToken);
+		pendingBootstrapTokens.delete(bootstrapToken);
+
+		if (!pending) {
+			return c.text("Invalid or expired auth bootstrap token", 401);
+		}
+
+		const session = activeSessions.get(pending.sessionId);
+		if (!session || Date.now() > session.expiresAt) {
+			activeSessions.delete(pending.sessionId);
+			return c.text("Invalid or expired auth bootstrap token", 401);
+		}
+
+		const isSecure =
+			c.req.header("x-forwarded-proto") === "https" ||
+			new URL(c.req.url).protocol === "https:";
+		const maxAge = Math.max(
+			1,
+			Math.floor((session.expiresAt - Date.now()) / 1000),
+		);
+
+		setCookie(c, SESSION_COOKIE_NAME, pending.sessionId, {
+			httpOnly: true,
+			secure: isSecure,
+			sameSite: "Lax",
+			maxAge,
+			path: "/",
+		});
+
+		return c.redirect(mobileShell ? "/?mobile_shell=1" : "/", 302);
+	}
+
 	let html = await readFile(path.join(publicDir, "index.html"), "utf-8");
 	try {
 		await readFile(USER_CSS_PATH, "utf-8");
@@ -115,6 +157,7 @@ export function disposeServerResources(): void {
 	}
 	rpcReliability.dispose();
 	rpcManager.dispose();
+	rpcLiveModeLeases.clearAll();
 }
 
 export default app;

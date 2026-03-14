@@ -46,6 +46,7 @@ import {
 	rpcManager,
 } from "./rpc-manager.ts";
 import { RpcSessionReliability } from "./rpc-reliability.ts";
+import { rpcLiveModeLeases } from "./rpc-live-mode-lease.ts";
 import {
 	findSessionFileById,
 	listSessions,
@@ -80,8 +81,7 @@ const publicDir = path.resolve(
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 const rpcSessionSubscribers = new Map<
-	WSContext<WebSocket>,
-	Map<string, () => void>
+	WSContext<WebSocket>, Map<string, () => void>
 >();
 
 function readNumericEnv(name: string, fallback: number): number {
@@ -110,6 +110,8 @@ const rpcReliability = new RpcSessionReliability({
 	orphanGraceMs: _og,
 	orphanAbortDelayMs: _oa,
 	hasSubscribers: (sessionId) => rpcManager.hasSubscribers(sessionId),
+	hasLiveLease: (sessionId) => rpcLiveModeLeases.hasActive(sessionId),
+	liveLeaseRemainingMs: (sessionId) => rpcLiveModeLeases.remainingMs(sessionId),
 	onAbort: (sessionId) => {
 		try {
 			rpcManager.sendCommand(sessionId, {
@@ -121,6 +123,7 @@ const rpcReliability = new RpcSessionReliability({
 		}
 	},
 	onStop: (sessionId) => {
+		rpcLiveModeLeases.clear(sessionId);
 		rpcManager.stopSession(sessionId);
 	},
 });
@@ -290,10 +293,7 @@ function mapReviewStoreError(error: unknown): {
 	return { status: 500, message: error.message };
 }
 
-function sendWsMessage(
-	ws: WSContext<WebSocket>,
-	message: Record<string, unknown>,
-): void {
+function sendWsMessage(ws: WSContext<WebSocket>, message: Record<string, unknown>): void {
 	ws.send(JSON.stringify(message));
 }
 

@@ -100,6 +100,7 @@ interval = "30m"                    # "15m", "1h", "2h", etc.
 # decay_after_days = 90            # Days before unused learnings are decayed
 # decay_min_score = 3              # Learnings with this score or higher are exempt from decay
 # auto_memory = true               # Auto-extract learnings/preferences from conversations
+# auto_memory_model = "auto"      # "auto" or pin a model like "openai/gpt-5-mini"
 ```
 
 #### Memory settings
@@ -112,6 +113,7 @@ The `[settings.memory]` section controls brain.jsonl behavior:
 | `decay_after_days` | `90` | Number of days a learning can go unreinforced before being automatically decayed (tombstoned). |
 | `decay_min_score` | `3` | Learnings with a reinforcement score at or above this threshold are exempt from decay regardless of age. |
 | `auto_memory` | `true` | Whether to automatically extract learnings and preferences from conversations. Can also be controlled via `RHO_AUTO_MEMORY` env var (env overrides config). |
+| `auto_memory_model` | unset (`auto` behavior) | Model used for auto-memory extraction. Leave unset or set to `"auto"` to use the current same-provider cheapest-model behavior. Set `"provider/model-id"` to pin a specific model. |
 
 **Adding custom settings:** Add a `[settings.<name>]` section for any module in the registry. If `<name>` doesn't match a known module, `rho sync` warns you and ignores it. There's no freeform settings namespace — settings are always tied to a module.
 

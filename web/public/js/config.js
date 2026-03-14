@@ -8,11 +8,13 @@ document.addEventListener("alpine:init", () => {
 		error: "",
 		filePath: "",
 		theme: "dark",
+		isMobileShell: false,
 
 		async init() {
 			const savedTheme = localStorage.getItem("rho-theme");
 			this.theme = savedTheme === "light" ? "light" : "dark";
 			this.applyTheme(this.theme);
+			this.isMobileShell = this.detectMobileShell();
 
 			try {
 				const res = await fetch("/api/config");
@@ -42,6 +44,18 @@ document.addEventListener("alpine:init", () => {
 
 		themeButtonLabel() {
 			return this.theme === "light" ? "Switch to dark" : "Switch to light";
+		},
+
+		detectMobileShell() {
+			try {
+				return new URLSearchParams(window.location.search).get("mobile_shell") === "1";
+			} catch {
+				return false;
+			}
+		},
+
+		switchToProfilePicker() {
+			window.location.href = "http://localhost/?picker=1";
 		},
 
 		statusMessage() {
