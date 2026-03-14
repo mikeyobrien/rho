@@ -13,6 +13,7 @@ specs/
 apt/
 tmp/
 node_modules/
+.worktrees/
 
 # ── Orchestrator configs ──────────────────────────────────
 ralph*.yml
