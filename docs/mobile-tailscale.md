@@ -198,19 +198,19 @@ Use **Live Mode** when stream continuity matters. Expect higher battery and netw
 
 ## Tailscale-specific notes
 
-### The app may show an HTTP warning
+### The app recognizes common Tailscale HTTP hosts
 
-This is expected.
+The Android app now treats these HTTP targets as private-network style connections instead of blocked public HTTP:
 
-The Android app currently uses a simple host heuristic for HTTP warnings. It recognizes localhost and common LAN ranges, but a Tailscale host like `100.x.y.z` or `*.ts.net` may still be treated as a public HTTP address and show a stronger warning.
+- Tailscale IPs in `100.64.0.0/10`
+- `*.ts.net` MagicDNS names
+- bare single-label hostnames like `tidepool` that are commonly used as MagicDNS-style names
 
-That warning is about the URL scheme, not about Tailscale understanding.
+You should still expect a confirmation warning, because the URL is still `http://`, but the app no longer treats these as public internet HTTP by default.
 
 In practice:
 - plain `http://` over the open internet is bad
 - `http://` carried inside a Tailscale tailnet is usually a reasonable setup for personal rho access because Tailscale encrypts the transport between tailnet devices
-
-So if you are connecting to a Tailscale-only address you control, the warning is expected, not a sign that the setup is broken.
 
 ### HTTPS is optional here
 

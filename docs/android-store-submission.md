@@ -8,7 +8,7 @@ This is the repo-side checklist for getting `mobile/rho-android` onto Google Pla
 - Android compile/target SDK are aligned with current Play requirements.
 - Android `versionName` and `versionCode` derive from repo versioning.
 - Mobile package version is gated against the root package version.
-- Public HTTP profiles are blocked in the app; localhost/LAN HTTP remains explicit opt-in.
+- Public HTTP profiles are blocked in the app; localhost/LAN/Tailscale-style HTTP remains explicit opt-in.
 - Fastlane metadata skeleton exists under `mobile/rho-android/fastlane/metadata/android/`.
 - Privacy policy source lives at `docs/rho-android-privacy-policy.md`.
 
@@ -55,7 +55,7 @@ cd mobile/rho-android/android && ./gradlew bundleRelease assembleRelease
 `rho-android` uses a `dataSync` foreground service only when the user explicitly enables **Live Mode**. Its purpose is to keep an active rho session alive while the device is backgrounded or locked. The notification is persistent, user-visible, and user-stoppable.
 
 ### Network model
-The app is designed for self-hosted rho servers. HTTPS is the expected mode for remote/public deployments. HTTP is retained only for localhost and trusted LAN development/self-hosting scenarios; public HTTP profiles are blocked.
+The app is designed for self-hosted rho servers. HTTPS is the expected mode for remote/public deployments. HTTP is retained only for localhost, trusted LAN, and Tailscale/private-network scenarios you control; public HTTP profiles are blocked.
 
 ### Suggested launch order
 1. Ship GitHub release assets.

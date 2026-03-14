@@ -38,6 +38,48 @@ describe("HTTP Policy Module", () => {
 		}
 	});
 
+	it("requires confirmation for Tailscale ts.net hosts", () => {
+		const result = evaluateHttpPolicy({
+			name: "Tailnet",
+			scheme: "http",
+			host: "rho-box.example-tailnet.ts.net",
+		});
+		expect(result.allowed).toBe(true);
+		if (result.requiresConfirm) {
+			expect(result.warningMessage).toMatch(/tailscale/i);
+		} else {
+			fail("Expected confirmation for ts.net host");
+		}
+	});
+
+	it("requires confirmation for Tailscale CGNAT addresses", () => {
+		const result = evaluateHttpPolicy({
+			name: "Tailnet IP",
+			scheme: "http",
+			host: "100.101.102.103",
+		});
+		expect(result.allowed).toBe(true);
+		if (result.requiresConfirm) {
+			expect(result.warningMessage).toMatch(/tailscale/i);
+		} else {
+			fail("Expected confirmation for CGNAT host");
+		}
+	});
+
+	it("requires confirmation for bare MagicDNS-style hostnames", () => {
+		const result = evaluateHttpPolicy({
+			name: "MagicDNS",
+			scheme: "http",
+			host: "tidepool",
+		});
+		expect(result.allowed).toBe(true);
+		if (result.requiresConfirm) {
+			expect(result.warningMessage).toMatch(/private name|tailscale/i);
+		} else {
+			fail("Expected confirmation for bare MagicDNS-style host");
+		}
+	});
+
 	it("blocks public HTTP outright", () => {
 		const result = evaluateHttpPolicy({
 			name: "Insecure Prod",

@@ -5,6 +5,47 @@ export type PolicyResult =
 	| { allowed: true; requiresConfirm: true; warningMessage: string }
 	| { allowed: false; requiresConfirm: false; blockMessage: string };
 
+function parseIpv4(host: string): number[] | null {
+	if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
+		return null;
+	}
+
+	const octets = host.split(".").map((part) => Number.parseInt(part, 10));
+	return octets.every((octet) => octet >= 0 && octet <= 255) ? octets : null;
+}
+
+function isLocalhostHost(host: string): boolean {
+	return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isLanHost(host: string): boolean {
+	const ipv4 = parseIpv4(host);
+	if (ipv4) {
+		const [first, second] = ipv4;
+		return (
+			first === 10 ||
+			(first === 172 && second >= 16 && second <= 31) ||
+			(first === 192 && second === 168)
+		);
+	}
+
+	return host.endsWith(".local");
+}
+
+function isTailscaleHost(host: string): boolean {
+	if (host.endsWith(".ts.net")) {
+		return true;
+	}
+
+	const ipv4 = parseIpv4(host);
+	if (ipv4) {
+		const [first, second] = ipv4;
+		return first === 100 && second >= 64 && second <= 127;
+	}
+
+	return /^[a-z0-9-]+$/.test(host) && /[a-z]/.test(host) && !host.includes(".");
+}
+
 export function evaluateHttpPolicy(
 	profile: Pick<Profile, "scheme" | "host" | "name">,
 ): PolicyResult {
@@ -12,20 +53,9 @@ export function evaluateHttpPolicy(
 		return { allowed: true, requiresConfirm: false };
 	}
 
-	const normalizedHost = profile.host.toLowerCase();
+	const normalizedHost = profile.host.trim().toLowerCase();
 
-	// HTTP policy
-	const isLocalhost =
-		normalizedHost === "localhost" ||
-		normalizedHost === "127.0.0.1" ||
-		normalizedHost === "::1";
-	const isLan =
-		normalizedHost.startsWith("192.168.") ||
-		normalizedHost.startsWith("10.") ||
-		/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(normalizedHost) ||
-		normalizedHost.endsWith(".local");
-
-	if (isLocalhost) {
+	if (isLocalhostHost(normalizedHost)) {
 		return {
 			allowed: true,
 			requiresConfirm: true,
@@ -33,7 +63,7 @@ export function evaluateHttpPolicy(
 		};
 	}
 
-	if (isLan) {
+	if (isLanHost(normalizedHost)) {
 		return {
 			allowed: true,
 			requiresConfirm: true,
@@ -41,9 +71,17 @@ export function evaluateHttpPolicy(
 		};
 	}
 
+	if (isTailscaleHost(normalizedHost)) {
+		return {
+			allowed: true,
+			requiresConfirm: true,
+			warningMessage: `Connecting to a Tailscale/private network host over HTTP is allowed, but only because the address appears tailnet-local. Continue connecting to ${profile.name}?`,
+		};
+	}
+
 	return {
 		allowed: false,
 		requiresConfirm: false,
-		blockMessage: `Public HTTP profiles are blocked for rho-android store builds. Use HTTPS for ${profile.name}, or connect over localhost/LAN during local development.`,
+		blockMessage: `Public HTTP profiles are blocked for rho-android store builds. Use HTTPS for ${profile.name}, or connect over localhost, LAN, or Tailscale/private-network hosts you control.`,
 	};
 }

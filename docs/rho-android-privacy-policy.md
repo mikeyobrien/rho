@@ -60,7 +60,7 @@ The app only shares data with the rho server you configured and the network prov
 
 - HTTPS is recommended for remote/public deployments.
 - Public HTTP profiles are blocked in the mobile shell.
-- Localhost and LAN HTTP connections are allowed only as explicit user choices for development or self-hosted local setups.
+- Localhost, LAN, and recognized Tailscale/private-network HTTP connections are allowed only as explicit user choices for development or self-hosted setups you control.
 
 ## Contact
 
