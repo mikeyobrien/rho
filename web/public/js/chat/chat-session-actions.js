@@ -324,9 +324,11 @@ export const rhoChatSessionActionMethods = {
 				})
 			: this.getFocusedSessionState();
 		if (targetState) {
+			const now = Date.now();
 			targetState.status = "starting";
 			targetState.error = "";
-			targetState.lastActivityAt = Date.now();
+			targetState.lastActivityAt = now;
+			targetState.sortAnchorAt = now;
 		}
 
 		const sent = this.sendWs({
@@ -367,6 +369,12 @@ export const rhoChatSessionActionMethods = {
 		this.userScrolledUp = false;
 		this.pendingSlashClassification = slashClassification;
 		this.closeSlashAutocomplete();
+		const activeState = this.getFocusedSessionState?.();
+		if (activeState) {
+			const now = Date.now();
+			activeState.lastActivityAt = now;
+			activeState.sortAnchorAt = now;
+		}
 
 		// Capture and clear pending images
 		const images = hasImages

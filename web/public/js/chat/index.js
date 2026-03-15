@@ -1,12 +1,13 @@
 import { rhoChatDialogAndFocusMethods } from "./chat-dialog-and-focus.js";
 import { rhoChatGitContextMethods } from "./chat-git-context-picker.js";
-import { rhoChatInputRpcMethods } from "./chat-input-and-rpc-send.js";
+import { rhoChatInputMethods } from "./chat-input-and-rpc-send.js";
 import { rhoChatModelAndExtensionMethods } from "./chat-model-and-extension-ui.js";
 import { rhoChatRpcEventMethods } from "./chat-rpc-event-routing.js";
 import { rhoChatSessionActionMethods } from "./chat-session-actions.js";
 import { rhoChatSessionUiMethods } from "./chat-session-ui.js";
 import { rhoChatSlashAndStatsMethods } from "./chat-slash-and-stats.js";
 import { rhoChatStreamingMethods } from "./chat-streaming-parts.js";
+import { rhoChatWsRpcMethods } from "./chat-ws-rpc.js";
 import { THINKING_LEVELS_BASE } from "./rendering-and-usage.js";
 import { rhoChatSessionRestoreMethods } from "./session-restore-persistence.js";
 import {
@@ -14,7 +15,6 @@ import {
 	ensureSessionStateById,
 	getFocusedSessionStateById,
 } from "./session-ui-state.js";
-
 export function registerRhoChat() {
 	document.addEventListener("alpine:init", () => {
 		Alpine.data("rhoChat", () => ({
@@ -37,13 +37,6 @@ export function registerRhoChat() {
 			gitProjectsLoading: false,
 			gitProjectsError: "",
 			selectedGitProjectId: "",
-
-			toggleTheme() {
-				this.theme = this.theme === "light" ? "dark" : "light";
-				document.body.classList.toggle("theme-light", this.theme === "light");
-				localStorage.setItem("rho-theme", this.theme);
-			},
-
 			ensureSessionState(sessionId, meta = {}) {
 				if (!(this.sessionStateById instanceof Map)) {
 					this.sessionStateById = new Map();
@@ -52,7 +45,6 @@ export function registerRhoChat() {
 					makeReactive: (state) => this.makeSessionStateReactive(state),
 				});
 			},
-
 			getFocusedSessionState() {
 				return getFocusedSessionStateById(
 					this.sessionStateById,
@@ -451,7 +443,9 @@ export function registerRhoChat() {
 			isIdle: false,
 			idleCheckInterval: null,
 			isPageVisible: true,
-
+			modifierKeysEnabled:
+				localStorage.getItem("rho-mobile-modifier-keys") === "1",
+			ctrlSticky: false,
 			async init() {
 				this.theme = localStorage.getItem("rho-theme") || "dark";
 				if (this.theme === "light") {
@@ -473,6 +467,7 @@ export function registerRhoChat() {
 				this.startPolling();
 				this.setupKeyboardShortcuts();
 				this.setupPullToRefresh();
+				this.setupScrollIntentDetection();
 				window.addEventListener("hashchange", () => {
 					const id = window.location.hash.replace("#", "").trim();
 					if (!id) {
@@ -483,8 +478,13 @@ export function registerRhoChat() {
 						this.selectSession(id, { updateHash: false });
 					}
 				});
+				window.addEventListener("rho:modifier-keys-changed", (e) => {
+					this.modifierKeysEnabled = !!e.detail?.enabled;
+					if (!this.modifierKeysEnabled) this.ctrlSticky = false;
+				});
 			},
-			...rhoChatInputRpcMethods,
+			...rhoChatInputMethods,
+			...rhoChatWsRpcMethods,
 			...rhoChatRpcEventMethods,
 			...rhoChatStreamingMethods,
 			...rhoChatSessionUiMethods,

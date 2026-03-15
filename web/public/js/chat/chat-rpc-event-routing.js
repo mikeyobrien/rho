@@ -28,7 +28,6 @@ export const rhoChatRpcEventMethods = {
 
 	sendWs(payload, options = {}) {
 		const preparedPayload = this.prepareRpcPayload(payload);
-
 		if (!this.ws) {
 			this.error = "WebSocket not connected";
 			return false;
@@ -207,6 +206,7 @@ export const rhoChatRpcEventMethods = {
 			targetState.isSendingPrompt = false;
 			targetState.recoveringRpcSession = false;
 			markSessionActivity(targetState);
+			targetState.sortAnchorAt = Date.now();
 			this.persistSessionRestoreSnapshot();
 
 			if (targetSessionId === this.focusedSessionId) {

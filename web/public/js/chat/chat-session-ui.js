@@ -230,7 +230,7 @@ export const rhoChatSessionUiMethods = {
 				10,
 			);
 			const sessions = await resp.json();
-			this.sessions = sessions;
+			this.sessions = this.promoteActiveSessionIntoSidebar(sessions);
 			this.sessionsTotal = total;
 			this.sessionsLoaded = sessions.length;
 			this.allSessionsLoaded = sessions.length >= total;
@@ -283,6 +283,33 @@ export const rhoChatSessionUiMethods = {
 		if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
 			this.loadMoreSessions();
 		}
+	},
+
+	promoteActiveSessionIntoSidebar(sessions) {
+		if (
+			!this.activeSessionId ||
+			!this.activeSession ||
+			sessions.some((session) => session.id === this.activeSessionId)
+		) {
+			return sessions;
+		}
+		return [
+			{
+				id: this.activeSessionId,
+				file: this.activeSession.file || this.activeRpcSessionFile || "",
+				name: this.activeSession.name,
+				cwd: this.activeSession.header?.cwd || "",
+				timestamp: this.activeSession.header?.timestamp || "",
+				updatedAt: this.activeSession.updatedAt || "",
+				parentSession: this.activeSession.header?.parentSession,
+				messageCount:
+					this.activeSession.stats?.messageCount ||
+					this.activeSession.messages?.length ||
+					0,
+				isActive: false,
+			},
+			...sessions,
+		];
 	},
 
 	async reloadActiveSession() {
@@ -426,6 +453,7 @@ export const rhoChatSessionUiMethods = {
 			const session =
 				options.session ?? (await fetchJson(`/api/sessions/${sessionId}`));
 			this.applySession(session);
+			this.sessions = this.promoteActiveSessionIntoSidebar(this.sessions);
 
 			const sessionFile =
 				targetSessionFile ||

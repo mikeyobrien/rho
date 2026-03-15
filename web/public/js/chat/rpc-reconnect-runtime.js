@@ -159,7 +159,8 @@ export function resumeReconnectSessions(vm) {
 			}
 			state.recoveringRpcSession = false;
 		}
-		if (sessionFile) {
+		// Skip if already starting - the switch_session command was already sent
+		if (sessionFile && state.status !== "starting") {
 			state.recoveringRpcSession = true;
 			vm.startRpcSession(sessionFile, { sessionId });
 			resumedAnySession = true;

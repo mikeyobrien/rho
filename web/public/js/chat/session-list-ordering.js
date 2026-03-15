@@ -18,6 +18,13 @@ function parseTimestampMs(value) {
 	return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function sessionRecencyMs(session) {
+	return Math.max(
+		parseTimestampMs(session?.updatedAt),
+		parseTimestampMs(session?.timestamp),
+	);
+}
+
 function normalizeStatus(rawStatus, isStreaming) {
 	if (isStreaming) {
 		return "streaming";
@@ -69,6 +76,7 @@ export function getSessionRowMeta(session, sessionStateById) {
 	const state = getSessionState(session, sessionStateById);
 	const status = normalizeStatus(state?.status, Boolean(state?.isStreaming));
 	const lastActivityAt = toFiniteNumber(state?.lastActivityAt, 0);
+	const sortAnchorAt = toFiniteNumber(state?.sortAnchorAt, 0);
 	const unreadMilestone = Boolean(state?.unreadMilestone);
 	const isActiveRuntime =
 		hasRuntimeBinding(state) || Boolean(session?.isActive);
@@ -77,6 +85,7 @@ export function getSessionRowMeta(session, sessionStateById) {
 		status,
 		unreadMilestone,
 		lastActivityAt,
+		sortAnchorAt,
 		isActiveRuntime,
 	};
 }
@@ -100,16 +109,14 @@ export function compareSessionsForSidebar(a, b, sessionStateById) {
 		return groupDiff;
 	}
 
-	const activityDiff = metaB.lastActivityAt - metaA.lastActivityAt;
-	if (activityDiff !== 0) {
-		return activityDiff;
+	const sortAnchorDiff = metaB.sortAnchorAt - metaA.sortAnchorAt;
+	if (sortAnchorDiff !== 0) {
+		return sortAnchorDiff;
 	}
 
-	const timestampA = parseTimestampMs(a?.timestamp);
-	const timestampB = parseTimestampMs(b?.timestamp);
-	const timestampDiff = timestampB - timestampA;
-	if (timestampDiff !== 0) {
-		return timestampDiff;
+	const recencyDiff = sessionRecencyMs(b) - sessionRecencyMs(a);
+	if (recencyDiff !== 0) {
+		return recencyDiff;
 	}
 
 	const idA = typeof a?.id === "string" ? a.id : "";

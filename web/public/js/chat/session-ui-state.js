@@ -61,6 +61,7 @@ function createSessionUiState(sessionId, meta = {}) {
 		status: typeof source.status === "string" ? source.status : "idle",
 		unreadMilestone: Boolean(source.unreadMilestone),
 		lastActivityAt: finiteOr(source.lastActivityAt, 0),
+		sortAnchorAt: finiteOr(source.sortAnchorAt, 0),
 		error: typeof source.error === "string" ? source.error : "",
 
 		activeSession: source.activeSession ?? null,
