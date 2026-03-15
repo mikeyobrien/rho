@@ -1,4 +1,4 @@
-import { createReadStream, existsSync } from "node:fs";
+import { type Stats, createReadStream, existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -8,11 +8,7 @@ import {
 	normalizeHeader,
 	readSessionHeader,
 } from "./session-reader-io.ts";
-import {
-	buildSessionContext,
-	extractPreview,
-	parseTimestampFromFilename,
-} from "./session-reader-parse.ts";
+import { buildSessionContext, extractPreview } from "./session-reader-parse.ts";
 import {
 	DEFAULT_SESSION_DIR,
 	type MessageEntry,
@@ -27,6 +23,42 @@ const SESSION_INFO_CACHE = new Map<
 	string,
 	{ mtimeMs: number; info: SessionInfo }
 >();
+
+// TTL cache for session file listing + stats to avoid repeated dir walks
+const SESSION_LIST_TTL_MS = 2000;
+let sessionListCache: {
+	dir: string;
+	at: number;
+	sorted: Array<{ file: string; stats: Stats }>;
+} | null = null;
+
+async function listSessionFilesSorted(
+	sessionDir: string,
+): Promise<Array<{ file: string; stats: Stats }>> {
+	const now = Date.now();
+	if (
+		sessionListCache &&
+		sessionListCache.dir === sessionDir &&
+		now - sessionListCache.at < SESSION_LIST_TTL_MS
+	) {
+		return sessionListCache.sorted;
+	}
+	const files = await listSessionFiles(sessionDir);
+	const sorted = (
+		await Promise.all(
+			files.map(async (file) => ({
+				file,
+				stats: await stat(file).catch(() => null),
+			})),
+		)
+	)
+		.filter((item): item is { file: string; stats: Stats } =>
+			Boolean(item.stats),
+		)
+		.sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs);
+	sessionListCache = { dir: sessionDir, at: now, sorted };
+	return sorted;
+}
 
 export async function listSessions(
 	options: {
@@ -43,18 +75,9 @@ export async function listSessions(
 		limit = 20,
 	} = options;
 
-	const files = await listSessionFiles(sessionDir);
-	const sorted = files
-		.map((file) => {
-			const baseName = path.basename(file, ".jsonl");
-			const [timestampPart] = baseName.split("_");
-			const timestamp = parseTimestampFromFilename(timestampPart) ?? "";
-			return { file, timestamp };
-		})
-		.filter((item) => Boolean(item.timestamp))
-		.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+	const sorted = await listSessionFilesSorted(sessionDir);
 
-	const matchingFiles: string[] = [];
+	const matchingFiles: Array<{ file: string; stats: Stats }> = [];
 	for (const item of sorted) {
 		if (cwd) {
 			try {
@@ -69,14 +92,14 @@ export async function listSessions(
 				continue;
 			}
 		}
-		matchingFiles.push(item.file);
+		matchingFiles.push(item);
 	}
 
 	const total = matchingFiles.length;
 	const pageFiles = matchingFiles.slice(offset, offset + limit);
 	const sessions: SessionSummary[] = [];
 
-	for (const file of pageFiles) {
+	for (const { file, stats } of pageFiles) {
 		try {
 			const info = await getSessionInfo(file);
 			sessions.push({
@@ -86,6 +109,7 @@ export async function listSessions(
 				firstPrompt: info.firstPrompt,
 				cwd: info.cwd,
 				timestamp: info.timestamp,
+				updatedAt: info.updatedAt ?? stats.mtime.toISOString(),
 				parentSession: info.parentSession,
 				messageCount: info.messageCount,
 				lastMessage: info.lastMessage,
@@ -118,9 +142,11 @@ export async function getSessionInfo(
 	sessionFile: string,
 ): Promise<SessionInfo> {
 	let mtimeMs = 0;
+	let updatedAt = "";
 	try {
 		const info = await stat(sessionFile);
 		mtimeMs = info.mtimeMs;
+		updatedAt = info.mtime.toISOString();
 		const cached = SESSION_INFO_CACHE.get(sessionFile);
 		if (cached && cached.mtimeMs === mtimeMs) {
 			return cached.info;
@@ -130,10 +156,11 @@ export async function getSessionInfo(
 	}
 
 	const parsed = await computeSessionInfo(sessionFile);
+	const info = updatedAt ? { ...parsed, updatedAt } : parsed;
 	if (mtimeMs) {
-		SESSION_INFO_CACHE.set(sessionFile, { mtimeMs, info: parsed });
+		SESSION_INFO_CACHE.set(sessionFile, { mtimeMs, info });
 	}
-	return parsed;
+	return info;
 }
 
 export async function findSessionFileById(
@@ -177,7 +204,10 @@ async function computeSessionInfo(sessionFile: string): Promise<SessionInfo> {
 	let lastMessageLine: string | null = null;
 
 	const stream = createReadStream(sessionFile, { encoding: "utf8" });
-	const rl = createInterface({ input: stream, crlfDelay: Infinity });
+	const rl = createInterface({
+		input: stream,
+		crlfDelay: Number.POSITIVE_INFINITY,
+	});
 
 	try {
 		for await (const line of rl) {

@@ -8,6 +8,7 @@ export interface SessionSummary {
 	firstPrompt?: string;
 	cwd: string;
 	timestamp: string;
+	updatedAt?: string;
 	parentSession?: string;
 	messageCount: number;
 	lastMessage?: string;
@@ -105,6 +106,7 @@ export type SessionInfo = {
 	id: string;
 	cwd: string;
 	timestamp: string;
+	updatedAt?: string;
 	parentSession?: string;
 	name?: string;
 	firstPrompt?: string;

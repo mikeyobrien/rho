@@ -82,6 +82,7 @@ console.log(
 			{
 				status: "streaming",
 				rpcSessionId: "rpc-stream",
+				sortAnchorAt: 100,
 				lastActivityAt: 100,
 			},
 		],
@@ -90,6 +91,7 @@ console.log(
 			{
 				status: "idle",
 				rpcSessionId: "rpc-active-old",
+				sortAnchorAt: 300,
 				lastActivityAt: 300,
 			},
 		],
@@ -98,6 +100,7 @@ console.log(
 			{
 				status: "starting",
 				rpcSessionId: "rpc-active-new",
+				sortAnchorAt: 500,
 				lastActivityAt: 500,
 			},
 		],
@@ -111,6 +114,126 @@ console.log(
 		orderedIds,
 		"sess-stream,sess-active-new,sess-active-old,sess-history-new,sess-history-old",
 		"comparator enforces required status grouping + recency",
+	);
+}
+
+console.log(
+	"\n-- history rows prefer updatedAt over session start timestamp --",
+);
+{
+	const ordered = ordering.sortSessionsForSidebar(
+		[
+			{
+				id: "sess-older-start-newer-activity",
+				timestamp: "2026-02-20T08:00:00.000Z",
+				updatedAt: "2026-02-20T12:00:00.000Z",
+			},
+			{
+				id: "sess-newer-start-older-activity",
+				timestamp: "2026-02-20T11:00:00.000Z",
+				updatedAt: "2026-02-20T11:30:00.000Z",
+			},
+		],
+		new Map(),
+	);
+	assertEq(
+		ordered.map((session: { id: string }) => session.id).join(","),
+		"sess-older-start-newer-activity,sess-newer-start-older-activity",
+		"updatedAt controls history recency when available",
+	);
+}
+
+console.log("\n-- streaming sessions keep stable order across token churn --");
+{
+	const sessionA = {
+		id: "sess-a",
+		timestamp: "2026-02-20T11:00:00.000Z",
+	};
+	const sessionB = {
+		id: "sess-b",
+		timestamp: "2026-02-20T10:59:00.000Z",
+	};
+	const stateById = new Map([
+		[
+			"sess-a",
+			{
+				status: "streaming",
+				rpcSessionId: "rpc-a",
+				sortAnchorAt: 200,
+				lastActivityAt: 200,
+				isStreaming: true,
+				isSendingPrompt: false,
+				pendingRpcCommands: new Map(),
+			},
+		],
+		[
+			"sess-b",
+			{
+				status: "streaming",
+				rpcSessionId: "rpc-b",
+				sortAnchorAt: 100,
+				lastActivityAt: 100,
+				isStreaming: true,
+				isSendingPrompt: false,
+				pendingRpcCommands: new Map(),
+			},
+		],
+	]);
+	const routeA = {
+		sessionId: "sess-a",
+		rpcSessionId: "rpc-a",
+		state: stateById.get("sess-a"),
+		isFocused: false,
+	};
+	const routeB = {
+		sessionId: "sess-b",
+		rpcSessionId: "rpc-b",
+		state: stateById.get("sess-b"),
+		isFocused: false,
+	};
+
+	const initialOrder = ordering
+		.sortSessionsForSidebar([sessionA, sessionB], stateById)
+		.map((session: { id: string }) => session.id)
+		.join(",");
+	assertEq(
+		initialOrder,
+		"sess-a,sess-b",
+		"initial streaming order uses sort anchor",
+	);
+
+	for (const route of [routeB, routeA, routeB, routeA]) {
+		lifecycle.applyRpcLifecycleToSessionState(route, {
+			type: "message_update",
+		});
+	}
+
+	const churnOrder = ordering
+		.sortSessionsForSidebar([sessionA, sessionB], stateById)
+		.map((session: { id: string }) => session.id)
+		.join(",");
+	assertEq(
+		churnOrder,
+		"sess-a,sess-b",
+		"message_update churn does not reorder concurrent streaming sessions",
+	);
+	assert(
+		(stateById.get("sess-a")?.lastActivityAt ?? 0) > 200,
+		"token churn still refreshes lastActivityAt for session A",
+	);
+	assert(
+		(stateById.get("sess-b")?.lastActivityAt ?? 0) > 100,
+		"token churn still refreshes lastActivityAt for session B",
+	);
+	assertEq(
+		stateById.get("sess-a")?.sortAnchorAt,
+		200,
+		"token churn leaves session A sort anchor unchanged",
+	);
+	assertEq(
+		stateById.get("sess-b")?.sortAnchorAt,
+		100,
+		"token churn leaves session B sort anchor unchanged",
 	);
 }
 
@@ -143,6 +266,7 @@ console.log("\n-- row metadata reflects unread + status signals --");
 		true,
 		"metadata carries unread milestone flag",
 	);
+	assertEq(activeMeta.sortAnchorAt, 0, "metadata exposes sidebar sort anchor");
 
 	const inactiveMeta = ordering.getSessionRowMeta(
 		{ id: "sess-history", timestamp: "2026-02-20T12:01:00.000Z" },
@@ -156,7 +280,7 @@ console.log("\n-- row metadata reflects unread + status signals --");
 }
 
 console.log(
-	"\n-- unread transitions: milestone only + clear on focused successful resync --",
+	"\n-- unread transitions: background activity + completion/error + clear on focused resync --",
 );
 {
 	const backgroundState = {
@@ -183,16 +307,36 @@ console.log(
 	assertEq(
 		backgroundState.unreadMilestone,
 		false,
-		"non-milestone background updates do not set unread",
+		"token churn alone does not set unread",
 	);
 
+	lifecycle.applyRpcLifecycleToSessionState(backgroundRoute, {
+		type: "tool_execution_start",
+	});
+	assertEq(
+		backgroundState.unreadMilestone,
+		true,
+		"background tool starts mark unread",
+	);
+
+	backgroundState.unreadMilestone = false;
+	lifecycle.applyRpcLifecycleToSessionState(backgroundRoute, {
+		type: "message_start",
+	});
+	assertEq(
+		backgroundState.unreadMilestone,
+		true,
+		"background message start marks unread",
+	);
+
+	backgroundState.unreadMilestone = false;
 	lifecycle.applyRpcLifecycleToSessionState(backgroundRoute, {
 		type: "agent_end",
 	});
 	assertEq(
 		backgroundState.unreadMilestone,
 		true,
-		"background agent_end sets milestone unread",
+		"background agent_end sets unread",
 	);
 
 	backgroundState.unreadMilestone = false;
@@ -203,7 +347,7 @@ console.log(
 	assertEq(
 		backgroundState.unreadMilestone,
 		true,
-		"background rpc_error sets milestone unread",
+		"background rpc_error sets unread",
 	);
 
 	const focusedState = {
@@ -238,6 +382,61 @@ console.log(
 		false,
 		"focused successful get_state resync clears unread milestone",
 	);
+}
+
+console.log("\n-- stopped/idle-timeout sessions clear runtime binding --");
+{
+	const state = {
+		sessionId: "sess-stop",
+		rpcSessionId: "rpc-stop",
+		status: "idle",
+		lastActivityAt: 0,
+		isStreaming: false,
+		isSendingPrompt: true,
+		recoveringRpcSession: true,
+		replayingPendingRpc: true,
+		error: "boom",
+		pendingRpcCommands: new Map([["cmd-1", { ok: true }]]),
+	};
+	const route = {
+		sessionId: "sess-stop",
+		rpcSessionId: "rpc-stop",
+		state,
+		isFocused: false,
+	};
+
+	lifecycle.applyRpcLifecycleToSessionState(route, {
+		type: "rpc_idle_timeout",
+		message: "Session stopped after inactivity",
+	});
+	assertEq(state.rpcSessionId, "", "idle timeout clears rpc binding");
+	assertEq(state.isSendingPrompt, false, "idle timeout clears sending flag");
+	assertEq(
+		state.pendingRpcCommands.size,
+		0,
+		"idle timeout clears pending commands",
+	);
+	assertEq(
+		state.recoveringRpcSession,
+		false,
+		"idle timeout clears recover state",
+	);
+	assertEq(
+		state.replayingPendingRpc,
+		false,
+		"idle timeout clears replay state",
+	);
+
+	state.rpcSessionId = "rpc-stop-2";
+	state.isSendingPrompt = true;
+	state.pendingRpcCommands.set("cmd-2", { ok: true });
+	state.error = "still here";
+	lifecycle.applyRpcLifecycleToSessionState(route, {
+		type: "rpc_session_stopped",
+	});
+	assertEq(state.rpcSessionId, "", "session stopped clears rpc binding");
+	assertEq(state.error, "", "session stopped clears stale error message");
+	assertEq(state.status, "idle", "session stopped leaves session idle");
 }
 
 console.log(`\n=== Results: ${PASS} passed, ${FAIL} failed ===\n`);

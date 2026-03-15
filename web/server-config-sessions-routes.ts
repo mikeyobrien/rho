@@ -1,27 +1,53 @@
 import crypto from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+	readCodexUsageSummaryFromAuth,
+	readKiroUsageSummaryFromAuth,
+} from "../extensions/lib/provider-usage.ts";
 import { getRhoHome } from "./config.ts";
 import { app, loadPiSessionManagerModule } from "./server-core.ts";
 import { broadcastUiEvent } from "./server-ui-events.ts";
 import {
 	findSessionFileById,
+	getSessionInfo,
 	listSessions,
 	readSession,
 } from "./session-reader.ts";
+
+let rhoVersionPromise: Promise<string | null> | null = null;
+
+function getRhoVersion(): Promise<string | null> {
+	if (!rhoVersionPromise) {
+		rhoVersionPromise = readFile(
+			new URL("../package.json", import.meta.url),
+			"utf-8",
+		)
+			.then((content) => {
+				const pkg = JSON.parse(content) as { version?: unknown };
+				return typeof pkg.version === "string" ? pkg.version : null;
+			})
+			.catch(() => null);
+	}
+	return rhoVersionPromise;
+}
 
 // --- Config API ---
 
 app.get("/api/config", async (c) => {
 	try {
 		const configPath = path.join(getRhoHome(), "init.toml");
-		const content = await readFile(configPath, "utf-8");
-		return c.json({ path: configPath, content });
+		const [content, version] = await Promise.all([
+			readFile(configPath, "utf-8"),
+			getRhoVersion(),
+		]);
+		return c.json({ path: configPath, content, version });
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			return c.json({
 				path: path.join(getRhoHome(), "init.toml"),
 				content: "",
+				version: await getRhoVersion(),
 			});
 		}
 		return c.json({ error: (error as Error).message }, 500);
@@ -35,6 +61,18 @@ app.put("/api/config", async (c) => {
 		await mkdir(path.dirname(configPath), { recursive: true });
 		await writeFile(configPath, content, "utf-8");
 		return c.json({ status: "ok", path: configPath });
+	} catch (error) {
+		return c.json({ error: (error as Error).message }, 500);
+	}
+});
+
+app.get("/api/provider-usage", async (c) => {
+	try {
+		const [codex, kiro] = await Promise.all([
+			readCodexUsageSummaryFromAuth(),
+			readKiroUsageSummaryFromAuth(),
+		]);
+		return c.json({ codex, kiro });
 	} catch (error) {
 		return c.json({ error: (error as Error).message }, 500);
 	}
@@ -72,8 +110,17 @@ app.get("/api/sessions/:id", async (c) => {
 		if (!sessionFile) {
 			return c.json({ error: "Session not found" }, 404);
 		}
-		const session = await readSession(sessionFile);
-		return c.json({ ...session, file: sessionFile });
+		const [session, info] = await Promise.all([
+			readSession(sessionFile),
+			getSessionInfo(sessionFile),
+		]);
+		return c.json({
+			...session,
+			file: sessionFile,
+			updatedAt: info.updatedAt,
+			firstPrompt: info.firstPrompt,
+			lastMessage: info.lastMessage,
+		});
 	} catch (error) {
 		return c.json(
 			{ error: (error as Error).message ?? "Failed to read session" },
