@@ -24,6 +24,8 @@ class TerminalClient {
 		this.pendingFreshSession = false;
 		this.lastKeyboardInput = { at: 0, data: "" };
 		this.inputTransform = null;
+		this._textEncoder = new TextEncoder();
+		this._textDecoder = new TextDecoder();
 	}
 	setConnectionStatus(value) {
 		if (this.connectionStatusEl) {
@@ -75,11 +77,12 @@ class TerminalClient {
 		if (!nextData) {
 			return false;
 		}
-		return this.send({
-			type: "input",
-			sessionId: this.sessionId,
-			data: nextData,
-		});
+		// Send terminal input as raw binary frame — avoids JSON overhead.
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			return false;
+		}
+		this.ws.send(this._textEncoder.encode(nextData));
+		return true;
 	}
 	reconnect() {
 		if (this.ws) {
@@ -355,6 +358,13 @@ class TerminalClient {
 	}
 
 	handleMessage(event) {
+		// Binary frames are raw PTY output — write directly as Uint8Array
+		// to skip ghostty-web's internal TextEncoder allocation.
+		if (event.data instanceof ArrayBuffer) {
+			this.term?.write(new Uint8Array(event.data));
+			return;
+		}
+
 		let payload = null;
 		try {
 			payload = JSON.parse(event.data);
@@ -383,10 +393,6 @@ class TerminalClient {
 			);
 			const size = this.currentFitSize();
 			this.send({ type: "create", cols: size.cols, rows: size.rows });
-			return;
-		}
-		if (payload.type === "terminal_data") {
-			this.term.write(payload.data || "");
 			return;
 		}
 		if (payload.type === "terminal_exit") {
@@ -439,6 +445,7 @@ class TerminalClient {
 			this.createTerminal();
 		}
 		const socket = new WebSocket(buildTerminalWsUrl());
+		socket.binaryType = "arraybuffer";
 		this.ws = socket;
 		socket.addEventListener("open", () => {
 			if (this.ws !== socket) {

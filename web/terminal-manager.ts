@@ -61,14 +61,19 @@ export type PtyFactory = (
 	},
 ) => PtyHandle;
 
+type HistoryChunk = { data: string; bytes: number };
+
 type ManagedSession = {
 	info: TerminalSessionInfo;
 	pty: PtyHandle;
 	subscribers: Set<TerminalSessionSubscriber>;
 	dataSubscription: { dispose(): void };
 	exitSubscription: { dispose(): void };
-	history: string[];
+	history: HistoryChunk[];
+	historyHead: number;
+	historyLen: number;
 	historyBytes: number;
+	lastActivityMs: number;
 	closeTimer: NodeJS.Timeout | null;
 	closed: boolean;
 };
@@ -143,7 +148,8 @@ export class TerminalManager {
 		const rows = clampDimension(options.rows, 32);
 		const cwd = path.resolve(process.cwd());
 		const shell = resolveDefaultShell();
-		const now = new Date().toISOString();
+		const now = Date.now();
+		const nowIso = new Date(now).toISOString();
 		const info: TerminalSessionInfo = {
 			id: randomUUID(),
 			shell,
@@ -151,8 +157,8 @@ export class TerminalManager {
 			cols,
 			rows,
 			pid: null,
-			startedAt: now,
-			lastActivityAt: now,
+			startedAt: nowIso,
+			lastActivityAt: nowIso,
 		};
 		const pty = this.ptyFactory(shell, [], {
 			name: "xterm-256color",
@@ -176,7 +182,7 @@ export class TerminalManager {
 				if (!active || active.closed) {
 					return;
 				}
-				active.info.lastActivityAt = new Date().toISOString();
+				active.lastActivityMs = Date.now();
 				this.appendHistory(active, data);
 				this.emit(active, {
 					type: "data",
@@ -193,7 +199,10 @@ export class TerminalManager {
 				});
 			}),
 			history: [],
+			historyHead: 0,
+			historyLen: 0,
 			historyBytes: 0,
+			lastActivityMs: now,
 			closeTimer: null,
 			closed: false,
 		};
@@ -203,20 +212,34 @@ export class TerminalManager {
 		return { ...info };
 	}
 
-	listSessions(): TerminalSessionInfo[] {
-		return Array.from(this.sessions.values(), (session) => ({
+	private snapshotInfo(session: ManagedSession): TerminalSessionInfo {
+		return {
 			...session.info,
-		}));
+			lastActivityAt: new Date(session.lastActivityMs).toISOString(),
+		};
+	}
+
+	listSessions(): TerminalSessionInfo[] {
+		return Array.from(this.sessions.values(), (session) =>
+			this.snapshotInfo(session),
+		);
 	}
 
 	getSession(sessionId: string): TerminalSessionInfo | null {
 		const session = this.sessions.get(sessionId);
-		return session ? { ...session.info } : null;
+		return session ? this.snapshotInfo(session) : null;
 	}
 
 	getReplay(sessionId: string): string {
 		const session = this.requireSession(sessionId);
-		return session.history.join("");
+		const { history, historyHead, historyLen } = session;
+		if (historyLen === 0) return "";
+		const cap = history.length;
+		const parts: string[] = new Array(historyLen);
+		for (let i = 0; i < historyLen; i++) {
+			parts[i] = history[(historyHead + i) % cap].data;
+		}
+		return parts.join("");
 	}
 
 	subscribe(
@@ -239,7 +262,7 @@ export class TerminalManager {
 			return;
 		}
 		const session = this.requireSession(sessionId);
-		session.info.lastActivityAt = new Date().toISOString();
+		session.lastActivityMs = Date.now();
 		session.pty.write(data);
 	}
 
@@ -250,8 +273,8 @@ export class TerminalManager {
 		session.pty.resize(nextCols, nextRows);
 		session.info.cols = nextCols;
 		session.info.rows = nextRows;
-		session.info.lastActivityAt = new Date().toISOString();
-		return { ...session.info };
+		session.lastActivityMs = Date.now();
+		return this.snapshotInfo(session);
 	}
 
 	close(sessionId: string): boolean {
@@ -302,14 +325,33 @@ export class TerminalManager {
 	}
 
 	private appendHistory(session: ManagedSession, data: string): void {
-		session.history.push(data);
-		session.historyBytes += Buffer.byteLength(data, "utf8");
+		const bytes = Buffer.byteLength(data, "utf8");
+		const chunk: HistoryChunk = { data, bytes };
+		const cap = session.history.length;
+
+		if (session.historyLen < cap) {
+			// Ring buffer not yet full — fill next slot.
+			const idx = (session.historyHead + session.historyLen) % cap;
+			session.history[idx] = chunk;
+			session.historyLen++;
+		} else {
+			// Grow or overwrite. For simplicity, push and let eviction trim.
+			session.history.push(chunk);
+			session.historyLen++;
+		}
+		session.historyBytes += bytes;
+
+		// Evict oldest chunks from the head until within budget.
 		while (
-			session.history.length > 1 &&
+			session.historyLen > 1 &&
 			session.historyBytes > this.historyLimitBytes
 		) {
-			const removed = session.history.shift() ?? "";
-			session.historyBytes -= Buffer.byteLength(removed, "utf8");
+			const oldest = session.history[session.historyHead];
+			session.historyBytes -= oldest.bytes;
+			session.history[session.historyHead] =
+				undefined as unknown as HistoryChunk;
+			session.historyHead = (session.historyHead + 1) % session.history.length;
+			session.historyLen--;
 		}
 	}
 
@@ -340,7 +382,7 @@ export class TerminalManager {
 			return;
 		}
 		session.closed = true;
-		session.info.lastActivityAt = new Date().toISOString();
+		session.lastActivityMs = Date.now();
 		this.cancelCloseTimer(session);
 		this.emit(session, event);
 		session.dataSubscription.dispose();

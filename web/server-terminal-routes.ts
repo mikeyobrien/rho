@@ -64,11 +64,10 @@ function attachSession(ws: WSContext<WebSocket>, sessionId: string): void {
 		sessionId,
 		(event: TerminalSessionEvent) => {
 			if (event.type === "data") {
-				sendWsMessage(ws, {
-					type: "terminal_data",
-					sessionId: event.sessionId,
-					data: event.data,
-				});
+				// Send PTY output as raw binary frame — avoids JSON overhead
+				// on the hottest path. Client detects binary vs text by frame type.
+				// ws.send with a Buffer triggers a binary WebSocket frame.
+				ws.send(Buffer.from(event.data, "utf8"));
 				return;
 			}
 			sendWsMessage(ws, {
@@ -90,12 +89,18 @@ function sendTerminalError(ws: WSContext<WebSocket>, message: string): void {
 	});
 }
 
-async function serveAsset(filePath: string, contentType: string) {
+async function serveAsset(
+	filePath: string,
+	contentType: string,
+	immutable = false,
+) {
 	const body = await readFile(filePath);
 	return new Response(body, {
 		headers: {
 			"Content-Type": contentType,
-			"Cache-Control": "no-cache",
+			"Cache-Control": immutable
+				? "public, max-age=31536000, immutable"
+				: "no-cache",
 		},
 	});
 }
@@ -112,15 +117,15 @@ app.get("/api/terminal/sessions", (c) => {
 });
 
 app.get("/vendor/ghostty-web.js", async () => {
-	return serveAsset(ghosttyJsPath, "text/javascript; charset=utf-8");
+	return serveAsset(ghosttyJsPath, "text/javascript; charset=utf-8", true);
 });
 
 app.get("/vendor/ghostty-vt.wasm", async () => {
-	return serveAsset(ghosttyWasmPath, "application/wasm");
+	return serveAsset(ghosttyWasmPath, "application/wasm", true);
 });
 
 app.get("/ghostty-vt.wasm", async () => {
-	return serveAsset(ghosttyWasmPath, "application/wasm");
+	return serveAsset(ghosttyWasmPath, "application/wasm", true);
 });
 
 app.get(
@@ -131,6 +136,16 @@ app.get(
 			sendWsMessage(ws, { type: "terminal_ready" });
 		},
 		onMessage: (event, ws) => {
+			// Binary frames are raw terminal input — skip JSON parsing.
+			if (event.data instanceof ArrayBuffer) {
+				const state = getSocketState(ws);
+				if (state.sessionId) {
+					const text = new TextDecoder().decode(event.data);
+					terminalManager.write(state.sessionId, text);
+				}
+				return;
+			}
+
 			if (typeof event.data !== "string") {
 				return;
 			}

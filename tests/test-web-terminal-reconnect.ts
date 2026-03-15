@@ -40,8 +40,9 @@ async function getFreePort(): Promise<number> {
 }
 
 type CapturedMessage = {
-	raw: string;
+	raw: string | Buffer;
 	parsed: unknown;
+	isBinary: boolean;
 };
 
 function createWsClient(url: string): Promise<{
@@ -52,12 +53,21 @@ function createWsClient(url: string): Promise<{
 		const ws = new WebSocket(url);
 		const messages: CapturedMessage[] = [];
 		ws.on("open", () => resolve({ ws, messages }));
-		ws.on("message", (raw) => {
+		ws.on("message", (raw, isBinary) => {
+			if (isBinary) {
+				const text = raw instanceof Buffer ? raw.toString("utf8") : String(raw);
+				messages.push({ raw, parsed: null, isBinary: true });
+				return;
+			}
 			const text = raw.toString();
 			try {
-				messages.push({ raw: text, parsed: JSON.parse(text) as unknown });
+				messages.push({
+					raw: text,
+					parsed: JSON.parse(text) as unknown,
+					isBinary: false,
+				});
 			} catch {
-				messages.push({ raw: text, parsed: null });
+				messages.push({ raw: text, parsed: null, isBinary: false });
 			}
 		});
 		ws.on("error", reject);
@@ -129,16 +139,26 @@ try {
 			data: `printf '${marker}\\n'\r`,
 		}),
 	);
-	await waitForMessage(
-		firstClient.messages,
-		(parsed): parsed is SessionEnvelope =>
-			typeof parsed === "object" &&
-			parsed !== null &&
-			(parsed as { type?: unknown }).type === "terminal_data" &&
-			typeof (parsed as { data?: unknown }).data === "string" &&
-			((parsed as { data: string }).data.includes(marker) || false),
-		3000,
-	);
+	// PTY output now arrives as binary frames, not JSON terminal_data.
+	const waitForBinaryMarker = async (
+		msgs: CapturedMessage[],
+		mark: string,
+		timeoutMs: number,
+	): Promise<void> => {
+		const start = Date.now();
+		while (Date.now() - start < timeoutMs) {
+			for (const m of msgs) {
+				if (m.isBinary) {
+					const text =
+						m.raw instanceof Buffer ? m.raw.toString("utf8") : String(m.raw);
+					if (text.includes(mark)) return;
+				}
+			}
+			await sleep(10);
+		}
+		throw new Error("Timed out waiting for binary message with marker");
+	};
+	await waitForBinaryMarker(firstClient.messages, marker, 3000);
 	firstClient.ws.close();
 	await sleep(100);
 
