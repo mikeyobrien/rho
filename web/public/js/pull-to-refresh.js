@@ -16,6 +16,10 @@
  * Inserts a small indicator element at the top of containerEl.
  * Works on touch devices only.
  */
+function shouldIgnorePullToRefreshTarget(target) {
+	return Boolean(target?.closest?.(".terminal-drawer-root"));
+}
+
 class PullToRefresh {
 	constructor(el, opts = {}) {
 		this.el = el;
@@ -55,6 +59,9 @@ class PullToRefresh {
 	 * "at top" and pull-to-refresh should not activate.
 	 */
 	_isAtPageTop(target) {
+		if (shouldIgnorePullToRefreshTarget(target)) {
+			return false;
+		}
 		let node = target;
 		while (node && node !== document.documentElement) {
 			if (node.scrollHeight > node.clientHeight + 1 && node.scrollTop > 5) {
@@ -115,7 +122,7 @@ class PullToRefresh {
 		const progress = Math.min(1, this._pullDistance / this.threshold);
 		const height = this._pullDistance;
 
-		this._indicator.style.height = height + "px";
+		this._indicator.style.height = `${height}px`;
 		this._indicator.style.opacity = progress;
 
 		const arrow = this._indicator.querySelector(".ptr-arrow");

@@ -70,8 +70,10 @@
 		"@grammyjs/auto-retry": "^2.0.2",
 		"@hono/node-server": "^1.13.1",
 		"@hono/node-ws": "^1.0.7",
+		"ghostty-web": "^0.4.0",
 		"grammy": "^1.40.0",
 		"hono": "^4.6.16",
+		"node-pty": "^1.1.0",
 		"smol-toml": "^1.6.0",
 		"tsx": "^4.21.0"
 	}
