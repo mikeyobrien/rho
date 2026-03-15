@@ -379,6 +379,10 @@ console.log(
 		"/tmp/sess-missing.jsonl",
 		"selectSession starts rpc from payload file when summary page misses id",
 	);
+	assert(
+		chat.sessions.some((session) => asRecord(session).id === "sess-missing"),
+		"selectSession injects missing active session into sidebar state",
+	);
 }
 
 console.log(

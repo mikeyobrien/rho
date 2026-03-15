@@ -8,9 +8,11 @@ import "./server-git-routes.ts";
 import "./server-git-context-routes.ts";
 import "./server-config-sessions-routes.ts";
 import "./server-tasks-memory-routes.ts";
+import "./server-auto-memory-routes.ts";
 import "./server-rpc-ws-routes.ts";
 import "./server-rpc-live-mode-routes.ts";
 import "./server-mobile-auth-routes.ts";
+import "./server-terminal-routes.ts";
 import "./server-static-routes.ts";
 
 export { disposeServerResources, injectWebSocket };

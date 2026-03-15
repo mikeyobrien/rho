@@ -1,8 +1,11 @@
-import { getCookie } from "hono/cookie";
 import type { Context, Next } from "hono";
+import { getCookie } from "hono/cookie";
 import { getAuthConfig } from "./config.ts";
 import { app } from "./server-core.ts";
-import { activeSessions, SESSION_COOKIE_NAME } from "./server-mobile-auth-state.ts";
+import {
+	SESSION_COOKIE_NAME,
+	activeSessions,
+} from "./server-mobile-auth-state.ts";
 
 const AUTH_EXEMPT_PATHS = new Set([
 	"/api/health",
@@ -21,7 +24,7 @@ export async function authMiddleware(c: Context, next: Next) {
 	const path = c.req.path;
 	if (
 		AUTH_EXEMPT_PATHS.has(path) ||
-		(!path.startsWith("/api/") && path !== "/ws")
+		(!path.startsWith("/api/") && path !== "/ws" && path !== "/terminal/ws")
 	) {
 		await next();
 		return;
@@ -47,3 +50,4 @@ export async function authMiddleware(c: Context, next: Next) {
 
 app.use("/api/*", authMiddleware);
 app.use("/ws", authMiddleware);
+app.use("/terminal/ws", authMiddleware);

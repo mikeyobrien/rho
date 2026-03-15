@@ -1,6 +1,6 @@
 import { execFile as execFileCb } from "node:child_process";
 import crypto from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -39,6 +39,7 @@ import {
 	resolveReviewRecord,
 	submitReviewRecord,
 } from "./review-store.ts";
+import { rpcLiveModeLeases } from "./rpc-live-mode-lease.ts";
 import {
 	type RPCCommand,
 	type RPCEvent,
@@ -46,7 +47,6 @@ import {
 	rpcManager,
 } from "./rpc-manager.ts";
 import { RpcSessionReliability } from "./rpc-reliability.ts";
-import { rpcLiveModeLeases } from "./rpc-live-mode-lease.ts";
 import {
 	findSessionFileById,
 	listSessions,
@@ -58,19 +58,25 @@ import {
 	listAllTasks,
 	updateTask,
 } from "./task-api.ts";
-
 const app = new Hono();
 app.use(compress());
-
-// Optional timing middleware when RHO_DEBUG=1
-if (process.env.RHO_DEBUG === "1") {
+// Structured perf logging when RHO_DEBUG=1 or RHO_PERF=1
+if (process.env.RHO_DEBUG === "1" || process.env.RHO_PERF === "1") {
+	const perfReady = mkdir(path.join(getRhoHome(), "perf"), {
+		recursive: true,
+	}).then(() => path.join(getRhoHome(), "perf", "perf.jsonl"));
 	app.use("*", async (c, next) => {
 		const start = Date.now();
 		await next();
-		const duration = Date.now() - start;
-		console.log(
-			`${c.req.method} ${c.req.url} -> ${c.res.status} (${duration}ms)`,
-		);
+		const entry = JSON.stringify({
+			ts: new Date().toISOString(),
+			method: c.req.method,
+			path: new URL(c.req.url).pathname,
+			status: c.res.status,
+			ms: Date.now() - start,
+		});
+		console.log(entry);
+		perfReady.then((p) => appendFile(p, `${entry}\n`)).catch(() => {});
 	});
 }
 
@@ -79,11 +85,10 @@ const publicDir = path.resolve(
 	"public",
 );
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
-
 const rpcSessionSubscribers = new Map<
-	WSContext<WebSocket>, Map<string, () => void>
+	WSContext<WebSocket>,
+	Map<string, () => void>
 >();
-
 function readNumericEnv(name: string, fallback: number): number {
 	const raw = process.env[name];
 	if (!raw) {
@@ -95,7 +100,6 @@ function readNumericEnv(name: string, fallback: number): number {
 	}
 	return parsed;
 }
-
 const _rc = getRpcReliabilityConfig();
 const _og = readNumericEnv("RHO_RPC_ORPHAN_GRACE_MS", _rc.orphanGraceMs);
 const _oa = readNumericEnv(
@@ -103,7 +107,6 @@ const _oa = readNumericEnv(
 	_rc.orphanAbortDelayMs,
 );
 console.debug(`[rpc] orphan: grace=${_og}ms abort-delay=${_oa}ms`);
-
 const rpcReliability = new RpcSessionReliability({
 	eventBufferSize: readNumericEnv("RHO_RPC_EVENT_BUFFER_SIZE", 800),
 	commandRetentionMs: readNumericEnv("RHO_RPC_COMMAND_RETENTION_MS", 300000),
@@ -127,7 +130,6 @@ const rpcReliability = new RpcSessionReliability({
 		rpcManager.stopSession(sessionId);
 	},
 });
-
 let sessionManagerModulePromise: Promise<{
 	SessionManager: {
 		open(path: string): {
@@ -145,7 +147,6 @@ type WSIncomingMessage = {
 	ts?: number;
 	command?: RPCCommand;
 };
-
 // --- Review (line-level commenting) ---
 
 type ReviewFile = {
@@ -154,7 +155,6 @@ type ReviewFile = {
 	content: string;
 	language: string;
 };
-
 type ReviewComment = {
 	file: string;
 	startLine: number;
@@ -293,7 +293,10 @@ function mapReviewStoreError(error: unknown): {
 	return { status: 500, message: error.message };
 }
 
-function sendWsMessage(ws: WSContext<WebSocket>, message: Record<string, unknown>): void {
+function sendWsMessage(
+	ws: WSContext<WebSocket>,
+	message: Record<string, unknown>,
+): void {
 	ws.send(JSON.stringify(message));
 }
 
@@ -491,7 +494,5 @@ export {
 	rpcManager,
 	injectWebSocket,
 };
-
 export type { WSIncomingMessage, ReviewFile, ReviewComment, ReviewSession };
-
 export default app;

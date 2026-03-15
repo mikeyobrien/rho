@@ -472,7 +472,7 @@ console.log(
 	assertEq(
 		chat.sessionRowUnread(rowAStreaming),
 		false,
-		"streaming updates alone do not set unread milestone",
+		"agent start alone does not set unread badge",
 	);
 
 	chat.handleWsMessage({
@@ -480,6 +480,26 @@ console.log(
 			type: "rpc_event",
 			sessionId: "rpc-a",
 			seq: 2,
+			event: { type: "tool_execution_start", toolUseId: "tool-1" },
+		}),
+	});
+
+	const orderedAfterTool = chat.orderedSessions();
+	const rowAAfterTool = orderedAfterTool.find((row) => row.id === "sess-a");
+	if (!rowAAfterTool) {
+		throw new Error("missing sess-a row after tool activity");
+	}
+	assertEq(
+		chat.sessionRowUnread(rowAAfterTool),
+		true,
+		"background tool activity sets unread badge",
+	);
+
+	chat.handleWsMessage({
+		data: JSON.stringify({
+			type: "rpc_event",
+			sessionId: "rpc-a",
+			seq: 3,
 			event: { type: "agent_end" },
 		}),
 	});

@@ -18,7 +18,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { activeSessions, SESSION_COOKIE_NAME } from "../web/server-mobile-auth-state.ts";
+import {
+	SESSION_COOKIE_NAME,
+	activeSessions,
+} from "../web/server-mobile-auth-state.ts";
 import app from "../web/server.ts";
 
 // ---------------------------------------------------------------------------
@@ -47,7 +50,9 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
 		console.log(`  PASS  ${label}`);
 		PASS++;
 	} else {
-		console.error(`  FAIL  ${label}  (expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)})`);
+		console.error(
+			`  FAIL  ${label}  (expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)})`,
+		);
 		FAIL++;
 	}
 }
@@ -91,24 +96,38 @@ async function runTests(): Promise<void> {
 	const protectedRoutes: [string, RequestInit?][] = [
 		["/api/sessions"],
 		["/api/config"],
+		["/api/provider-usage"],
 		["/api/tasks"],
 		["/api/memory"],
 		["/api/review/sessions"],
 		["/api/review/submissions"],
-		["/api/sessions/new", { method: "POST", headers: { "Content-Type": "application/json" } }],
+		[
+			"/api/sessions/new",
+			{ method: "POST", headers: { "Content-Type": "application/json" } },
+		],
 	];
 
 	for (const [route, init] of protectedRoutes) {
 		const res = await app.fetch(new Request(`http://localhost${route}`, init));
-		assertEq(res.status, 401, `${init?.method ?? "GET"} ${route} rejected without auth`);
+		assertEq(
+			res.status,
+			401,
+			`${init?.method ?? "GET"} ${route} rejected without auth`,
+		);
 	}
 
 	// Public endpoints must remain accessible without auth
 	const healthRes = await app.fetch(new Request("http://localhost/api/health"));
 	assertEq(healthRes.status, 200, "GET /api/health accessible without auth");
 
-	const authStatusRes = await app.fetch(new Request("http://localhost/api/auth/status"));
-	assertEq(authStatusRes.status, 200, "GET /api/auth/status accessible without auth");
+	const authStatusRes = await app.fetch(
+		new Request("http://localhost/api/auth/status"),
+	);
+	assertEq(
+		authStatusRes.status,
+		200,
+		"GET /api/auth/status accessible without auth",
+	);
 
 	// -------------------------------------------------------------------------
 	// Section 1 — Auth exchange flow
@@ -118,7 +137,11 @@ async function runTests(): Promise<void> {
 	const missingAuthRes = await app.fetch(
 		new Request("http://localhost/api/auth/exchange", { method: "POST" }),
 	);
-	assertEq(missingAuthRes.status, 401, "Exchange: missing Authorization header → 401");
+	assertEq(
+		missingAuthRes.status,
+		401,
+		"Exchange: missing Authorization header → 401",
+	);
 
 	const badTokenRes = await app.fetch(
 		new Request("http://localhost/api/auth/exchange", {
@@ -137,12 +160,18 @@ async function runTests(): Promise<void> {
 	assertEq(authRes.status, 200, "Exchange: valid token → 200");
 
 	const cookieStr = authRes.headers.get("Set-Cookie") ?? "";
-	assert(cookieStr.includes(SESSION_COOKIE_NAME), "Exchange: session cookie issued");
+	assert(
+		cookieStr.includes(SESSION_COOKIE_NAME),
+		"Exchange: session cookie issued",
+	);
 	assert(cookieStr.includes("HttpOnly"), "Exchange: cookie is HttpOnly");
 
 	// Extract cookie for subsequent requests
 	const authHeaders = { Cookie: cookieStr };
-	const authHeadersJson = { Cookie: cookieStr, "Content-Type": "application/json" };
+	const authHeadersJson = {
+		Cookie: cookieStr,
+		"Content-Type": "application/json",
+	};
 
 	// -------------------------------------------------------------------------
 	// Section 2 — Sessions / new / fork parity
@@ -164,7 +193,10 @@ async function runTests(): Promise<void> {
 
 	if (newSessionRes.status === 200) {
 		const body = (await newSessionRes.json()) as { sessionId?: string };
-		assert(typeof body.sessionId === "string" && body.sessionId.length > 0, "New session has sessionId");
+		assert(
+			typeof body.sessionId === "string" && body.sessionId.length > 0,
+			"New session has sessionId",
+		);
 
 		// Fork on a brand-new empty session has no fork points → 400.
 		// The important invariant is that auth passes (not 401/403).
@@ -211,6 +243,23 @@ async function runTests(): Promise<void> {
 		new Request("http://localhost/api/config", { headers: authHeaders }),
 	);
 	assertEq(configRes.status, 200, "GET /api/config with auth → 200");
+	const configPayload = await configRes.json();
+	assert(
+		typeof configPayload.version === "string" &&
+			configPayload.version.length > 0,
+		"GET /api/config includes rho version",
+	);
+
+	const providerUsageRes = await app.fetch(
+		new Request("http://localhost/api/provider-usage", {
+			headers: authHeaders,
+		}),
+	);
+	assertEq(
+		providerUsageRes.status,
+		200,
+		"GET /api/provider-usage with auth → 200",
+	);
 
 	const tasksRes = await app.fetch(
 		new Request("http://localhost/api/tasks", { headers: authHeaders }),
@@ -228,14 +277,26 @@ async function runTests(): Promise<void> {
 	section("5 · Review flows parity");
 
 	const reviewSessionsRes = await app.fetch(
-		new Request("http://localhost/api/review/sessions", { headers: authHeaders }),
+		new Request("http://localhost/api/review/sessions", {
+			headers: authHeaders,
+		}),
 	);
-	assertEq(reviewSessionsRes.status, 200, "GET /api/review/sessions with auth → 200");
+	assertEq(
+		reviewSessionsRes.status,
+		200,
+		"GET /api/review/sessions with auth → 200",
+	);
 
 	const reviewSubmissionsRes = await app.fetch(
-		new Request("http://localhost/api/review/submissions", { headers: authHeaders }),
+		new Request("http://localhost/api/review/submissions", {
+			headers: authHeaders,
+		}),
 	);
-	assertEq(reviewSubmissionsRes.status, 200, "GET /api/review/submissions with auth → 200");
+	assertEq(
+		reviewSubmissionsRes.status,
+		200,
+		"GET /api/review/submissions with auth → 200",
+	);
 
 	// Create a review session and verify submission lookup
 	const createReviewRes = await app.fetch(
@@ -245,7 +306,11 @@ async function runTests(): Promise<void> {
 			body: JSON.stringify({ files: ["/tmp/fake.ts"], message: "parity test" }),
 		}),
 	);
-	assertEq(createReviewRes.status, 200, "POST /api/review/sessions with auth → 200");
+	assertEq(
+		createReviewRes.status,
+		200,
+		"POST /api/review/sessions with auth → 200",
+	);
 
 	if (createReviewRes.status === 200) {
 		const reviewBody = (await createReviewRes.json()) as { id?: string };
@@ -262,7 +327,11 @@ async function runTests(): Promise<void> {
 	const statusActiveRes = await app.fetch(
 		new Request("http://localhost/api/auth/status", { headers: authHeaders }),
 	);
-	assertEq(statusActiveRes.status, 200, "GET /api/auth/status with valid session → 200");
+	assertEq(
+		statusActiveRes.status,
+		200,
+		"GET /api/auth/status with valid session → 200",
+	);
 	if (statusActiveRes.status === 200) {
 		const statusBody = (await statusActiveRes.json()) as { active?: boolean };
 		assert(statusBody.active === true, "Auth status reports active=true");
@@ -289,7 +358,11 @@ async function runTests(): Promise<void> {
 	const expiredRes = await app.fetch(
 		new Request("http://localhost/api/sessions", { headers: expiredHeaders }),
 	);
-	assertEq(expiredRes.status, 401, "GET /api/sessions with expired session → 401");
+	assertEq(
+		expiredRes.status,
+		401,
+		"GET /api/sessions with expired session → 401",
+	);
 
 	// -------------------------------------------------------------------------
 	// Summary

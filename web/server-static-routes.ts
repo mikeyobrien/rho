@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import * as path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { setCookie } from "hono/cookie";
+import { getRhoHome } from "./config.ts";
+import { rpcLiveModeLeases } from "./rpc-live-mode-lease.ts";
 import {
 	app,
 	clearRpcSubscriptions,
@@ -10,13 +12,12 @@ import {
 	rpcReliability,
 	rpcSessionSubscribers,
 } from "./server-core.ts";
-import { getRhoHome } from "./config.ts";
-import { rpcLiveModeLeases } from "./rpc-live-mode-lease.ts";
 import {
+	SESSION_COOKIE_NAME,
 	activeSessions,
 	pendingBootstrapTokens,
-	SESSION_COOKIE_NAME,
 } from "./server-mobile-auth-state.ts";
+import { terminalManager } from "./terminal-manager.ts";
 
 // --- User CSS ---
 
@@ -158,6 +159,7 @@ export function disposeServerResources(): void {
 	rpcReliability.dispose();
 	rpcManager.dispose();
 	rpcLiveModeLeases.clearAll();
+	terminalManager.dispose();
 }
 
 export default app;

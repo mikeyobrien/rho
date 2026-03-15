@@ -17,5 +17,8 @@ fi
 echo "── pre-commit: line limit (500) ──"
 CHECK_STAGED_ONLY=1 bash scripts/check-line-limit.sh
 
+echo "── pre-commit: asset size budgets ──"
+CHECK_STAGED_ONLY=1 bash scripts/check-asset-size.sh
+
 echo ""
 echo "✅ pre-commit gates passed"

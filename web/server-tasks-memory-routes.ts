@@ -1,19 +1,19 @@
 import crypto from "node:crypto";
 import { stat } from "node:fs/promises";
 import {
-	appendBrainEntry,
-	type BehaviorEntry,
 	BRAIN_PATH,
+	type BehaviorEntry,
 	type BrainEntry,
 	type ContextEntry,
-	foldBrain,
 	type IdentityEntry,
 	type LearningEntry,
 	type PreferenceEntry,
 	type ReminderEntry,
-	readBrain,
 	type TaskEntry,
 	type UserEntry,
+	appendBrainEntry,
+	foldBrain,
+	readBrain,
 } from "../extensions/lib/brain-store.ts";
 import { app } from "./server-core.ts";
 import {
@@ -28,7 +28,7 @@ import {
 app.get("/api/tasks", async (c) => {
 	try {
 		const filter = c.req.query("filter");
-		const tasks = listAllTasks(filter ?? undefined);
+		const tasks = await listAllTasks(filter ?? undefined);
 		return c.json(tasks);
 	} catch (error) {
 		return c.json(

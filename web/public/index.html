@@ -31,6 +31,7 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
     />
     <link rel="stylesheet" href="/css/style.css?v=20260219v64" />
+    <link rel="stylesheet" href="/css/terminal-drawer.css?v=20260315v1" />
     <link rel="stylesheet" href="/css/review-panel.css?v=20260219v2" />
     <!-- Preload CDN scripts for faster initial render -->
     <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
@@ -40,18 +41,22 @@
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="/js/app.js?v=20260219v1" defer></script>
+    <script src="/js/app.js?v=20260315v1" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
     <script type="module" src="/js/chat.js?v=20260219v38"></script>
-    <script src="/js/config.js?v=20260219v1" defer></script>
+    <script src="/js/config.js?v=20260314v2" defer></script>
     <script src="/js/memory.js?v=20260211v" defer></script>
     <script src="/js/review-panel.js?v=20260219v2" defer></script>
-    <script src="/js/pull-to-refresh.js?v=20260218v" defer></script>
+    <script src="/js/pull-to-refresh.js?v=20260315v1" defer></script>
 
     <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
   </head>
   <body>
-    <div class="app" x-data="rhoApp()">
+    <div
+      class="app"
+      x-data="rhoApp()"
+      :class="{ 'terminal-open': terminalOpen, 'terminal-expanded': terminalExpanded }"
+    >
       <nav class="nav">
         <div class="nav-inner">
           <div class="nav-seg nav-logo">rho</div>
@@ -136,7 +141,7 @@
                       <div class="chat-session-title" x-text="session.name || session.firstPrompt || (session.messageCount > 0 ? session.id.substring(0, 8) : 'New session')"></div>
                       <div class="chat-session-id" x-show="session.firstPrompt || session.name" x-text="session.id.substring(0, 8)"></div>
                       <div class="chat-session-meta">
-                        <span x-text="formatTimestampShort(session.timestamp)"></span>
+                        <span x-text="formatTimestampShort(session.updatedAt || session.timestamp)"></span>
                         <span x-text="messageCountLabel(session)"></span>
                         <span
                           class="chat-session-badge status"
@@ -680,6 +685,24 @@
                   <div class="chat-composer-hints" x-show="isInteractiveSession()">
                     Enter to send · Shift+Enter for newline · Paste, drag, or use Attach for images
                   </div>
+                  <div
+                    class="chat-modifier-bar"
+                    :class="{ visible: modifierKeysEnabled }"
+                    @pointerdown.prevent
+                  >
+                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('Escape')">Esc</button>
+                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('Tab')">Tab</button>
+                    <button
+                      class="chat-modifier-key"
+                      :class="{ 'sticky-active': ctrlSticky }"
+                      type="button"
+                      @click="toggleCtrlSticky()"
+                    >Ctrl</button>
+                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowUp')">↑</button>
+                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowDown')">↓</button>
+                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowLeft')">←</button>
+                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowRight')">→</button>
+                  </div>
                 </form>
 
 
@@ -849,6 +872,63 @@
                     x-text="themeButtonLabel()"
                   ></button>
                 </div>
+                <div class="config-preference-item">
+                  <div class="config-preference-copy">
+                    <div class="config-preference-label">Modifier keys</div>
+                    <div class="config-preference-help">Show Esc, Tab, Ctrl, and arrow keys above the chat input on mobile.</div>
+                  </div>
+                  <button
+                    class="btn btn-sm"
+                    type="button"
+                    @click="toggleModifierKeys()"
+                    x-text="modifierKeys ? 'On' : 'Off'"
+                  ></button>
+                </div>
+                <div class="config-preference-item" x-show="rhoVersion" x-cloak>
+                  <div class="config-preference-copy">
+                    <div class="config-preference-label">Rho version</div>
+                    <div class="config-preference-help" x-text="'Running: ' + rhoVersionLabel()"></div>
+                  </div>
+                </div>
+                <div class="config-preference-item" x-show="codexUsageVisible()" x-cloak>
+                  <div class="config-preference-copy">
+                    <div class="config-preference-label">Codex usage</div>
+                    <div class="config-preference-help" x-text="codexPlanLabel()"></div>
+                    <div class="config-preference-help" x-show="isLoadingCodexUsage">Loading usage…</div>
+                    <div class="config-preference-help" x-show="!isLoadingCodexUsage && codexUsageAvailable()" x-text="'Current window: ' + codexWindowRemainingLabel('primary')"></div>
+                    <div class="config-preference-help" x-show="!isLoadingCodexUsage && codexUsageAvailable()" x-text="'Long window: ' + codexWindowRemainingLabel('secondary')"></div>
+                    <div class="config-preference-help" x-show="!isLoadingCodexUsage && !codexUsageAvailable() && codexUsageError" x-text="codexUsageError"></div>
+                  </div>
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    type="button"
+                    @click="loadProviderUsage()"
+                    :disabled="isLoadingCodexUsage"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div class="config-preference-item" x-show="kiroUsageVisible()" x-cloak>
+                  <div class="config-preference-copy">
+                    <div class="config-preference-label">Kiro usage</div>
+                    <div class="config-preference-help" x-text="kiroPlanLabel()"></div>
+                    <div class="config-preference-help" x-show="isLoadingKiroUsage">Loading usage…</div>
+                    <div class="config-preference-help" x-show="!isLoadingKiroUsage && kiroUsageAvailable() && kiroResetLabel()" x-text="kiroResetLabel()"></div>
+                    <div class="config-preference-help" x-show="!isLoadingKiroUsage && kiroUsageAvailable() && kiroUsageBucketsLabel()" x-text="kiroUsageBucketsLabel()"></div>
+                    <div class="config-preference-help" x-show="!isLoadingKiroUsage && kiroUsageAvailable() && kiroBonusLabel()" x-text="kiroBonusLabel()"></div>
+                    <div class="config-preference-help" x-show="!isLoadingKiroUsage && kiroUsageAvailable() && kiroOverageLabel()" x-text="kiroOverageLabel()"></div>
+                    <div class="config-preference-help" x-show="!isLoadingKiroUsage && !kiroUsageAvailable() && kiroUsageError" x-text="kiroUsageError"></div>
+                    <a x-show="kiroUsage?.manageUrl" :href="kiroUsage.manageUrl" target="_blank" class="config-preference-help config-link">Manage plan</a>
+                  </div>
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    type="button"
+                    @click="loadProviderUsage()"
+                    :disabled="isLoadingKiroUsage"
+                  >
+                    Refresh
+                  </button>
+                </div>
                 <div class="config-preference-item" x-show="isMobileShell" x-cloak>
                   <div class="config-preference-copy">
                     <div class="config-preference-label">Profiles</div>
@@ -903,6 +983,57 @@
                 <span class="memory-stat-value reminder" x-text="stats.reminders">0</span>
                 <span class="memory-stat-label">reminders</span>
               </span>
+            </div>
+
+            <div class="memory-auto-card">
+              <div class="memory-auto-card-header">
+                <div>
+                  <div class="memory-auto-card-title">Auto-memory</div>
+                  <div class="memory-auto-card-subtitle">Background extraction status and recent runs.</div>
+                </div>
+                <div class="memory-auto-card-actions">
+                  <span class="memory-auto-phase" :class="autoMemory.status.phase" x-text="autoMemoryPhaseLabel()"></span>
+                  <button class="btn btn-sm btn-ghost" type="button" @click="loadAutoMemory()">Refresh</button>
+                </div>
+              </div>
+              <div class="memory-auto-grid" x-show="!autoMemoryLoading">
+                <div class="memory-auto-item">
+                  <span class="memory-auto-label">enabled</span>
+                  <span class="memory-auto-value" x-text="autoMemory.effective.enabled ? 'on' : 'off'"></span>
+                </div>
+                <div class="memory-auto-item">
+                  <span class="memory-auto-label">mode</span>
+                  <span class="memory-auto-value" x-text="autoMemoryModeLabel()"></span>
+                </div>
+                <div class="memory-auto-item">
+                  <span class="memory-auto-label">last result</span>
+                  <span class="memory-auto-value" x-text="autoMemoryLastSummary()"></span>
+                </div>
+                <div class="memory-auto-item">
+                  <span class="memory-auto-label">updated</span>
+                  <span class="memory-auto-value" x-text="formatTimestamp(autoMemory.status.updatedAt)"></span>
+                </div>
+              </div>
+              <div class="memory-loading" x-show="autoMemoryLoading">
+                <span class="loading-spinner"></span>
+                <span>Loading auto-memory...</span>
+              </div>
+              <div class="memory-error" x-show="autoMemoryError" x-text="autoMemoryError"></div>
+              <div class="memory-auto-runs" x-show="autoMemory.runs.length > 0 && !autoMemoryLoading">
+                <template x-for="run in autoMemory.runs" :key="run.id || run.created">
+                  <div class="memory-auto-run">
+                    <div class="memory-auto-run-top">
+                      <span class="memory-auto-run-status" x-text="run.status || '--'"></span>
+                      <span class="memory-auto-run-time" x-text="formatTimestamp(run.finishedAt || run.created)"></span>
+                    </div>
+                    <div class="memory-auto-run-meta">
+                      <span x-text="autoMemorySavedLabel(run)"></span>
+                      <span x-text="(run.model?.provider && run.model?.id) ? (run.model.provider + '/' + run.model.id) : '--'"></span>
+                      <span x-text="run.source || '--'"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
             </div>
 
             <div class="memory-controls">
@@ -1202,13 +1333,102 @@
 
       </main>
 
+      <section
+        class="terminal-drawer"
+        :class="{ open: terminalOpen, expanded: terminalExpanded, resizing: terminalResizing }"
+        :style="terminalDrawerStyle()"
+        x-cloak
+      >
+        <div class="terminal-drawer-shell">
+          <button
+            class="terminal-drawer-resize"
+            type="button"
+            @pointerdown="startTerminalResize($event)"
+            :disabled="terminalExpanded"
+            :title="terminalExpanded ? 'Collapse to resize' : 'Drag to resize terminal'"
+          >
+            <span class="terminal-drawer-grip"></span>
+          </button>
+
+          <div class="terminal-drawer-header" aria-live="polite">
+            <div class="terminal-drawer-meta">
+              <span class="terminal-drawer-icon" aria-hidden="true">&gt;_</span>
+              <span class="terminal-drawer-label">terminal</span>
+            </div>
+            <div class="terminal-drawer-actions">
+              <button class="terminal-drawer-action" type="button" title="Start a new shell" @click="newTerminalSession()">new</button>
+              <button class="terminal-drawer-action" type="button" title="Reconnect terminal" @click="reconnectTerminal()">re</button>
+              <button class="terminal-drawer-action" type="button" :title="terminalExpanded ? 'Collapse terminal' : 'Expand terminal'" @click="toggleTerminalExpanded()" x-text="terminalExpanded ? '▾' : '⤢'"></button>
+              <button class="terminal-drawer-action terminal-drawer-action-close" type="button" title="Close terminal" @click="closeTerminalDrawer()">×</button>
+            </div>
+          </div>
+
+          <div
+            class="terminal-mobile-keys"
+            x-show="terminalModifierBarVisible()"
+            x-cloak
+            @pointerdown.prevent
+          >
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('Escape')">Esc</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('Tab')">Tab</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalSequence('\u0003')">^C</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalSequence('\u0004')">^D</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalSequence('\u000c')">^L</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalSequence('\u001a')">^Z</button>
+            <button
+              class="terminal-mobile-key"
+              :class="{ 'sticky-active': terminalCtrlSticky }"
+              type="button"
+              @click="toggleTerminalCtrlSticky()"
+            >Ctrl</button>
+            <button
+              class="terminal-mobile-key"
+              :class="{ 'sticky-active': terminalAltSticky }"
+              type="button"
+              @click="toggleTerminalAltSticky()"
+            >Alt</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('Home')">Home</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('End')">End</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('PageUp')">PgUp</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('PageDown')">PgDn</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('ArrowUp')">↑</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('ArrowDown')">↓</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('ArrowLeft')">←</button>
+            <button class="terminal-mobile-key" type="button" @click="sendTerminalModifierKey('ArrowRight')">→</button>
+          </div>
+
+          <div class="terminal-drawer-body">
+            <div x-ref="terminalRoot" class="terminal-drawer-root" tabindex="0" aria-label="Terminal"></div>
+            <div x-ref="terminalOverlay" class="terminal-drawer-overlay is-hidden">
+              <div class="terminal-drawer-overlay-card">
+                <strong x-ref="terminalOverlayTitle">Terminal unavailable</strong>
+                <p x-ref="terminalOverlayMessage">The terminal session is not connected.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <footer class="footer">
         <div class="footer-inner">
-          <button class="footer-project" type="button" title="Select project context">project: --</button>
-          <span class="footer-tokens">tokens: --</span>
-          <span class="footer-cost">cost: --</span>
-          <span class="footer-status">status: idle</span>
-          <span class="footer-ext-status"></span>
+          <div class="footer-meta">
+            <button class="footer-project" type="button" title="Select project context">project: --</button>
+            <span class="footer-tokens">tokens: --</span>
+            <span class="footer-cost">cost: --</span>
+            <span class="footer-status">status: idle</span>
+            <span class="footer-ext-status"></span>
+          </div>
+          <button
+            class="footer-terminal-toggle"
+            :class="{ active: terminalOpen }"
+            type="button"
+            @click="toggleTerminalDrawer()"
+            :title="terminalOpen ? 'Close terminal drawer' : 'Open terminal drawer'"
+            :aria-label="terminalOpen ? 'Close terminal drawer' : 'Open terminal drawer'"
+          >
+            <span class="footer-terminal-icon" aria-hidden="true">&gt;_</span>
+            <span class="footer-terminal-badge" x-show="activeTerminalCount > 0" x-text="activeTerminalCount"></span>
+          </button>
         </div>
       </footer>
     </div>
