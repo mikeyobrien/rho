@@ -1,6 +1,6 @@
 {
   "name": "rho-android",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Android Capacitor wrapper for rho-web",
   "scripts": {
     "sync:style": "mkdir -p www/css && cp ../../web/public/css/style.css www/css/rho-web-style.css",
