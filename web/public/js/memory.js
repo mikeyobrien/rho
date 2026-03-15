@@ -14,38 +14,136 @@ document.addEventListener("alpine:init", () => {
 			reminders: 0,
 			categories: [],
 		},
+		autoMemory: {
+			effective: { enabled: true, source: "default" },
+			settings: {
+				autoMemory: true,
+				autoMemoryModel: null,
+				autoMemoryMode: "idle",
+				autoMemoryDebounceMs: 8000,
+			},
+			status: {
+				phase: "idle",
+				pendingCount: 0,
+				activeRunId: null,
+				activeSessionId: null,
+				activeLeafId: null,
+				queuedAt: null,
+				startedAt: null,
+				finishedAt: null,
+				lastRunId: null,
+				lastStatus: null,
+				lastSavedTotal: 0,
+				lastError: null,
+				updatedAt: null,
+			},
+			runs: [],
+		},
 		typeFilter: "all",
 		categoryFilter: "",
 		searchQuery: "",
 		sortBy: "created",
 		isLoading: false,
+		autoMemoryLoading: false,
+		autoMemoryLoaded: false,
 		error: "",
-
-		// Cancel in-flight loads when filters/search change quickly
+		autoMemoryError: "",
 		loadController: null,
-
-		// Task creation state
 		newTaskDescription: "",
 		newTaskPriority: "normal",
-
-		// Edit state
 		editingId: null,
 		editText: "",
 		editCategory: "",
-
-		// Add-entry state
 		showAddForm: false,
 		newEntryType: "learning",
 		newEntryText: "",
 		newEntryCategory: "",
+		_onViewChanged: null,
+		_onVisibilityChange: null,
+		_onAutoMemoryUpdated: null,
+		_autoMemoryStatusObserver: null,
 
 		async init() {
-			await this.load();
+			this._onViewChanged = async (event) => {
+				if (event?.detail?.view === "memory") {
+					await this.loadAll();
+				}
+			};
+			window.addEventListener("rho:view-changed", this._onViewChanged);
+
+			this._onVisibilityChange = async () => {
+				if (!document.hidden && this.isMemoryViewVisible()) {
+					await this.loadAll();
+				}
+			};
+			document.addEventListener("visibilitychange", this._onVisibilityChange);
+
+			this._onAutoMemoryUpdated = async () => {
+				if (this.isMemoryViewVisible()) {
+					await this.loadAll();
+				}
+			};
+			window.addEventListener(
+				"rho:auto-memory-updated",
+				this._onAutoMemoryUpdated,
+			);
+
+			const footerStatusEl = document.querySelector(".footer-ext-status");
+			if (footerStatusEl && typeof MutationObserver !== "undefined") {
+				this._autoMemoryStatusObserver = new MutationObserver(async () => {
+					const text = String(footerStatusEl.textContent || "");
+					if (/\bmem\b/i.test(text) && this.isMemoryViewVisible()) {
+						await this.loadAutoMemory();
+					}
+				});
+				this._autoMemoryStatusObserver.observe(footerStatusEl, {
+					childList: true,
+					subtree: true,
+					characterData: true,
+				});
+			}
+
+			if (this.isMemoryViewVisible()) {
+				await this.loadAll();
+			}
 		},
 
-		setType(type) {
-			this.typeFilter = type;
-			this.load();
+		destroy() {
+			if (this._onViewChanged) {
+				window.removeEventListener("rho:view-changed", this._onViewChanged);
+				this._onViewChanged = null;
+			}
+			if (this._onVisibilityChange) {
+				document.removeEventListener(
+					"visibilitychange",
+					this._onVisibilityChange,
+				);
+				this._onVisibilityChange = null;
+			}
+			if (this._onAutoMemoryUpdated) {
+				window.removeEventListener(
+					"rho:auto-memory-updated",
+					this._onAutoMemoryUpdated,
+				);
+				this._onAutoMemoryUpdated = null;
+			}
+			if (this._autoMemoryStatusObserver) {
+				this._autoMemoryStatusObserver.disconnect();
+				this._autoMemoryStatusObserver = null;
+			}
+			if (this.loadController) {
+				this.loadController.abort();
+				this.loadController = null;
+			}
+		},
+
+		isMemoryViewVisible() {
+			const params = new URLSearchParams(window.location.search);
+			return (params.get("view") || "chat") === "memory";
+		},
+
+		async loadAll() {
+			await Promise.all([this.load(), this.loadAutoMemory()]);
 		},
 
 		cardText(entry) {
@@ -60,18 +158,18 @@ document.addEventListener("alpine:init", () => {
 				case "preference":
 					return entry.text || "";
 				case "context":
-					return (entry.path ? entry.path + ": " : "") + (entry.content || "");
+					return (entry.path ? `${entry.path}: ` : "") + (entry.content || "");
 				case "task":
 					return entry.description || "";
 				case "reminder":
 					return (
 						(entry.text || entry.description || "") +
 						(entry.cadence
-							? " [" +
-								(entry.cadence.kind === "interval"
-									? "every " + entry.cadence.every
-									: "daily @ " + entry.cadence["at"]) +
-								"]"
+							? ` [${
+									entry.cadence.kind === "interval"
+										? `every ${entry.cadence.every}`
+										: `daily @ ${entry.cadence.at}`
+								}]`
 							: "")
 					);
 				default:
@@ -97,7 +195,6 @@ document.addEventListener("alpine:init", () => {
 					}
 					case "last_used":
 						return (b.last_used || "").localeCompare(a.last_used || "");
-					case "created":
 					default:
 						return (b.created || "").localeCompare(a.created || "");
 				}
@@ -164,17 +261,87 @@ document.addEventListener("alpine:init", () => {
 			}
 		},
 
+		async loadAutoMemory() {
+			this.autoMemoryLoading = true;
+			this.autoMemoryError = "";
+			try {
+				const [statusRes, runsRes] = await Promise.all([
+					fetch("/api/auto-memory/status"),
+					fetch("/api/auto-memory/runs?limit=8"),
+				]);
+				if (!statusRes.ok) {
+					const err = await statusRes.json().catch(() => ({}));
+					throw new Error(err.error || `Request failed (${statusRes.status})`);
+				}
+				if (!runsRes.ok) {
+					const err = await runsRes.json().catch(() => ({}));
+					throw new Error(err.error || `Request failed (${runsRes.status})`);
+				}
+				const statusData = await statusRes.json();
+				const runsData = await runsRes.json();
+				this.autoMemory = {
+					effective: statusData.effective || {
+						enabled: true,
+						source: "default",
+					},
+					settings: statusData.settings || this.autoMemory.settings,
+					status: statusData.status || this.autoMemory.status,
+					runs: Array.isArray(runsData.runs) ? runsData.runs : [],
+				};
+				this.autoMemoryLoaded = true;
+			} catch (err) {
+				this.autoMemoryError = err.message || "Failed to load auto-memory";
+			} finally {
+				this.autoMemoryLoading = false;
+			}
+		},
+
+		autoMemoryModeLabel() {
+			return `${this.autoMemory.settings.autoMemoryMode} / ${this.autoMemory.settings.autoMemoryDebounceMs}ms`;
+		},
+
+		autoMemoryPhaseLabel() {
+			const phase = this.autoMemory.status?.phase || "idle";
+			if (phase === "queued") return "queued";
+			if (phase === "running") return "saving";
+			if (phase === "error") return "error";
+			return "idle";
+		},
+
+		autoMemoryLastSummary() {
+			const status = this.autoMemory.status || {};
+			if (status.lastError) return status.lastError;
+			if (status.lastStatus === "ok") {
+				return `${status.lastSavedTotal || 0} saved`;
+			}
+			if (status.lastStatus === "parse_failed") return "parse failed";
+			if (status.lastStatus === "no_response") return "no response";
+			if (status.lastStatus === "error") return "error";
+			return "no runs yet";
+		},
+
+		autoMemorySavedLabel(run) {
+			const total = Number(run?.saved?.total ?? 0);
+			return `${Number.isFinite(total) ? total : 0} saved`;
+		},
+
+		formatTimestamp(value) {
+			if (!value || typeof value !== "string") return "--";
+			return value.replace("T", " ").replace("Z", " UTC");
+		},
+
+		setType(type) {
+			this.typeFilter = type;
+			this.load();
+		},
+
 		changeSort() {
 			this.updateDisplay();
 		},
 
-		isStale(entry) {
-			// API doesn't currently return last_used field, so always return false
-			// This could be enabled in the future if the API is updated
+		isStale(_entry) {
 			return false;
 		},
-
-		// ── Edit methods ──
 
 		startEdit(entry) {
 			this.editingId = entry.id;
@@ -210,8 +377,6 @@ document.addEventListener("alpine:init", () => {
 				this.error = err.message || "Failed to update entry";
 			}
 		},
-
-		// ── Add-entry methods ──
 
 		toggleAddForm() {
 			this.showAddForm = !this.showAddForm;
@@ -270,8 +435,6 @@ document.addEventListener("alpine:init", () => {
 				this.error = err.message || "Failed to delete entry";
 			}
 		},
-
-		// ── Task methods ──
 
 		async addTask() {
 			const desc = this.newTaskDescription.trim();

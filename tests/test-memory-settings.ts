@@ -106,6 +106,8 @@ memory = true
 [settings.memory]
 auto_memory = false
 auto_memory_model = "openai/gpt-5-mini"
+auto_memory_mode = "compact"
+auto_memory_debounce_ms = 1234
 prompt_budget = 111
 decay_after_days = 12
 decay_min_score = 7
@@ -114,6 +116,8 @@ decay_min_score = 7
 	const expected: MemorySettings = {
 		autoMemory: false,
 		autoMemoryModel: "openai/gpt-5-mini",
+		autoMemoryMode: "compact",
+		autoMemoryDebounceMs: 1234,
 		promptBudget: 111,
 		decayAfterDays: 12,
 		decayMinScore: 7,
@@ -122,6 +126,37 @@ decay_min_score = 7
 		readMemorySettings(initPath),
 		expected,
 		"init-backed memory settings override defaults",
+	);
+}
+
+console.log("\n-- readMemorySettings ignores invalid mode --");
+{
+	const dir = makeTempDir();
+	const initPath = writeInitToml(
+		dir,
+		`
+[agent]
+name = "rho"
+
+[modules.core]
+heartbeat = true
+memory = true
+
+[settings.memory]
+auto_memory_mode = "later"
+auto_memory_debounce_ms = -50
+`,
+	);
+	const settings = readMemorySettings(initPath);
+	assertEq(
+		settings.autoMemoryMode,
+		"idle",
+		"invalid mode falls back to default",
+	);
+	assertEq(
+		settings.autoMemoryDebounceMs,
+		0,
+		"configured debounce is clamped to zero or above",
 	);
 }
 

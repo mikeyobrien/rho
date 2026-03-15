@@ -51,7 +51,7 @@ export const rhoChatDialogAndFocusMethods = {
 
 	// Toast notifications
 
-	showToast(message, level = "info", duration) {
+	showToast(message, level, duration) {
 		const id = ++this.toastIdCounter;
 		const toast = {
 			id,
@@ -61,6 +61,17 @@ export const rhoChatDialogAndFocusMethods = {
 		};
 
 		this.toasts.push(toast);
+		if (
+			typeof message === "string" &&
+			/^Auto-memory:/i.test(message.trim()) &&
+			typeof window !== "undefined"
+		) {
+			window.dispatchEvent(
+				new CustomEvent("rho:auto-memory-updated", {
+					detail: { message, level },
+				}),
+			);
+		}
 
 		const displayDuration = duration ?? TOAST_DEFAULT_DURATION;
 		if (displayDuration > 0) {

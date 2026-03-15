@@ -11,9 +11,13 @@ export const DEFAULT_LEGACY_MEMORY_CONFIG_PATH = path.join(
 	"config.json",
 );
 
+export type AutoMemoryMode = "idle" | "compact" | "sync";
+
 export interface MemorySettings {
 	autoMemory: boolean;
 	autoMemoryModel?: string;
+	autoMemoryMode: AutoMemoryMode;
+	autoMemoryDebounceMs: number;
 	promptBudget: number;
 	decayAfterDays: number;
 	decayMinScore: number;
@@ -22,6 +26,8 @@ export interface MemorySettings {
 export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
 	autoMemory: true,
 	autoMemoryModel: undefined,
+	autoMemoryMode: "idle",
+	autoMemoryDebounceMs: 8000,
 	promptBudget: 2000,
 	decayAfterDays: 90,
 	decayMinScore: 3,
@@ -30,6 +36,8 @@ export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
 export interface ConfiguredMemorySettings {
 	autoMemory?: boolean;
 	autoMemoryModel?: string;
+	autoMemoryMode?: AutoMemoryMode;
+	autoMemoryDebounceMs?: number;
 	promptBudget?: number;
 	decayAfterDays?: number;
 	decayMinScore?: number;
@@ -50,12 +58,23 @@ export interface MemorySettingsMigrationResult {
 type InitMemoryTomlKey =
 	| "auto_memory"
 	| "auto_memory_model"
+	| "auto_memory_mode"
+	| "auto_memory_debounce_ms"
 	| "prompt_budget"
 	| "decay_after_days"
 	| "decay_min_score";
 
 function isFiniteNumber(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value);
+}
+
+function normalizeAutoMemoryMode(value: unknown): AutoMemoryMode | undefined {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim().toLowerCase();
+	if (trimmed === "idle" || trimmed === "compact" || trimmed === "sync") {
+		return trimmed;
+	}
+	return undefined;
 }
 
 function readInitRawMemorySettings(initPath: string): Record<string, unknown> {
@@ -92,6 +111,10 @@ export function readConfiguredMemorySettings(
 		memory.auto_memory_model.trim()
 			? memory.auto_memory_model.trim()
 			: undefined;
+	const autoMemoryMode = normalizeAutoMemoryMode(memory.auto_memory_mode);
+	const autoMemoryDebounceMs = isFiniteNumber(memory.auto_memory_debounce_ms)
+		? Math.max(0, Math.floor(memory.auto_memory_debounce_ms))
+		: undefined;
 	const promptBudget = isFiniteNumber(memory.prompt_budget)
 		? memory.prompt_budget
 		: undefined;
@@ -105,6 +128,8 @@ export function readConfiguredMemorySettings(
 	return {
 		autoMemory,
 		autoMemoryModel,
+		autoMemoryMode,
+		autoMemoryDebounceMs,
 		promptBudget,
 		decayAfterDays,
 		decayMinScore,
@@ -149,6 +174,11 @@ export function readMemorySettings(
 		autoMemory: configured.autoMemory ?? DEFAULT_MEMORY_SETTINGS.autoMemory,
 		autoMemoryModel:
 			configured.autoMemoryModel ?? DEFAULT_MEMORY_SETTINGS.autoMemoryModel,
+		autoMemoryMode:
+			configured.autoMemoryMode ?? DEFAULT_MEMORY_SETTINGS.autoMemoryMode,
+		autoMemoryDebounceMs:
+			configured.autoMemoryDebounceMs ??
+			DEFAULT_MEMORY_SETTINGS.autoMemoryDebounceMs,
 		promptBudget:
 			configured.promptBudget ?? DEFAULT_MEMORY_SETTINGS.promptBudget,
 		decayAfterDays:
