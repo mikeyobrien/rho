@@ -323,7 +323,18 @@ export const rhoChatSessionActionMethods = {
 					sessionFile: typeof sessionFile === "string" ? sessionFile : "",
 				})
 			: this.getFocusedSessionState();
+
+		// Guard: if this session already has a live rpcSessionId or is already
+		// starting, don't send another switch_session — that causes thrashing.
 		if (targetState) {
+			if (targetState.status === "starting") {
+				return;
+			}
+			if (targetState.rpcSessionId) {
+				// Already connected — just request fresh state instead of restarting
+				this.requestState?.();
+				return;
+			}
 			const now = Date.now();
 			targetState.status = "starting";
 			targetState.error = "";

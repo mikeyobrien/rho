@@ -142,6 +142,11 @@ export function resumeReconnectSessions(vm) {
 	for (const target of reconnectTargets) {
 		const { sessionId, state, rpcSessionId, sessionFile, lastEventSeq } =
 			target;
+		// Skip if already starting — a switch_session command is already in flight
+		// and the stale rpcSessionId would just trigger rpc_session_not_found.
+		if (state.status === "starting") {
+			continue;
+		}
 		if (rpcSessionId) {
 			state.recoveringRpcSession = true;
 			const resumed = vm.sendWs(
@@ -159,8 +164,7 @@ export function resumeReconnectSessions(vm) {
 			}
 			state.recoveringRpcSession = false;
 		}
-		// Skip if already starting - the switch_session command was already sent
-		if (sessionFile && state.status !== "starting") {
+		if (sessionFile) {
 			state.recoveringRpcSession = true;
 			vm.startRpcSession(sessionFile, { sessionId });
 			resumedAnySession = true;
@@ -219,6 +223,14 @@ export function recoverSessionByFile(vm, sessionId, state = null) {
 		return false;
 	}
 
+	// If the session already acquired a fresh rpcSessionId (e.g. from a
+	// session_started that arrived before this recovery path ran), don't
+	// clobber it with another startRpcSession — that causes thrashing.
+	if (normalizeSessionId(targetState.rpcSessionId)) {
+		targetState.recoveringRpcSession = false;
+		return false;
+	}
+
 	let sessionFile = normalizeSessionFile(targetState.sessionFile);
 	if (
 		!sessionFile &&
@@ -234,7 +246,6 @@ export function recoverSessionByFile(vm, sessionId, state = null) {
 	targetState.recoveringRpcSession = true;
 	targetState.rpcSessionId = "";
 	targetState.lastEventSeq = 0;
-	targetState.status = "starting";
 	vm.startRpcSession(sessionFile, { sessionId: targetSessionId });
 	if (typeof vm.persistSessionRestoreSnapshot === "function") {
 		vm.persistSessionRestoreSnapshot();

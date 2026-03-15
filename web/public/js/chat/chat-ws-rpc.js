@@ -53,6 +53,13 @@ export const rhoChatWsRpcMethods = {
 			if (resumeReconnectSessions(this)) {
 				return;
 			}
+			// Only start a session if one isn't already in flight (e.g. from
+			// selectSession during loadSessions which queued a switch_session
+			// while the WS was still connecting).
+			const focusedState = this.getFocusedSessionState?.();
+			if (focusedState?.status === "starting" || focusedState?.rpcSessionId) {
+				return;
+			}
 			const sessionFile =
 				this.activeRpcSessionFile || this.getSessionFile(this.activeSessionId);
 			if (sessionFile) {
