@@ -417,9 +417,27 @@ export function registerRhoChat() {
 				);
 			},
 
-			userScrolledUp: false,
-			_programmaticScrollUntil: 0,
-			_prevScrollTop: null,
+			get userScrolledUp() {
+				return this.readSessionField("userScrolledUp", false);
+			},
+			set userScrolledUp(value) {
+				this.writeSessionField("userScrolledUp", Boolean(value));
+			},
+			get _programmaticScrollUntil() {
+				return this.readSessionField("_programmaticScrollUntil", 0);
+			},
+			set _programmaticScrollUntil(value) {
+				this.writeSessionField("_programmaticScrollUntil", Number(value) || 0);
+			},
+			get _prevScrollTop() {
+				return this.readSessionField("_prevScrollTop", null);
+			},
+			set _prevScrollTop(value) {
+				this.writeSessionField(
+					"_prevScrollTop",
+					typeof value === "number" ? value : null,
+				);
+			},
 			isDraggingOver: false,
 			dragLeaveTimeout: null,
 			thinkingLevels: [...THINKING_LEVELS_BASE],

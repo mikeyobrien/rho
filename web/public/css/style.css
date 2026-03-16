@@ -108,6 +108,7 @@ body {
 	-webkit-font-smoothing: antialiased;
 	height: 100vh;
 	height: 100dvh;
+	height: var(--vh, 100dvh);
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
@@ -2363,6 +2364,23 @@ body.theme-light .chat-block-body pre {
 	color: var(--green);
 }
 
+.footer-status.status-dot {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	min-width: 10px;
+	min-height: 10px;
+	flex-shrink: 0;
+	border-radius: 50%;
+	background: var(--green);
+	vertical-align: middle;
+}
+
+.footer-status.status-dot.streaming {
+	background: var(--yellow);
+	animation: pulse 2s ease-in-out infinite;
+}
+
 .footer-status.streaming {
 	color: var(--yellow);
 }
@@ -2685,6 +2703,7 @@ body.theme-light .chat-block-body pre {
 
 	.chat-composer-controls {
 		gap: 0.5rem;
+		flex: 1 1 auto;
 		flex-wrap: wrap;
 		overflow-x: visible;
 	}
@@ -2714,10 +2733,25 @@ body.theme-light .chat-block-body pre {
 		padding: 0 0.45rem;
 	}
 
-	/* Compact thread container */
+	/* Compact thread container — edge-to-edge on all mobile */
 	.chat-thread {
 		padding: 0.25rem;
 		gap: 0.35rem;
+		border: none;
+	}
+
+	/* Compact footer — drop labels, tighten gap, hide low-value items */
+	.footer {
+		padding: 0 0.5rem;
+	}
+
+	.footer-meta {
+		gap: 0.6rem;
+	}
+
+	.footer-tokens,
+	.footer-cost {
+		display: none;
 	}
 
 }

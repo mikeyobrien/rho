@@ -1,6 +1,8 @@
 export {
 	findSessionFileById,
+	getSessionDetail,
 	getSessionInfo,
+	invalidateSessionCache,
 	listSessions,
 	readSession,
 } from "./session-reader-api.ts";

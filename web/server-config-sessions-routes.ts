@@ -10,7 +10,9 @@ import { app, loadPiSessionManagerModule } from "./server-core.ts";
 import { broadcastUiEvent } from "./server-ui-events.ts";
 import {
 	findSessionFileById,
+	getSessionDetail,
 	getSessionInfo,
+	invalidateSessionCache,
 	listSessions,
 	readSession,
 } from "./session-reader.ts";
@@ -66,12 +68,28 @@ app.put("/api/config", async (c) => {
 	}
 });
 
+// TTL cache for provider usage (avoids repeated auth file reads)
+const PROVIDER_USAGE_CACHE_TTL_MS = 30_000; // 30 seconds
+let providerUsageCache: {
+	at: number;
+	data: { codex: unknown; kiro: unknown };
+} | null = null;
+
 app.get("/api/provider-usage", async (c) => {
+	const now = Date.now();
+	if (
+		providerUsageCache &&
+		now - providerUsageCache.at < PROVIDER_USAGE_CACHE_TTL_MS
+	) {
+		return c.json(providerUsageCache.data);
+	}
+
 	try {
 		const [codex, kiro] = await Promise.all([
 			readCodexUsageSummaryFromAuth(),
 			readKiroUsageSummaryFromAuth(),
 		]);
+		providerUsageCache = { at: now, data: { codex, kiro } };
 		return c.json({ codex, kiro });
 	} catch (error) {
 		return c.json({ error: (error as Error).message }, 500);
@@ -110,10 +128,7 @@ app.get("/api/sessions/:id", async (c) => {
 		if (!sessionFile) {
 			return c.json({ error: "Session not found" }, 404);
 		}
-		const [session, info] = await Promise.all([
-			readSession(sessionFile),
-			getSessionInfo(sessionFile),
-		]);
+		const { session, info } = await getSessionDetail(sessionFile);
 		return c.json({
 			...session,
 			file: sessionFile,
@@ -171,6 +186,9 @@ app.post("/api/sessions/:id/fork", async (c) => {
 		}
 
 		const forkedSession = await readSession(forkedSessionFile);
+
+		// Invalidate cache for source session (has new fork entry)
+		invalidateSessionCache(sourceSessionFile);
 
 		// Broadcast session change to connected UI clients
 		broadcastUiEvent("sessions_changed", {

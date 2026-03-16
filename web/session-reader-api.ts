@@ -24,6 +24,13 @@ const SESSION_INFO_CACHE = new Map<
 	{ mtimeMs: number; info: SessionInfo }
 >();
 
+// Combined cache for session detail: stores both parsed session + computed info
+// to avoid double-parsing the same file for /api/sessions/:id
+const SESSION_DETAIL_CACHE = new Map<
+	string,
+	{ mtimeMs: number; session: ParsedSession; info: SessionInfo }
+>();
+
 // TTL cache for session file listing + stats to avoid repeated dir walks
 const SESSION_LIST_TTL_MS = 2000;
 let sessionListCache: {
@@ -161,6 +168,41 @@ export async function getSessionInfo(
 		SESSION_INFO_CACHE.set(sessionFile, { mtimeMs, info });
 	}
 	return info;
+}
+
+// Combined read: fetches both parsed session and info in one parse
+// Uses mtime-based cache to avoid double-parsing the same file
+export async function getSessionDetail(
+	sessionFile: string,
+): Promise<{ session: ParsedSession; info: SessionInfo }> {
+	let mtimeMs = 0;
+	try {
+		const fileStat = await stat(sessionFile);
+		mtimeMs = fileStat.mtimeMs;
+		const cached = SESSION_DETAIL_CACHE.get(sessionFile);
+		if (cached && cached.mtimeMs === mtimeMs) {
+			return { session: cached.session, info: cached.info };
+		}
+	} catch {
+		// File might not exist — fall through to parse.
+	}
+
+	// Parse once, derive both
+	const session = await readSession(sessionFile);
+	const info = await getSessionInfo(sessionFile);
+
+	// Cache both
+	if (mtimeMs) {
+		SESSION_DETAIL_CACHE.set(sessionFile, { mtimeMs, session, info });
+	}
+
+	return { session, info };
+}
+
+// Invalidate cache for a session file (call after fork/write operations)
+export function invalidateSessionCache(sessionFile: string): void {
+	SESSION_DETAIL_CACHE.delete(sessionFile);
+	SESSION_INFO_CACHE.delete(sessionFile);
 }
 
 export async function findSessionFileById(

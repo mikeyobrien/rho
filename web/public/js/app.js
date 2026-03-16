@@ -15,12 +15,28 @@ function isMobileTerminalEnvironment() {
 	);
 }
 
+function viewportHeight() {
+	return window.visualViewport?.height ?? window.innerHeight;
+}
+
+function syncViewportHeight() {
+	const vh = viewportHeight();
+	document.documentElement.style.setProperty("--vh", `${vh}px`);
+}
+
+// Keep --vh in sync with the visual viewport (shrinks when virtual keyboard opens).
+if (window.visualViewport) {
+	window.visualViewport.addEventListener("resize", syncViewportHeight);
+	window.visualViewport.addEventListener("scroll", syncViewportHeight);
+}
+syncViewportHeight();
+
 function clampTerminalHeight(height) {
 	const footerHeight = document.querySelector(".footer")?.offsetHeight ?? 40;
 	const navHeight = document.querySelector(".nav")?.offsetHeight ?? 48;
 	const maxHeight = Math.max(
 		TERMINAL_MIN_HEIGHT,
-		window.innerHeight - navHeight - footerHeight,
+		viewportHeight() - navHeight - footerHeight,
 	);
 	return Math.max(TERMINAL_MIN_HEIGHT, Math.min(height, maxHeight));
 }
@@ -103,6 +119,7 @@ document.addEventListener("alpine:init", () => {
 			document.addEventListener("visibilitychange", this._onVisibilityChange);
 
 			this._onWindowResize = () => {
+				syncViewportHeight();
 				this.terminalHeight = clampTerminalHeight(this.terminalHeight);
 				if (this.terminalOpen) {
 					if (isMobileTerminalLayout()) {
@@ -112,6 +129,11 @@ document.addEventListener("alpine:init", () => {
 				}
 			};
 			window.addEventListener("resize", this._onWindowResize);
+			if (window.visualViewport) {
+				window.visualViewport.addEventListener("resize", () => {
+					this._onWindowResize();
+				});
+			}
 			this._onModifierKeysChanged = (event) => {
 				this.terminalModifierKeysEnabled =
 					!!event.detail?.enabled || isMobileTerminalEnvironment();
@@ -375,7 +397,7 @@ document.addEventListener("alpine:init", () => {
 				return "";
 			}
 			const height = this.terminalExpanded
-				? clampTerminalHeight(window.innerHeight)
+				? clampTerminalHeight(viewportHeight())
 				: clampTerminalHeight(this.terminalHeight);
 			return `height:${height}px`;
 		},

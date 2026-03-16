@@ -230,7 +230,15 @@ export const rhoChatSessionUiMethods = {
 				10,
 			);
 			const sessions = await resp.json();
-			this.sessions = this.promoteActiveSessionIntoSidebar(sessions);
+			// Avoid DOM thrashing: only update if sessions actually changed
+			const newSessionIds = new Set(sessions.map((s) => s.id));
+			const currentSessionIds = new Set(this.sessions.map((s) => s.id));
+			const sessionsChanged =
+				sessions.length !== this.sessions.length ||
+				![...newSessionIds].every((id) => currentSessionIds.has(id));
+			if (sessionsChanged || total !== this.sessionsTotal) {
+				this.sessions = this.promoteActiveSessionIntoSidebar(sessions);
+			}
 			this.sessionsTotal = total;
 			this.sessionsLoaded = sessions.length;
 			this.allSessionsLoaded = sessions.length >= total;

@@ -85,6 +85,7 @@ export const rhoChatGitContextMethods = {
 		const costEl = document.querySelector(".footer .footer-cost");
 		const statusEl = document.querySelector(".footer .footer-status");
 		const extStatusEl = document.querySelector(".footer .footer-ext-status");
+		const isMobile = window.matchMedia?.("(max-width: 720px)")?.matches;
 
 		if (projectEl) {
 			const isDesktop =
@@ -92,19 +93,30 @@ export const rhoChatGitContextMethods = {
 			const project = isDesktop
 				? this.activeGitPath || this.activeGitProject
 				: this.activeGitProject;
-			projectEl.textContent = `project: ${project || "--"}`;
+			projectEl.textContent = isMobile
+				? project || "--"
+				: `project: ${project || "--"}`;
 			projectEl.title = this.activeGitPath || this.activeGitProject || "";
 		}
 		if (tokensEl) {
 			const tokens = toFiniteNumber(this.sessionStats?.tokens) ?? 0;
-			tokensEl.textContent = `tokens: ${tokens.toLocaleString()}`;
+			tokensEl.textContent = isMobile
+				? tokens.toLocaleString()
+				: `tokens: ${tokens.toLocaleString()}`;
 		}
 		if (costEl) {
 			const cost = toFiniteNumber(this.sessionStats?.cost) ?? 0;
-			costEl.textContent = `cost: $${cost.toFixed(4)}`;
+			costEl.textContent = `$${cost.toFixed(isMobile ? 2 : 4)}`;
 		}
 		if (statusEl) {
-			statusEl.textContent = `status: ${this.isStreaming ? "streaming" : "idle"}`;
+			const label = this.isStreaming ? "streaming" : "idle";
+			if (isMobile) {
+				statusEl.textContent = "";
+				statusEl.classList.toggle("status-dot", true);
+			} else {
+				statusEl.textContent = `status: ${label}`;
+				statusEl.classList.toggle("status-dot", false);
+			}
 			statusEl.classList.toggle("streaming", this.isStreaming);
 		}
 		if (extStatusEl) {

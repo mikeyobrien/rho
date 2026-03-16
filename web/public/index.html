@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#161b22" />
     <meta name="description" content="Persistent coding agent and technical copilot" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -576,8 +576,8 @@
                           <div class="chat-queue-item-header">
                             <span class="chat-queue-item-num" x-text="'#' + (qIdx + 1)"></span>
                             <div class="chat-queue-item-actions">
-                              <label class="btn btn-ghost btn-xs chat-queue-attach" title="Attach image">
-                                Attach
+                              <label class="btn btn-ghost btn-xs chat-queue-attach" title="Attach image" aria-label="Attach image">
+                                +
                                 <input type="file" accept="image/*" multiple style="display:none" @change="addQueueItemImage(qItem.id, $event)" />
                               </label>
                               <button class="btn btn-ghost btn-xs chat-queue-remove" type="button" @click="removeQueueItem(qItem.id)" title="Remove">&times;</button>
@@ -673,8 +673,9 @@
                           @click="$refs.imageInput.click()"
                           :disabled="isSendingPrompt || isForking"
                           title="Attach image"
+                          aria-label="Attach image"
                         >
-                          Attach
+                          +
                         </button>
                         <button class="btn" type="submit" :disabled="(!promptText.trim() && pendingImages.length === 0) || isSendingPrompt || isForking">
                           <span x-text="submitButtonLabel()"></span>
@@ -690,18 +691,6 @@
                     :class="{ visible: modifierKeysEnabled }"
                     @pointerdown.prevent
                   >
-                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('Escape')">Esc</button>
-                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('Tab')">Tab</button>
-                    <button
-                      class="chat-modifier-key"
-                      :class="{ 'sticky-active': ctrlSticky }"
-                      type="button"
-                      @click="toggleCtrlSticky()"
-                    >Ctrl</button>
-                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowUp')">↑</button>
-                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowDown')">↓</button>
-                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowLeft')">←</button>
-                    <button class="chat-modifier-key" type="button" @click="sendModifierKey('ArrowRight')">→</button>
                   </div>
                 </form>
 
