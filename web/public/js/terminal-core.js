@@ -188,25 +188,19 @@ class TerminalClient {
 			return;
 		}
 		textarea.dataset.rhoFallbackBound = "1";
+		// markKeydown used to preemptively mark keys as "handled" so the
+		// beforeinput fallback wouldn't double-send.  The problem: it fires
+		// in the capture phase *before* ghostty-web's InputHandler.  If the
+		// InputHandler bails (isComposing stuck, etc.), the fallback is
+		// suppressed and the key is lost.
+		//
+		// The fix: rememberKeyboardInput now lives in the term.onData
+		// callback, so keys are only marked "handled" when ghostty-web
+		// actually processed them.  markKeydown is kept as a no-op shell
+		// so the existing addEventListener calls don't need restructuring.
 		const markKeydown = (event) => {
-			// Skip IME / virtual-keyboard events (keyCode 229).  Ghostty-web
-			// bails on these, so marking them as "handled" would prevent the
-			// beforeinput fallback from sending the actual input.
-			if (event.keyCode === 229 || event.isComposing) {
-				return;
-			}
-			const data = this.mapBeforeInputToTerminalData({
-				inputType:
-					event.key === "Enter"
-						? "insertLineBreak"
-						: event.key === "Backspace"
-							? "deleteContentBackward"
-							: "insertText",
-				data: event.key.length === 1 ? event.key : "",
-			});
-			if (data || event.key === "Tab") {
-				this.rememberKeyboardInput(data || "\t");
-			}
+			// Intentionally empty — dedup moved to onData callback.
+			void event;
 		};
 		if (this.rootEl.dataset.rhoFallbackBound !== "1") {
 			this.rootEl.dataset.rhoFallbackBound = "1";
@@ -291,6 +285,7 @@ class TerminalClient {
 		this.fitAddon.observeResize();
 		this.lastResize = this.currentFitSize();
 		this.term.onData((data) => {
+			this.rememberKeyboardInput(data);
 			this.sendInput(data);
 		});
 		this.term.onResize(({ cols, rows }) => {
