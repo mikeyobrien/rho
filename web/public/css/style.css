@@ -2372,17 +2372,17 @@ body.theme-light .chat-block-body pre {
 	min-height: 10px;
 	flex-shrink: 0;
 	border-radius: 50%;
-	background: var(--green);
+	background: var(--text-muted, #888);
 	vertical-align: middle;
 }
 
 .footer-status.status-dot.streaming {
-	background: var(--yellow);
+	background: var(--green);
 	animation: pulse 2s ease-in-out infinite;
 }
 
 .footer-status.streaming {
-	color: var(--yellow);
+	color: var(--green);
 }
 
 /* ---- Inline task form (inside memory view) ---- */
