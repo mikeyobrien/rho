@@ -2361,7 +2361,7 @@ body.theme-light .chat-block-body pre {
 }
 
 .footer-status {
-	color: var(--green);
+	color: var(--text-muted, #888);
 }
 
 .footer-status.status-dot {
