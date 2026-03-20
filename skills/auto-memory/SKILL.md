@@ -67,7 +67,7 @@ For each valid candidate, draft a concise memory entry.
 
 **Constraints:**
 - You MUST write each entry as a specific, actionable statement — not a summary of what happened
-- You MUST keep entries under 200 characters unless additional context is essential for future usefulness
+- You MUST keep entries under 300 characters unless additional context is essential for future usefulness
 - You MUST use the final decided form, not the discussion form
   - Bad: "User discussed whether to use the rho tmux config or keep the current one"
   - Good: "Rho tmux config swapped in as ~/.tmux.conf, replacing the nix-configs-based one"

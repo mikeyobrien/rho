@@ -220,7 +220,7 @@ const AUTO_MEMORY_DEBUG =
 	process.env.RHO_AUTO_MEMORY_DEBUG === "1" ||
 	process.env.RHO_AUTO_MEMORY_DEBUG === "true";
 const AUTO_MEMORY_MAX_ITEMS = 3;
-const AUTO_MEMORY_MAX_TEXT = 200;
+const AUTO_MEMORY_MAX_TEXT = 300;
 const AUTO_MEMORY_DEFAULT_CATEGORY = "General";
 const AUTO_MEMORY_ALLOWED_CATEGORIES = new Set([
 	"Communication",
