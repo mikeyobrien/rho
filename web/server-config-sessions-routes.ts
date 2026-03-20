@@ -68,28 +68,12 @@ app.put("/api/config", async (c) => {
 	}
 });
 
-// TTL cache for provider usage (avoids repeated auth file reads)
-const PROVIDER_USAGE_CACHE_TTL_MS = 30_000; // 30 seconds
-let providerUsageCache: {
-	at: number;
-	data: { codex: unknown; kiro: unknown };
-} | null = null;
-
 app.get("/api/provider-usage", async (c) => {
-	const now = Date.now();
-	if (
-		providerUsageCache &&
-		now - providerUsageCache.at < PROVIDER_USAGE_CACHE_TTL_MS
-	) {
-		return c.json(providerUsageCache.data);
-	}
-
 	try {
 		const [codex, kiro] = await Promise.all([
 			readCodexUsageSummaryFromAuth(),
 			readKiroUsageSummaryFromAuth(),
 		]);
-		providerUsageCache = { at: now, data: { codex, kiro } };
 		return c.json({ codex, kiro });
 	} catch (error) {
 		return c.json({ error: (error as Error).message }, 500);
