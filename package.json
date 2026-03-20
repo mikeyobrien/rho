@@ -68,11 +68,14 @@
 	},
 	"dependencies": {
 		"@grammyjs/auto-retry": "^2.0.2",
+		"@highlightjs/cdn-assets": "11.9.0",
 		"@hono/node-server": "^1.13.1",
 		"@hono/node-ws": "^1.0.7",
+		"alpinejs": "3.13.5",
 		"ghostty-web": "^0.4.0",
 		"grammy": "^1.40.0",
 		"hono": "^4.6.16",
+		"marked": "17.0.4",
 		"node-pty": "^1.1.0",
 		"smol-toml": "^1.6.0",
 		"tsx": "^4.21.0"

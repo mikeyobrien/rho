@@ -20,7 +20,6 @@ function guessContextWindow(modelStr) {
 	for (const [key, size] of Object.entries(MODEL_CONTEXT_WINDOWS)) {
 		if (lower.includes(key)) return size;
 	}
-	// Fallback heuristics
 	if (lower.includes("claude")) return 200000;
 	if (lower.includes("gpt-5") || lower.includes("codex")) return 272000;
 	if (lower.includes("gpt-4")) return 128000;
@@ -129,7 +128,6 @@ function formatUsage(usage, model) {
 	const cacheWrite = usageTotals.cacheWrite;
 	const cost = usageTotals.cost;
 
-	// Compute context usage percentage
 	const usageContextWindow = Number(
 		usageObj.contextWindow ??
 			usageObj.context_window ??
@@ -154,7 +152,6 @@ function formatUsage(usage, model) {
 		pct = Math.round((contextTokens / contextWindow) * 100);
 	}
 
-	// Desktop: model, ctx %, tokens, cost, cache
 	const desktopParts = [];
 	if (model) {
 		desktopParts.push(`model: ${model}`);
@@ -174,7 +171,6 @@ function formatUsage(usage, model) {
 		desktopParts.push(`cache: ${cacheRead}/${cacheWrite}`);
 	}
 
-	// Mobile: model + percentage only
 	const mobileParts = [];
 	if (model) {
 		mobileParts.push(model);
@@ -193,14 +189,11 @@ function formatUsage(usage, model) {
 }
 
 function formatTimestamp(value) {
-	if (!value) {
-		return "";
-	}
+	if (!value) return "";
 	const parsed = new Date(value);
-	if (Number.isNaN(parsed.getTime())) {
-		return String(value);
-	}
-	return parsed.toLocaleString();
+	return Number.isNaN(parsed.getTime())
+		? String(value)
+		: parsed.toLocaleString();
 }
 
 function _formatTimestampShort(value) {
@@ -230,21 +223,25 @@ function renderMarkdown(text) {
 	if (!text) {
 		return "";
 	}
-	try {
-		return marked.parse(text);
-	} catch {
-		return text.replace(
-			/[&<>"']/g,
-			(char) =>
-				({
-					"&": "&amp;",
-					"<": "&lt;",
-					">": "&gt;",
-					'"': "&quot;",
-					"'": "&#39;",
-				})[char],
-		);
+	const markdown = globalThis.marked;
+	if (markdown && typeof markdown.parse === "function") {
+		try {
+			return markdown.parse(text);
+		} catch {
+			// Fall through to plain-text escaping below.
+		}
 	}
+	return text.replace(
+		/[&<>"']/g,
+		(char) =>
+			({
+				"&": "&amp;",
+				"<": "&lt;",
+				">": "&gt;",
+				'"': "&quot;",
+				"'": "&#39;",
+			})[char],
+	);
 }
 
 function highlightCodeBlocks(root) {
@@ -331,7 +328,11 @@ function normalizeMessage(message, isLazy = false) {
 				output: part.output ?? "",
 			};
 		}
-		if (part.type === "compaction" || part.type === "summary" || part.type === "retry") {
+		if (
+			part.type === "compaction" ||
+			part.type === "summary" ||
+			part.type === "retry"
+		) {
 			return { ...part, key: `${message.id}-summary-${index}` };
 		}
 		if (part.type === "error") {
@@ -358,14 +359,24 @@ function normalizeMessage(message, isLazy = false) {
 }
 
 function buildWsUrl() {
-	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-	return `${protocol}//${window.location.host}/ws`;
+	return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
 }
 
 function handleAuthErr(res) {
-	if ((res.status === 401 || res.status === 403) && typeof window !== "undefined") {
-		const isMob = new URLSearchParams(window.location.search).get("mobile_shell") === "1";
-		if (window.parent && window.parent !== window) window.parent.postMessage({ type: "AUTH_FAILURE", reason: res.status === 401 ? "missing_cookie" : "revoked" }, "*");
+	if (
+		(res.status === 401 || res.status === 403) &&
+		typeof window !== "undefined"
+	) {
+		const isMob =
+			new URLSearchParams(window.location.search).get("mobile_shell") === "1";
+		if (window.parent && window.parent !== window)
+			window.parent.postMessage(
+				{
+					type: "AUTH_FAILURE",
+					reason: res.status === 401 ? "missing_cookie" : "revoked",
+				},
+				"*",
+			);
 		else if (isMob) window.location.href = "http://localhost/?picker=1";
 		else window.location.reload();
 	}
@@ -412,15 +423,12 @@ function toIsoTimestamp(value) {
 }
 
 function findToolCallInMessage(message, contentIndex) {
-	const content = message?.content;
-	if (!Array.isArray(content)) {
-		return null;
-	}
-	const block = content[Number(contentIndex)];
-	if (block && typeof block === "object" && block.type === "toolCall") {
-		return block;
-	}
-	return null;
+	const block = Array.isArray(message?.content)
+		? message.content[Number(contentIndex)]
+		: null;
+	return block && typeof block === "object" && block.type === "toolCall"
+		? block
+		: null;
 }
 
 function extractToolOutput(result) {
@@ -463,13 +471,10 @@ function normalizeThinkingLevel(level) {
 	const normalized = String(level ?? "")
 		.trim()
 		.toLowerCase();
-	if (normalized === "none") {
-		return "off";
-	}
-	if (normalized === "xhigh" || THINKING_LEVELS_BASE.includes(normalized)) {
-		return normalized;
-	}
-	return "medium";
+	if (normalized === "none") return "off";
+	return normalized === "xhigh" || THINKING_LEVELS_BASE.includes(normalized)
+		? normalized
+		: "medium";
 }
 
 export {

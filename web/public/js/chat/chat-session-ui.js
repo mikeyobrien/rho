@@ -11,7 +11,6 @@ import {
 	sortSessionsForSidebar,
 } from "./session-list-ordering.js";
 import * as toolSemantics from "./tool-semantics.js";
-
 const {
 	CHAT_REFRESH_INTERVAL,
 	formatTimestamp,

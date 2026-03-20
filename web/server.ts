@@ -13,6 +13,7 @@ import "./server-rpc-ws-routes.ts";
 import "./server-rpc-live-mode-routes.ts";
 import "./server-mobile-auth-routes.ts";
 import "./server-terminal-routes.ts";
+import "./server-vendor-routes.ts";
 import "./server-static-routes.ts";
 
 export { disposeServerResources, injectWebSocket };

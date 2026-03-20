@@ -14,8 +14,6 @@
     <title>Rho Web UI</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preconnect" href="https://unpkg.com" />
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
@@ -26,21 +24,16 @@
       @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 500; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-500-normal.woff2) format('woff2'); }
       @font-face { font-family: 'Iosevka Web'; font-style: normal; font-display: swap; font-weight: 700; src: url(https://cdn.jsdelivr.net/fontsource/fonts/iosevka@latest/latin-700-normal.woff2) format('woff2'); }
     </style>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
-    />
+    <link rel="stylesheet" href="/vendor/highlight-github-dark.css" />
     <link rel="stylesheet" href="/css/style.css?v=20260316v1" />
     <link rel="stylesheet" href="/css/terminal-drawer.css?v=20260315v1" />
     <link rel="stylesheet" href="/css/review-panel.css?v=20260219v2" />
-    <!-- Preload CDN scripts for faster initial render -->
-    <link rel="preload" href="https://unpkg.com/htmx.org@1.9.12" as="script" />
-    <link rel="preload" href="https://cdn.jsdelivr.net/npm/marked/marked.min.js" as="script" />
-    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" as="script" />
-    <link rel="preload" href="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" as="script" />
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Core boot assets stay same-origin so Android/WebView startup is reliable. -->
+    <link rel="preload" href="/vendor/marked.js" as="script" />
+    <link rel="preload" href="/vendor/highlight.js" as="script" />
+    <link rel="preload" href="/vendor/alpine.js" as="script" />
+    <script src="/vendor/marked.js"></script>
+    <script src="/vendor/highlight.js"></script>
     <script src="/js/app.js?v=20260315v1" defer></script>
     <script src="/js/slash-contract.js?v=20260214v" defer></script>
     <script type="module" src="/js/chat.js?v=20260219v38"></script>
@@ -49,7 +42,7 @@
     <script src="/js/review-panel.js?v=20260219v2" defer></script>
     <script src="/js/pull-to-refresh.js?v=20260315v1" defer></script>
 
-    <script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
+    <script src="/vendor/alpine.js" defer></script>
   </head>
   <body>
     <div
