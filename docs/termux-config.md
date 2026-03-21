@@ -7,7 +7,7 @@ Rho runs inside Termux on Android. This documents the relevant Termux settings.
 The extra keys bar is configured in `~/.termux/termux.properties`:
 
 ```
-extra-keys = [[{key: 'ESC', popup: {macro: "/new ENTER", display: "/new"}},'TAB','CTRL','ALT',{key: '-', popup: '|'},'LEFT','RIGHT','DOWN','UP',{macro: "CTRL b m", display: "🎤"}]]
+extra-keys = [[{key: 'ESC', popup: {macro: "/new ENTER", display: "/new"}},'TAB','CTRL','ALT',{key: '-', popup: '|'},'LEFT','DOWN','UP','RIGHT',{macro: "CTRL b m", display: "🎤"}]]
 ```
 
 ### Key breakdown
@@ -19,7 +19,7 @@ extra-keys = [[{key: 'ESC', popup: {macro: "/new ENTER", display: "/new"}},'TAB'
 | CTRL | Ctrl modifier | |
 | ALT | Alt modifier | |
 | `-` | Hyphen | Swipe up: `\|` (pipe) |
-| ←→↓↑ | Arrow keys | |
+| ←↓↑→ | Arrow keys | |
 | 🎤 | `Ctrl+b m` | Triggers tmux mic/speech-to-text binding |
 
 ### Mic Button (Speech-to-Text)

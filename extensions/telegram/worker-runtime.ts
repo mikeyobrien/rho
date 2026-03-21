@@ -697,9 +697,15 @@ export function createTelegramWorkerRuntime(options: TelegramWorkerRuntimeOption
     return /rpc prompt timed out/i.test(message);
   };
 
+  const isAgentBusyError = (rawMessage: string): boolean => {
+    const message = String(rawMessage || "");
+    return /agent is already processing|already streaming|session busy|streamingbehavior/i.test(message);
+  };
+
   const backgroundEligibleSlashCommands = new Set(["plan", "code", "sop"]);
 
   const shouldDeferPromptToBackground = (promptText: string, rawMessage: string): boolean => {
+    if (isAgentBusyError(rawMessage)) return true;
     if (!isPromptTimeoutError(rawMessage)) return false;
 
     const slash = parseSlashInput(promptText);
