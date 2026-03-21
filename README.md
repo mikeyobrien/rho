@@ -142,6 +142,8 @@ Install [Termux](https://f-droid.org/packages/com.termux/) and [Termux:API](http
 curl -fsSL https://rhobot.dev/install | bash
 ```
 
+If Termux can't build the optional `node-pty` native module, rho still installs and runs. Only the embedded web terminal drawer is disabled until `node-pty` works on that device.
+
 </details>
 
 <details>

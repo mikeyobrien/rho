@@ -76,8 +76,10 @@
 		"grammy": "^1.40.0",
 		"hono": "^4.6.16",
 		"marked": "17.0.4",
-		"node-pty": "^1.1.0",
 		"smol-toml": "^1.6.0",
 		"tsx": "^4.21.0"
+	},
+	"optionalDependencies": {
+		"node-pty": "^1.1.0"
 	}
 }

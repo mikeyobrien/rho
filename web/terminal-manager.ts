@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { spawn } from "node-pty";
 
 export interface PtyHandle {
 	pid: number;
@@ -33,6 +33,12 @@ export interface TerminalManagerOptions {
 	idleTtlMs?: number;
 	historyLimitBytes?: number;
 }
+
+type NodePtyModule = {
+	spawn: PtyFactory;
+};
+
+type NodePtyLoader = () => NodePtyModule;
 
 export type TerminalSessionEvent =
 	| {
@@ -81,6 +87,15 @@ type ManagedSession = {
 const DEFAULT_IDLE_TTL_MS = 5 * 60_000;
 const DEFAULT_HISTORY_LIMIT_BYTES = 2 * 1024 * 1024;
 
+const require = createRequire(import.meta.url);
+const defaultNodePtyLoader: NodePtyLoader = () =>
+	require("node-pty") as NodePtyModule;
+
+let nodePtyLoader: NodePtyLoader = defaultNodePtyLoader;
+let nodePtyResolved = false;
+let nodePtySpawn: PtyFactory | null = null;
+let nodePtyLoadError: string | null = null;
+
 function resolveDefaultShell(): string {
 	if (process.platform === "win32") {
 		return process.env.COMSPEC?.trim() || "powershell.exe";
@@ -110,6 +125,52 @@ function normalizeHistoryLimitBytes(value: number | undefined): number {
 	return Math.max(32 * 1024, Math.floor(Number(value)));
 }
 
+function formatNodePtyLoadError(error: unknown): string {
+	const message =
+		error instanceof Error ? error.message : String(error || "unknown error");
+	return `Embedded terminal is unavailable because optional dependency node-pty could not be loaded (${message}). Core rho still installs and runs without it; the web terminal drawer stays disabled until node-pty works on this platform.`;
+}
+
+function loadNodePtySpawn(): PtyFactory | null {
+	if (nodePtyResolved) {
+		return nodePtySpawn;
+	}
+	nodePtyResolved = true;
+	try {
+		const mod = nodePtyLoader();
+		if (typeof mod?.spawn !== "function") {
+			nodePtySpawn = null;
+			nodePtyLoadError = formatNodePtyLoadError(
+				new Error("node-pty module did not export spawn"),
+			);
+			return null;
+		}
+		nodePtySpawn = mod.spawn;
+		nodePtyLoadError = null;
+		return nodePtySpawn;
+	} catch (error) {
+		nodePtySpawn = null;
+		nodePtyLoadError = formatNodePtyLoadError(error);
+		return null;
+	}
+}
+
+export function isTerminalBackendAvailable(): boolean {
+	return loadNodePtySpawn() !== null;
+}
+
+export function getTerminalBackendUnavailableReason(): string | null {
+	loadNodePtySpawn();
+	return nodePtyLoadError;
+}
+
+export function setNodePtyLoaderForTests(loader: NodePtyLoader | null): void {
+	nodePtyLoader = loader ?? defaultNodePtyLoader;
+	nodePtyResolved = false;
+	nodePtySpawn = null;
+	nodePtyLoadError = null;
+}
+
 function defaultPtyFactory(
 	shell: string,
 	args: string[],
@@ -121,6 +182,13 @@ function defaultPtyFactory(
 		env: NodeJS.ProcessEnv;
 	},
 ): PtyHandle {
+	const spawn = loadNodePtySpawn();
+	if (!spawn) {
+		throw new Error(
+			getTerminalBackendUnavailableReason() ??
+				"Embedded terminal is unavailable on this platform.",
+		);
+	}
 	return spawn(shell, args, options);
 }
 
