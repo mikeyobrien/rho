@@ -50,7 +50,7 @@ function normalizeConfiguredModel(
 	}
 
 	const parts = trimmed.split("/");
-	if (parts.length !== 2 || !parts[0] || !parts[1]) {
+	if (parts.length < 2 || !parts[0] || !parts.slice(1).every((p) => p)) {
 		return {
 			kind: "invalid",
 			requestedModel: trimmed,
@@ -62,7 +62,7 @@ function normalizeConfiguredModel(
 		kind: "configured",
 		requestedModel: trimmed,
 		provider: parts[0],
-		id: parts[1],
+		id: parts.slice(1).join("/"),
 	};
 }
 
