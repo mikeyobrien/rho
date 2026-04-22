@@ -52,6 +52,7 @@ import {
 	readBrain,
 } from "../lib/brain-store.ts";
 import { handleBrainAction } from "../lib/brain-tool.ts";
+import { isTransient } from "../lib/transient-blocklist.js";
 import { withFileLock } from "../lib/file-lock.ts";
 import {
 	type LeaseHandle,
@@ -266,11 +267,54 @@ function getAutoMemorySettingsSnapshot(): ReturnType<
 type StoreResult = {
 	stored: boolean;
 	id?: string;
-	reason?: "empty" | "duplicate" | "too_long";
+	reason?: "empty" | "duplicate" | "too_long" | "transient";
 };
 
 function normalizeMemoryText(text: string): string {
 	return text.trim().replace(/\s+/g, " ");
+}
+
+// ── Semantic dedup helpers (issue #34) ────────────────────────────
+
+/** Replace runs of digits with a placeholder for comparison. */
+function normalizeNumbers(text: string): string {
+	return text.replace(/\d+/g, "___NUM___");
+}
+
+/** Minimum text length for containment checks to avoid short-phrase false positives. */
+const MIN_CONTAINMENT_LENGTH = 30;
+
+/** Check if one normalized text is contained in another (with minimum length guard). */
+function containsNormalized(existingNorm: string, newNorm: string): boolean {
+	if (existingNorm.length < MIN_CONTAINMENT_LENGTH || newNorm.length < MIN_CONTAINMENT_LENGTH) {
+		return false;
+	}
+	return existingNorm.includes(newNorm) || newNorm.includes(existingNorm);
+}
+
+/** Cross-type semantic dedup: checks ALL entry types using number normalization + containment. */
+function isSemanticDuplicate(
+	allEntries: BrainEntry[],
+	candidate: BrainEntry,
+): boolean {
+	const candidateNorm = normalizeNumbers(normalizeMemoryText(candidate.text || "")).toLowerCase();
+
+	for (const e of allEntries) {
+		if (e.type === "tombstone") continue;
+		const existingNorm = normalizeNumbers(normalizeMemoryText(e.text || "")).toLowerCase();
+
+		// Same-type exact match (existing behavior, preserved)
+		if (candidate.type === e.type && candidateNorm === existingNorm) {
+			return true;
+		}
+
+		// Cross-type semantic match via containment
+		if (containsNormalized(existingNorm, candidateNorm)) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 function sanitizeCategory(category?: string): string {
@@ -300,6 +344,11 @@ async function storeLearningEntry(
 		return { stored: false, reason: "too_long" };
 	}
 
+	// Block transient entries before they reach the brain (issue #34)
+	if (isTransient(normalized)) {
+		return { stored: false, reason: "transient" };
+	}
+
 	const entry = {
 		id: crypto.randomBytes(4).toString("hex"),
 		type: "learning" as const,
@@ -315,13 +364,7 @@ async function storeLearningEntry(
 	const written = await appendBrainEntryWithDedup(
 		BRAIN_PATH,
 		entry,
-		(existing) =>
-			existing.some(
-				(e) =>
-					e.type === "learning" &&
-					normalizeMemoryText((e as LearningEntry).text || "").toLowerCase() ===
-						normalized.toLowerCase(),
-			),
+		(existing) => isSemanticDuplicate(existing, entry),
 	);
 
 	if (!written) return { stored: false, reason: "duplicate" };
@@ -346,6 +389,11 @@ async function storePreferenceEntry(
 	if (options?.maxLength && normalized.length > options.maxLength) {
 		return { stored: false, reason: "too_long" };
 	}
+
+	// Block transient entries before they reach the brain (issue #34)
+	if (isTransient(normalized)) {
+		return { stored: false, reason: "transient" };
+	}
 	const normalizedCategory = sanitizeCategory(category);
 
 	const entry = {
@@ -364,15 +412,7 @@ async function storePreferenceEntry(
 	const written = await appendBrainEntryWithDedup(
 		BRAIN_PATH,
 		entry,
-		(existing) =>
-			existing.some(
-				(e) =>
-					e.type === "preference" &&
-					normalizeMemoryText(
-						(e as PreferenceEntry).text || "",
-					).toLowerCase() === normalized.toLowerCase() &&
-					(e as PreferenceEntry).category === normalizedCategory,
-			),
+		(existing) => isSemanticDuplicate(existing, entry),
 	);
 
 	if (!written) return { stored: false, reason: "duplicate" };
@@ -387,7 +427,7 @@ type AutoMemoryResponse = {
 	preferences?: Array<{ text?: string; category?: string }>;
 };
 
-type AutoMemorySkipReason = "empty" | "duplicate" | "too_long" | "item_limit";
+type AutoMemorySkipReason = "empty" | "duplicate" | "too_long" | "item_limit" | "transient";
 
 type AutoMemoryDecision = {
 	kind: "learning" | "preference";
