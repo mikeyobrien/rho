@@ -158,16 +158,24 @@ export default function (pi: ExtensionAPI) {
 	} | null = null;
 
 	async function poll() {
-		const auth = readAuth();
-		if (!auth) return;
-		const active = state.activeProvider;
-		if (active === "codex" && auth["openai-codex"]?.access) {
-			state.codex = await fetchCodexUsage(auth["openai-codex"].access);
-		} else if (active === "claude" && auth.anthropic?.access) {
-			state.claude = await fetchClaudeUsage(auth.anthropic.access);
+		try {
+			const auth = readAuth();
+			if (!auth) return;
+			const active = state.activeProvider;
+			if (active === "codex" && auth["openai-codex"]?.access) {
+				state.codex = await fetchCodexUsage(auth["openai-codex"].access);
+			} else if (active === "claude" && auth.anthropic?.access) {
+				state.claude = await fetchClaudeUsage(auth.anthropic.access);
+			}
+			state.lastPoll = Date.now();
+			updateStatus();
+		} catch {
+			// ctx became stale (e.g., session reload/crash) – stop polling
+			if (pollTimer) {
+				clearInterval(pollTimer);
+				pollTimer = null;
+			}
 		}
-		state.lastPoll = Date.now();
-		updateStatus();
 	}
 
 	function formatBar(pct: number): string {
@@ -204,11 +212,17 @@ export default function (pi: ExtensionAPI) {
 			if ("extraSpend" in data && data.extraSpend != null) {
 				statusText += `  extra: $${data.extraSpend.toFixed(2)}/$${data.extraLimit?.toFixed(2) ?? "?"}`;
 			}
-			if (ctx?.ui?.setStatus) {
-				ctx.ui.setStatus(statusText);
+			try {
+				ctx?.ui?.setStatus?.(statusText);
+			} catch {
+				// ctx is stale after session reload; timer will be cleaned up by poll()
 			}
-		} else if (ctx?.ui?.setStatus) {
-			ctx.ui.setStatus("");
+		} else {
+			try {
+				ctx?.ui?.setStatus?.("");
+			} catch {
+				// ctx is stale after session reload; timer will be cleaned up by poll()
+			}
 		}
 	}
 
