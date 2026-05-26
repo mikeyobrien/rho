@@ -212,17 +212,9 @@ export default function (pi: ExtensionAPI) {
 			if ("extraSpend" in data && data.extraSpend != null) {
 				statusText += `  extra: $${data.extraSpend.toFixed(2)}/$${data.extraLimit?.toFixed(2) ?? "?"}`;
 			}
-			try {
-				ctx?.ui?.setStatus?.(statusText);
-			} catch {
-				// ctx is stale after session reload; timer will be cleaned up by poll()
-			}
+			ctx?.ui?.setStatus?.(statusText);
 		} else {
-			try {
-				ctx?.ui?.setStatus?.("");
-			} catch {
-				// ctx is stale after session reload; timer will be cleaned up by poll()
-			}
+			ctx?.ui?.setStatus?.("");
 		}
 	}
 
