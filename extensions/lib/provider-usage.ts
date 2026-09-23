@@ -42,7 +42,7 @@ function getHomeDir(): string {
 }
 
 export function getPiAuthPath(homeDir: string = getHomeDir()): string {
-	return path.join(homeDir, ".pi", "agent", "auth.json");
+	return path.join(homeDir, ".rho", "pi-agent", "auth.json");
 }
 
 export function readPiAuth(
@@ -253,7 +253,7 @@ function getKiroCliDbPath(): string | undefined {
 
 function queryKiroCliDbValue(dbPath: string, key: string): string | undefined {
 	try {
-		// @ts-ignore — node:sqlite is experimental
+		// @ts-expect-error — node:sqlite is experimental
 		const { DatabaseSync } = esmRequire("node:sqlite");
 		const db = new DatabaseSync(dbPath, { open: true, readOnly: true });
 		try {
@@ -378,7 +378,7 @@ function mapKiroUsageResponse(
 		buckets.push({
 			label: bd.displayName || bd.resourceType || "Credits",
 			used: formatCount(used),
-			limit: limit !== undefined ? formatCount(limit) : null,
+			limit: limit === undefined ? null : formatCount(limit),
 			unit: bd.unit || null,
 		});
 	}
@@ -390,7 +390,7 @@ function mapKiroUsageResponse(
 		const ft = firstBd.freeTrialInfo;
 		bonusCredits = {
 			used: formatCount(ft.currentUsage),
-			limit: ft.usageLimit !== undefined ? formatCount(ft.usageLimit) : null,
+			limit: ft.usageLimit === undefined ? null : formatCount(ft.usageLimit),
 			expiresAt: ft.freeTrialExpiry
 				? new Date(ft.freeTrialExpiry * 1000).toISOString().slice(0, 10)
 				: null,

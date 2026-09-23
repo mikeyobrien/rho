@@ -16,11 +16,16 @@ import { spawnSync } from "node:child_process";
 
 type Provider = "vercel" | "clawhub";
 
+import { refuseLegacy } from "../install-kind.ts";
+import { skillProviderScope } from "../pi-launch.ts";
+import { resolveRhoPaths } from "../rho-paths.ts";
+
 const HOME = process.env.HOME || os.homedir();
+const PATHS = resolveRhoPaths(HOME);
 const DEFAULT_PROVIDER: Provider = "vercel";
 
-// Pi path (where pi loads skills from)
-const PI_AGENT_DIR = path.join(HOME, ".pi", "agent");
+// Rho-owned Pi path. Do not write ordinary ~/.pi/agent.
+const PI_AGENT_DIR = PATHS.piAgentDir;
 const PI_SKILLS_DIR = path.join(PI_AGENT_DIR, "skills");
 
 // Vercel skills canonical global store
@@ -79,6 +84,12 @@ export async function run(args: string[]): Promise<void> {
     return;
   }
 
+  refuseLegacy(PATHS);
+  const scope = skillProviderScope(provider, PATHS);
+  if (!scope.ok) {
+    console.error(`Error: ${scope.error}`);
+    process.exit(1);
+  }
   ensureNpxAvailable();
 
   if (provider === "vercel") {
@@ -101,7 +112,7 @@ function runVercel(forwarded: string[]): never {
 
   // Canonical mapping
   const mappedCommand = mapVercelCommand(rawCommand);
-  let args = [...forwarded];
+  const args = [...forwarded];
 
   if (commandIndex >= 0 && mappedCommand !== rawCommand) {
     args[commandIndex] = mappedCommand;
@@ -204,7 +215,7 @@ function runClawhub(forwarded: string[]): never {
   const commandIndex = analysis.positionalIndices[0] ?? -1;
 
   const mappedCommand = mapClawhubCommand(rawCommand);
-  let args = [...forwarded];
+  const args = [...forwarded];
 
   if (commandIndex >= 0 && mappedCommand !== rawCommand) {
     args[commandIndex] = mappedCommand;
@@ -312,7 +323,7 @@ Providers:
   vercel  -> wraps \`npx skills\`
              install/list/remove defaults: --agent pi --global
   clawhub -> wraps \`npx clawhub@latest\`
-             defaults: --workdir ~/.pi/agent --dir skills
+             defaults: --workdir ~/.rho/pi-agent --dir skills
 
 Examples:
   rho skills install vercel-labs/agent-skills --skill web-design-guidelines
@@ -360,7 +371,7 @@ function parseProvider(args: string[]): {
       }
       i += 1;
       if (!isProvider(value)) {
-        return { provider, forwarded, error: `unsupported provider \"${value}\". Use vercel or clawhub.` };
+        return { provider, forwarded, error: `unsupported provider "${value}". Use vercel or clawhub.` };
       }
       provider = value;
       continue;
@@ -369,7 +380,7 @@ function parseProvider(args: string[]): {
     if (arg.startsWith("--provider=")) {
       const value = arg.slice("--provider=".length);
       if (!isProvider(value)) {
-        return { provider, forwarded, error: `unsupported provider \"${value}\". Use vercel or clawhub.` };
+        return { provider, forwarded, error: `unsupported provider "${value}". Use vercel or clawhub.` };
       }
       provider = value;
       continue;

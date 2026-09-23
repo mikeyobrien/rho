@@ -17,10 +17,13 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
 import { detectPlatform, planInit, planBootstrap } from "../init-core.ts";
+import { ensureIsolatedDirs, refuseLegacy, writeLayoutMarker } from "../install-kind.ts";
+import { resolveRhoPaths } from "../rho-paths.ts";
 
 const HOME = process.env.HOME || os.homedir();
-const RHO_DIR = path.join(HOME, ".rho");
-const PI_DIR = path.join(HOME, ".pi", "agent");
+const PATHS = resolveRhoPaths(HOME);
+const RHO_DIR = PATHS.rhoDir;
+const PI_DIR = PATHS.piAgentDir;
 
 export async function run(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
@@ -39,6 +42,9 @@ Options:
   --verbose      Show detailed output`);
     return;
   }
+
+  const paths = refuseLegacy(PATHS);
+  ensureIsolatedDirs(paths);
 
   const verbose = args.includes("--verbose");
   const force = args.includes("--force");
@@ -221,6 +227,7 @@ Options:
   console.log(`  1. Run \`rho sync\` to apply configuration`);
   console.log(`  2. Edit ~/.rho/init.toml to configure modules`);
   console.log(`  3. Use the brain tool to define agent identity and behavior`);
+  writeLayoutMarker(paths);
 }
 
 /** Read agent name from existing init.toml, if present. */

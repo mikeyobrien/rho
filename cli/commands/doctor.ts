@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import { parseInitToml, parsePackagesToml } from "../config.ts";
 import { REGISTRY } from "../registry.ts";
 import { findRhoEntryIndex, buildRhoPackageEntry } from "../sync-core.ts";
+import { refuseLegacy } from "../install-kind.ts";
+import { resolveRhoPaths } from "../rho-paths.ts";
 import {
   runAllChecks,
   formatResults,
@@ -22,9 +24,10 @@ import {
 } from "../doctor-core.ts";
 
 const HOME = process.env.HOME || os.homedir();
-const RHO_DIR = path.join(HOME, ".rho");
-const SETTINGS_PATH = path.join(HOME, ".pi", "agent", "settings.json");
-const PI_AUTH_PATH = path.join(HOME, ".pi", "agent", "auth.json");
+const PATHS = resolveRhoPaths(HOME);
+const RHO_DIR = PATHS.rhoDir;
+const SETTINGS_PATH = PATHS.settingsPath;
+const PI_AUTH_PATH = PATHS.authPath;
 const RHO_CLOUD_CREDS = path.join(HOME, ".config", "rho-cloud", "credentials.json");
 
 export async function run(args: string[]): Promise<void> {
@@ -39,6 +42,11 @@ Options:
   --json       Output results as JSON`);
     return;
   }
+
+  refuseLegacy(PATHS);
+  console.log(`Rho agent dir: ${PATHS.piAgentDir}`);
+  console.log(`Rho sessions: ${PATHS.sessionDir}`);
+  console.log(`Rho workspace: ${PATHS.workspaceDir}`);
 
   const jsonOutput = args.includes("--json");
 

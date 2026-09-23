@@ -16,6 +16,9 @@ import { fileURLToPath } from "node:url";
 
 import { detectPlatform } from "../init-core.ts";
 import { parseInitToml } from "../config.ts";
+import { refuseLegacy } from "../install-kind.ts";
+import { planDaemonLaunch } from "../pi-launch.ts";
+import { resolveRhoPaths } from "../rho-paths.ts";
 import {
   SESSION_NAME,
   PID_FILE,
@@ -192,23 +195,27 @@ function removeNotification(): void {
 function ensureTmuxSession(): void {
   if (tmuxSessionExists()) return;
 
-  // Resolve pi's absolute path so tmux doesn't depend on the session shell's
-  // PATH (which won't include nvm/fnm/volta managed directories).
-  const piBin = getCommandPath("pi") || "pi";
+  const paths = refuseLegacy(resolveRhoPaths(HOME));
+  const plan = planDaemonLaunch({
+    piBin: getCommandPath("pi"),
+    paths,
+    tmuxBaseArgs: tmuxBaseArgs(),
+    sessionName: SESSION_NAME,
+    baseEnv: process.env,
+  });
+  if (!plan.ok) {
+    throw new Error(plan.error ?? "Failed to plan isolated Pi launch");
+  }
 
-  // Propagate the current PATH into the tmux server environment so that pi's
-  // child processes (node, npx, etc.) are also reachable.
   if (process.env.PATH) {
     spawnSync("tmux", [...tmuxBaseArgs(), "set-environment", "-g", "PATH", process.env.PATH], { stdio: "ignore" });
   }
 
-  const r = spawnSync(
-    "tmux",
-    [...tmuxBaseArgs(), "new-session", "-d", "-s", SESSION_NAME, "-c", RHO_DIR, `${piBin} -c`],
-    { stdio: "ignore" },
-  );
-  if (r.status !== 0) {
-    throw new Error("Failed to create tmux session");
+  for (const args of plan.tmuxCommands) {
+    const result = spawnSync("tmux", args, { stdio: "ignore" });
+    if (result.status !== 0) {
+      throw new Error("Failed to create isolated tmux session");
+    }
   }
 }
 

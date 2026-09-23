@@ -2734,18 +2734,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	const loadHbState = () => {
-		// Migrate legacy state
-		try {
-			if (!fs.existsSync(STATE_PATH) && fs.existsSync(LEGACY_STATE_PATH)) {
-				fs.mkdirSync(RHO_DIR, { recursive: true });
-				fs.writeFileSync(
-					STATE_PATH,
-					fs.readFileSync(LEGACY_STATE_PATH, "utf-8"),
-				);
-			}
-		} catch {
-			/* ignore */
-		}
+		// Legacy ~/.pi state is copied only by `rho migrate`, never automatically.
 
 		try {
 			const raw = fs.readFileSync(STATE_PATH, "utf-8");
@@ -3078,7 +3067,7 @@ export default function (pi: ExtensionAPI) {
 		if (dueReminders.length > 0) {
 			remindersSection = dueReminders
 				.map((r) => {
-					const priority = r.priority !== "normal" ? ` (${r.priority})` : "";
+					const priority = r.priority === "normal" ? "" : ` (${r.priority})`;
 					const rTags = Array.isArray(r.tags) ? r.tags : [];
 					const tags = rTags.length > 0 ? ` [${rTags.join(", ")}]` : "";
 					return `- [${r.id}] ${r.text}${priority}${tags}`;

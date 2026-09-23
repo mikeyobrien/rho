@@ -45,7 +45,7 @@ function createSessionFile(baseDir?: string): string {
   const safeTimestamp = timestamp.replace(/[:.]/g, "-");
   const cwd = process.env.HOME ?? process.cwd();
   const safeCwd = cwd.replace(/\//g, "-");
-  const sessionDir = baseDir || join(getHome(), ".pi", "agent", "sessions", safeCwd);
+  const sessionDir = baseDir || join(getHome(), ".rho", "sessions");
   mkdirSync(sessionDir, { recursive: true });
   const sessionFile = join(sessionDir, `${safeTimestamp}_${sessionId}.jsonl`);
   const header = JSON.stringify({ type: "session", version: 1, id: sessionId, cwd, timestamp });

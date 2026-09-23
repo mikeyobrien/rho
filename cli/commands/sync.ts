@@ -21,6 +21,8 @@ import {
 	validateConfig,
 } from "../config.ts";
 import { PID_FILE } from "../daemon-core.ts";
+import { atomicWrite, refuseLegacy } from "../install-kind.ts";
+import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths } from "../rho-paths.ts";
 import {
 	type SyncLock,
 	collectExternalModulePackages,
@@ -29,8 +31,9 @@ import {
 } from "../sync-core.ts";
 
 const HOME = process.env.HOME || os.homedir();
-const RHO_DIR = path.join(HOME, ".rho");
-const SETTINGS_PATH = path.join(HOME, ".pi", "agent", "settings.json");
+const PATHS = resolveRhoPaths(HOME);
+const RHO_DIR = PATHS.rhoDir;
+const SETTINGS_PATH = PATHS.settingsPath;
 const INIT_TOML = path.join(RHO_DIR, "init.toml");
 const PACKAGES_TOML = path.join(RHO_DIR, "packages.toml");
 const SYNC_LOCK = path.join(RHO_DIR, "sync.lock");
@@ -71,6 +74,7 @@ Options:
 
 	const dryRun = args.includes("--dry-run");
 	const verbose = args.includes("--verbose");
+	refuseLegacy(PATHS);
 
 	// ---- 1. Read init.toml ----
 	if (!fs.existsSync(INIT_TOML)) {
@@ -280,11 +284,7 @@ Options:
 	applyPackagesTomlFilters(plan.settingsJson, pkgConfig.packages);
 
 	// ---- 11. Write settings.json + sync.lock ----
-	fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
-	fs.writeFileSync(
-		SETTINGS_PATH,
-		`${JSON.stringify(plan.settingsJson, null, 2)}\n`,
-	);
+	atomicWrite(SETTINGS_PATH, `${JSON.stringify(plan.settingsJson, null, 2)}\n`);
 
 	fs.mkdirSync(RHO_DIR, { recursive: true });
 	fs.writeFileSync(SYNC_LOCK, `${JSON.stringify(plan.newSyncLock, null, 2)}\n`);
@@ -489,9 +489,10 @@ function runPi(
 	stdout: string;
 	stderr: string;
 } {
-	const r = spawnSync("pi", args, {
+	const r = spawnSync("pi", piLaunchArgs(PATHS, args), {
 		stdio: opts.verbose ? "inherit" : "pipe",
 		encoding: "utf-8",
+		env: buildPiChildEnv(PATHS),
 	});
 
 	return {
@@ -525,13 +526,13 @@ function applyPackagesTomlFilters(
 		const hasFilters = pkg.extensions !== undefined || pkg.skills !== undefined;
 
 		if (idx === -1) {
-			if (!hasFilters) {
-				packages.push(pkg.source);
-			} else {
+			if (hasFilters) {
 				const entry: ManagedPackageEntry = { source: pkg.source };
 				if (pkg.extensions !== undefined) entry.extensions = pkg.extensions;
 				if (pkg.skills !== undefined) entry.skills = pkg.skills;
 				packages.push(entry);
+			} else {
+				packages.push(pkg.source);
 			}
 			continue;
 		}
@@ -552,11 +553,9 @@ function applyPackagesTomlFilters(
 				source: pkg.source,
 			};
 
-			if (pkg.extensions !== undefined) next.extensions = pkg.extensions;
-			else next.extensions = undefined;
+			if (pkg.extensions === undefined) next.extensions = undefined; else next.extensions = pkg.extensions;
 
-			if (pkg.skills !== undefined) next.skills = pkg.skills;
-			else next.skills = undefined;
+			if (pkg.skills === undefined) next.skills = undefined; else next.skills = pkg.skills;
 
 			packages[idx] = next;
 		}

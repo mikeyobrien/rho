@@ -13,9 +13,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { refuseLegacy } from "../install-kind.ts";
+import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths } from "../rho-paths.ts";
 
 const HOME = process.env.HOME || os.homedir();
-const AUTH_FILE = path.join(HOME, ".pi", "agent", "auth.json");
+const PATHS = resolveRhoPaths(HOME);
+const AUTH_FILE = PATHS.authPath;
 const RHO_CLOUD_CREDS = path.join(HOME, ".config", "rho-cloud", "credentials.json");
 
 export async function run(args: string[]): Promise<void> {
@@ -51,12 +54,18 @@ Options:
   }
 
   // Default: open pi and instruct user
+  refuseLegacy(PATHS);
   ensurePiAvailable();
-  console.log("Starting pi session for authentication.");
+  console.log("Starting an isolated Rho pi session for authentication.");
+  console.log(`Credentials will be stored in ${AUTH_FILE}`);
   console.log("Type /login to open the provider selector.");
   console.log("");
 
-  const r = spawnSync("pi", [], { stdio: "inherit" });
+  const r = spawnSync("pi", piLaunchArgs(PATHS, []), {
+    stdio: "inherit",
+    env: buildPiChildEnv(PATHS),
+    cwd: PATHS.workspaceDir,
+  });
   process.exit(r.status ?? 0);
 }
 
@@ -71,16 +80,13 @@ function ensurePiAvailable(): void {
 
 function showStatus(): void {
   // pi auth
-  if (!fs.existsSync(AUTH_FILE)) {
-    console.log("No pi credentials configured.");
-    console.log("Run `rho login` to authenticate.");
-  } else {
+  if (fs.existsSync(AUTH_FILE)) {
     try {
       const raw = fs.readFileSync(AUTH_FILE, "utf-8");
       const auth = JSON.parse(raw) as Record<string, any>;
       const now = Date.now();
 
-      console.log("Provider credentials (~/.pi/agent/auth.json):\n");
+      console.log(`Provider credentials (${AUTH_FILE}):\n`);
       for (const [provider, cred] of Object.entries(auth)) {
         const type = (cred as any)?.type ?? "unknown";
         let status = "";
@@ -99,8 +105,11 @@ function showStatus(): void {
         console.log(`  ${provider.padEnd(22)}${String(type).padEnd(12)}${status}${refreshable}`);
       }
     } catch {
-      console.log("Could not parse ~/.pi/agent/auth.json");
+      console.log(`Could not parse ${AUTH_FILE}`);
     }
+  } else {
+    console.log("No pi credentials configured.");
+    console.log("Run `rho login` to authenticate.");
   }
 
   // rho cloud creds

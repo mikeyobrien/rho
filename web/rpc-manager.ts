@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths } from "../cli/rho-paths.ts";
 
 type EventHandler = (event: RPCEvent) => void;
 
@@ -64,12 +65,12 @@ export class RPCManager {
 		}
 
 		const id = randomUUID();
-		const child = spawn("pi", ["--mode", "rpc"], {
+		const paths = resolveRhoPaths();
+		const child = spawn("pi", piLaunchArgs(paths, ["--mode", "rpc"]), {
 			cwd,
 			stdio: ["pipe", "pipe", "pipe"],
 			env: {
-				...process.env,
-				// RPC worker is not a subagent - explicitly unset to prevent inheritance.
+				...buildPiChildEnv(paths),
 				RHO_SUBAGENT: undefined,
 			},
 		});
