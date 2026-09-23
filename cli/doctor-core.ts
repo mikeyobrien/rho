@@ -220,7 +220,7 @@ export function checkAuthFile(
   }
 
   if (!exists) {
-    const fixCmd = name === "rho-cloud" ? "rho login" : "pi login";
+    const fixCmd = "rho login";
     return {
       status: "warn",
       message: `${name} credentials not found`,

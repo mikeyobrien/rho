@@ -54,8 +54,8 @@ echo ""
 echo "-- rho start --"
 
 # Create pi settings.json manually (normally rho sync does this)
-mkdir -p ~/.pi/agent
-echo '{"packages":[]}' > ~/.pi/agent/settings.json
+mkdir -p "$HOME/.rho/pi-agent"
+echo '{"packages":[]}' > "$HOME/.rho/pi-agent/settings.json"
 
 START_OUTPUT=$(rho start 2>&1) || true
 START_EXIT=$?

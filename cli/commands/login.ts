@@ -70,7 +70,10 @@ Options:
 }
 
 function ensurePiAvailable(): void {
-  const r = spawnSync("pi", ["--help"], { stdio: "ignore" });
+  const r = spawnSync("pi", ["--help"], {
+    stdio: "ignore",
+    env: buildPiChildEnv(PATHS),
+  });
   if (r.error || r.status !== 0) {
     console.error("Error: pi is not installed or not working.");
     console.error("Install: npm i -g @mariozechner/pi-coding-agent");

@@ -56,8 +56,6 @@ export function planDaemonLaunch(input: {
 		env,
 		piCommand,
 		tmuxCommands: [
-			set("PI_CODING_AGENT_DIR", input.paths.piAgentDir),
-			set("PI_CODING_AGENT_SESSION_DIR", input.paths.sessionDir),
 			[
 				...input.tmuxBaseArgs,
 				"new-session",
@@ -68,6 +66,8 @@ export function planDaemonLaunch(input: {
 				input.paths.workspaceDir,
 				piCommand,
 			],
+			set("PI_CODING_AGENT_DIR", input.paths.piAgentDir),
+			set("PI_CODING_AGENT_SESSION_DIR", input.paths.sessionDir),
 		],
 	};
 }

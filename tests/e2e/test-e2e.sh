@@ -76,7 +76,7 @@ assert_not_empty() {
 
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 RHO_DIR="$HOME/.rho"
-PI_DIR="$HOME/.pi/agent"
+PI_DIR="$HOME/.rho/pi-agent"
 
 # Ensure cleanup on exit (kill any daemon we start)
 cleanup_daemon() {

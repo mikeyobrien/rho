@@ -51,9 +51,19 @@ rho
 
 That gives you:
 - initialized config in `~/.rho/`
-- authenticated provider access via pi
+- Pi agent state in `~/.rho/pi-agent`, sessions in `~/.rho/sessions`, and workspace in `~/.rho/workspace`
+- authenticated provider access via `rho login` (separate from ordinary `pi` login)
 - background heartbeat daemon
 - an attached interactive session
+
+Rho does not read or write `~/.pi/agent` during a fresh install. An existing Rho install is left unchanged until you preview and apply migration:
+
+```bash
+rho migrate
+rho migrate --apply
+```
+
+Add `--copy-auth` only if you explicitly want `~/.pi/agent/auth.json` copied. `--remove-package` is a separate confirmation that removes Rho's package entry from ordinary Pi settings.
 
 ### First 5 minutes
 
@@ -224,7 +234,9 @@ rho                      # start and attach
 rho init                 # initialize ~/.rho config
 rho sync                 # sync rho config to pi
 rho doctor               # health + config checks
-rho login                # authenticate providers
+rho login                # authenticate providers in ~/.rho/pi-agent
+rho migrate              # preview isolation migration (writes nothing)
+rho migrate --apply      # copy Rho settings and sessions, not credentials
 rho start                # start background daemon
 rho stop                 # stop daemon
 rho status               # daemon/module status

@@ -63,7 +63,7 @@ export async function run(args: string[]): Promise<void> {
 Reconcile ~/.rho/init.toml and packages.toml with pi settings.
 
 Reads your Rho config, builds module filters, updates
-~/.pi/agent/settings.json, installs/removes third-party packages
+~/.rho/pi-agent/settings.json, installs/removes third-party packages
 declared in packages.toml, and writes ~/.rho/sync.lock.
 
 Options:
@@ -241,10 +241,16 @@ Options:
 		fs.existsSync(path.join(rhoRoot, "package.json"))
 	) {
 		const nodeModulesOk = fs.existsSync(path.join(rhoRoot, "node_modules"));
-		const pkgJson = JSON.parse(
-			fs.readFileSync(path.join(rhoRoot, "package.json"), "utf-8"),
-		);
-		const declaredDeps = Object.keys(pkgJson.dependencies || {});
+		let declaredDeps: string[] = [];
+		try {
+			const pkgJson = JSON.parse(
+				fs.readFileSync(path.join(rhoRoot, "package.json"), "utf-8"),
+			) as { dependencies?: Record<string, string> };
+			declaredDeps = Object.keys(pkgJson.dependencies || {});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(`Warning: could not read package.json: ${message}`);
+		}
 		const missingDeps = declaredDeps.some(
 			(dep) => !fs.existsSync(path.join(rhoRoot, "node_modules", dep)),
 		);
@@ -471,7 +477,10 @@ function signalDaemonReload(opts: { verbose: boolean }): void {
 }
 
 function ensurePiAvailable(): void {
-	const r = spawnSync("pi", ["--help"], { encoding: "utf-8" });
+	const r = spawnSync("pi", ["--help"], {
+		encoding: "utf-8",
+		env: buildPiChildEnv(PATHS),
+	});
 	if (r.error || r.status !== 0) {
 		console.error(
 			"Error: `pi` not found or not working. Install: npm i -g @mariozechner/pi-coding-agent",

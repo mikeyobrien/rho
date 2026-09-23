@@ -9,6 +9,29 @@ Two files control everything:
 
 Both are created by `rho init`. Edit either one, then run `rho sync`.
 
+## Isolated Pi state
+
+Fresh installs keep Rho's Pi state separate from ordinary Pi:
+
+- `~/.rho/pi-agent` — agent directory, including `settings.json`
+- `~/.rho/pi-agent/auth.json` — credentials created by `rho login`
+- `~/.rho/sessions` — Rho session logs
+- `~/.rho/workspace` — Rho workspace
+- `~/.rho/layout.json` — v2 layout marker
+
+`rho login` does not read or copy `~/.pi/agent/auth.json`. Ordinary `pi` keeps its own login.
+
+An existing `~/.rho/init.toml` without the v2 marker is legacy. Rho refuses mixed operation and does not convert it automatically. Preview first, then apply:
+
+```bash
+rho migrate
+rho migrate --apply
+rho migrate --apply --copy-auth          # only if you want credentials copied
+rho migrate --apply --remove-package     # separate confirmation; removes Rho from ordinary Pi settings
+```
+
+Preview writes nothing. Apply copies the Rho package entry, `rho-state.json`, and old sessions without overwriting differing files. Brain and vault stay in place. Old sessions are not deleted.
+
 ## init.toml
 
 ### Agent identity

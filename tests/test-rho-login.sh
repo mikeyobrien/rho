@@ -25,14 +25,22 @@ CLI=(node --experimental-strip-types "$ROOT/cli/index.ts")
 
 TMP="$(mktemp -d)"
 export HOME="$TMP/home"
-mkdir -p "$HOME/.pi/agent"
+mkdir -p "$HOME/.rho/pi-agent"
 
-# Seed a minimal auth.json so --status output is deterministic.
-cat > "$HOME/.pi/agent/auth.json" <<'JSON'
+# Seed isolated auth so --status output is deterministic.
+cat > "$HOME/.rho/pi-agent/auth.json" <<'JSON'
 {
   "anthropic": { "type": "api_key" }
 }
 JSON
+
+if [ -e "$HOME/.pi/agent/auth.json" ]; then
+  echo "  FAIL: ordinary Pi auth was created"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: ordinary Pi auth was not created"
+  PASS=$((PASS + 1))
+fi
 
 echo "Testing rho login..."
 echo "  HOME=$HOME"
@@ -51,7 +59,7 @@ echo "$out" | grep -q "anthropic"
 assert "login --status lists anthropic" $?
 
 # --logout unknown provider should exit non-zero and print an error.
-out2="$(${CLI[@]} login --logout nonexistent-provider 2>&1 || true)"
+out2="$("${CLI[@]}" login --logout nonexistent-provider 2>&1 || true)"
 echo "$out2" | grep -q "not found"
 assert "--logout prints not found" $?
 
