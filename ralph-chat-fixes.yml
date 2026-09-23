@@ -12,7 +12,8 @@ cli:
 core:
   specs_dir: ".ralph/specs/"
   guardrails:
-    - "Read the full chat.js before making changes — understand the normalization pipeline"
+    - "Read the full chat.js before making changes — understand the
+       normalization pipeline"
     - "Do NOT break streaming — only fix the JSONL parser path"
     - "Test by reading the modified code and verifying logic"
 
@@ -25,13 +26,15 @@ hats:
     default_publishes: "implementation.ready"
     instructions: |
       ## BUILDER
-      1. `grep -l "status: pending" .ralph/specs/chat-fixes/tasks/*.code-task.md` for next task
+      1. For the next task, run:
+        `grep -l "status: pending" .ralph/specs/chat-fixes/tasks/*.code-task.md`
       2. If none → publish `implementation.ready`
       3. Read task + design doc + the relevant source files
       4. Implement, update frontmatter to completed
       5. Publish `implementation.ready`
 
-      Key files: `web/public/js/chat.js` (~1900 lines), `web/public/index.html`, `web/public/css/style.css`
+      Key files: `web/public/js/chat.js` (~1900 lines),
+      `web/public/index.html`, `web/public/css/style.css`
 
   validator:
     name: "✅ Validator"
@@ -42,7 +45,9 @@ hats:
     instructions: |
       ## VALIDATOR
       If pending tasks → `validation.failed` "continue"
-      If all done → check syntax, `curl -s http://0.0.0.0:3141/api/health`, `validation.passed`
+      If all done → check syntax, run
+      `curl -s http://0.0.0.0:3141/api/health`, then publish
+      `validation.passed`
 
   committer:
     name: "📦 Committer"
@@ -52,6 +57,8 @@ hats:
     default_publishes: "LOOP_COMPLETE"
     instructions: |
       ```bash
-      cd ~/projects/rho && git add web/ && git commit -m "fix(web): tool block status/preview in read-only, fork buttons user-only+hover"
+      message='fix(web): tool block status/preview in read-only, '
+      message="${message}fork buttons user-only+hover"
+      cd ~/projects/rho && git add web/ && git commit -m "$message"
       ```
       Publish LOOP_COMPLETE.

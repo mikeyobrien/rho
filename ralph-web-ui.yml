@@ -3,7 +3,8 @@
 # Uses codex backend, implements from existing PDD specs
 #
 # Fixed: removed self-loop (task.complete no longer triggers builder)
-# Builder runs once per build.start, implements ALL remaining tasks, then hands to validator.
+# Builder runs once per build.start, implements ALL remaining tasks,
+# then hands to validator.
 
 event_loop:
   completion_promise: "LOOP_COMPLETE"
@@ -29,7 +30,8 @@ core:
 hats:
   builder:
     name: "⚙️ Builder"
-    description: "Implements the NEXT SINGLE pending code task. Publishes implementation.ready when ALL done."
+    description: "Implements the NEXT SINGLE pending code task. Publishes
+      implementation.ready when ALL done."
     triggers: ["build.start", "validation.failed"]
     publishes: ["implementation.ready"]
     default_publishes: "implementation.ready"
@@ -45,7 +47,8 @@ hats:
       4. Update its frontmatter to `status: completed`
       5. Publish `implementation.ready`
 
-      Do NOT re-implement completed tasks. Do NOT loop. Do NOT emit task.complete.
+      Do NOT re-implement completed tasks. Do NOT loop.
+      Do NOT emit task.complete.
       Your ONLY allowed publish event is `implementation.ready`.
 
       ### Context (READ THESE for each task)
@@ -55,7 +58,8 @@ hats:
       - Research files: .ralph/specs/rho-web-ui/research/
 
       ### Process
-      1. `ls .ralph/specs/rho-web-ui/tasks/` and `grep -l "status: pending"` to find next task
+      1. To find the next task, run `ls .ralph/specs/rho-web-ui/tasks/`
+         and `grep -l "status: pending"`.
       2. Read the task file completely
       3. Read referenced design doc sections
       4. Explore existing code in `web/` directory (tasks 1-7 are already done)
@@ -65,16 +69,19 @@ hats:
       8. Publish `implementation.ready`
 
       ### If triggered by validation.failed
-      Read the Validator's feedback from the scratchpad. Fix the specific issues.
+      Read the Validator's feedback from the scratchpad.
+      Fix the specific issues.
       Then publish `implementation.ready`.
 
       ### Key Project Conventions
       - TypeScript with ESM imports
       - Rho project root is the current directory
-      - pi is a peer dependency — import from @anthropic-ai/pi or check node_modules
+      - pi is a peer dependency — import from @anthropic-ai/pi
+        or check node_modules
       - Frontend: HTMX + Alpine.js + marked.js (CDN-loaded, no build step)
       - Server: Hono on Node.js
-      - Existing web code: web/server.ts, web/session-reader.ts, web/file-watcher.ts, etc.
+      - Existing web code: web/server.ts, web/session-reader.ts,
+        web/file-watcher.ts, etc.
 
   validator:
     name: "✅ Validator"
@@ -93,8 +100,10 @@ hats:
       ```
 
       If pending tasks remain:
-      - Quickly verify the LAST completed task works (check files exist, no syntax errors)
-      - If OK, publish `validation.failed` with message "More tasks pending, continue building"
+      - Quickly verify the LAST completed task works
+        (check files exist, no syntax errors)
+      - If OK, publish `validation.failed` with message
+        "More tasks pending, continue building"
         (This sends builder back to pick up next task)
       - If broken, publish `validation.failed` with specific fix instructions
 

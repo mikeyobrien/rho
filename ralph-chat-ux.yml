@@ -14,8 +14,10 @@ cli:
 core:
   specs_dir: ".ralph/specs/"
   guardrails:
-    - "Read the FULL task file before implementing — the CSS/HTML/JS snippets are suggestions, adapt as needed"
-    - "Do NOT break existing functionality — session viewing, file editing, and tasks must still work"
+    - "Read the FULL task file before implementing — the CSS/HTML/JS
+       snippets are suggestions, adapt as needed"
+    - "Do NOT break existing functionality — session viewing, file editing,
+       and tasks must still work"
     - "The web server is running at http://127.0.0.1:3141"
     - "Test changes by reading the modified files and verifying syntax"
     - "All frontend code is in web/public/ — no build step"
@@ -33,7 +35,8 @@ hats:
       Implement the NEXT pending task from `.ralph/specs/chat-ux/tasks/`.
 
       ### RULES
-      1. `grep -l "status: pending" .ralph/specs/chat-ux/tasks/*.code-task.md` to find next
+      1. Find the next task with:
+         `grep -l "status: pending" .ralph/specs/chat-ux/tasks/*.code-task.md`
       2. If none pending → publish `implementation.ready` immediately
       3. Read the task AND the design doc (`.ralph/specs/chat-ux/design.md`)
       4. Implement the changes
@@ -52,12 +55,16 @@ hats:
       - `renderedMessages` — array of message objects displayed in the thread
       - `activeRpcSessionId` — set when an RPC pi process is active (fork mode)
       - `isStreaming` — true during agent response streaming
-      - Parts in messages have `type`: text, thinking, tool_call, tool_result, bash, compaction, etc.
+      - Parts in messages have `type`: text, thinking, tool_call,
+        tool_result, bash, compaction, etc.
 
-      Tool calls come through as `toolcall_start`/`toolcall_delta`/`toolcall_end` deltas.
-      Tool execution comes through as `tool_execution_start`/`tool_execution_update`/`tool_execution_end` events.
-      
-      The goal is to merge tool_call + tool_result into one block, show previews, and keep everything collapsed by default.
+      Tool calls come through as `toolcall_start`/`toolcall_delta`/
+      `toolcall_end` deltas. Tool execution comes through as
+      `tool_execution_start`/`tool_execution_update`/
+      `tool_execution_end` events.
+
+      The goal is to merge tool_call + tool_result into one block,
+      show previews, and keep everything collapsed by default.
 
       ### If triggered by validation.failed
       Fix the issues described in the validator feedback.
@@ -72,7 +79,8 @@ hats:
       ## VALIDATOR MODE
 
       ```bash
-      grep -l "status: pending" .ralph/specs/chat-ux/tasks/*.code-task.md 2>/dev/null
+      grep -l "status: pending" \
+        .ralph/specs/chat-ux/tasks/*.code-task.md 2>/dev/null
       ```
 
       If pending tasks → `validation.failed` with "More tasks pending, continue"
