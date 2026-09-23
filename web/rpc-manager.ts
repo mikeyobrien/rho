@@ -1,6 +1,21 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths } from "../cli/rho-paths.ts";
+import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths, type RhoPaths } from "../cli/rho-paths.ts";
+
+export function buildRpcLaunch(paths: RhoPaths = resolveRhoPaths()): {
+	command: string;
+	args: string[];
+	env: NodeJS.ProcessEnv;
+} {
+	return {
+		command: "pi",
+		args: piLaunchArgs(paths, ["--mode", "rpc"]),
+		env: {
+			...buildPiChildEnv(paths),
+			RHO_SUBAGENT: undefined,
+		},
+	};
+}
 
 type EventHandler = (event: RPCEvent) => void;
 
@@ -65,14 +80,11 @@ export class RPCManager {
 		}
 
 		const id = randomUUID();
-		const paths = resolveRhoPaths();
-		const child = spawn("pi", piLaunchArgs(paths, ["--mode", "rpc"]), {
+		const launch = buildRpcLaunch();
+		const child = spawn(launch.command, launch.args, {
 			cwd,
 			stdio: ["pipe", "pipe", "pipe"],
-			env: {
-				...buildPiChildEnv(paths),
-				RHO_SUBAGENT: undefined,
-			},
+			env: launch.env,
 		});
 
 		const state: SessionState = {
@@ -238,7 +250,9 @@ export class RPCManager {
 				if (!state.exited) {
 					try {
 						state.process.kill("SIGKILL");
-					} catch {}
+					} catch (error) {
+						void error;
+					}
 				}
 			}, KILL_TIMEOUT_MS);
 			state.shutdownTimer.unref?.();
