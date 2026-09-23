@@ -14,8 +14,14 @@ const __dirname = path.dirname(__filename);
 
 // Read version from package.json
 const pkgPath = path.resolve(__dirname, "..", "package.json");
-const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-const VERSION: string = pkg.version;
+let VERSION = "0.0.0";
+try {
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { version?: string };
+  if (typeof pkg.version === "string") VERSION = pkg.version;
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Error reading ${pkgPath}: ${message}`);
+}
 
 // Command definitions: name -> { description, loader }
 interface CommandDef {
@@ -36,6 +42,7 @@ const COMMANDS: Record<string, CommandDef> = {
   logs:    { description: "Show recent heartbeat output",               load: () => import("./commands/logs.ts") },
   telegram: { description: "Manage the Telegram worker",                 load: () => import("./commands/telegram.ts") },
   login:   { description: "Authenticate with pi providers",            load: () => import("./commands/login.ts") },
+  migrate: { description: "Preview or apply isolated Rho migration", load: () => import("./commands/migrate.ts") },
   web:     { description: "Launch the web UI server",                   load: () => import("./commands/web.ts") },
   skills:  { description: "Install external skills (default provider: vercel)", load: () => import("./commands/skills.ts") },
   bootstrap: { description: "Manage brain-native bootstrap lifecycle",    load: () => import("./commands/bootstrap.ts") },
