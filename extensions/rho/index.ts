@@ -1725,7 +1725,7 @@ function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
 	const flags = modelFlags ? ` ${modelFlags}` : "";
 	// -p: pi exits after the prompt completes (no lingering interactive session).
 	// remain-on-exit (set below) keeps the output visible in tmux until the next heartbeat.
-	const command = `clear; RHO_SUBAGENT=1 pi -p --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
+	const command = `clear; PI_CODING_AGENT_DIR=${shellEscape(path.join(HOME, ".rho", "pi-agent"))} PI_CODING_AGENT_SESSION_DIR=${shellEscape(path.join(HOME, ".rho", "sessions"))} RHO_SUBAGENT=1 pi --session-dir ${shellEscape(path.join(HOME, ".rho", "sessions"))} -p --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
 
 	try {
 		if (!heartbeatWindowExists(sessionName)) {
@@ -4273,10 +4273,11 @@ Instructions:
 					modelFlags = ` --provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)}`;
 
 				const shellPath = process.env.SHELL || "bash";
+				const isolatedEnv = `PI_CODING_AGENT_DIR=${shellEscape(path.join(HOME, ".rho", "pi-agent"))} PI_CODING_AGENT_SESSION_DIR=${shellEscape(path.join(HOME, ".rho", "sessions"))}`;
 				const script =
 					mode === "print"
-						? `RHO_SUBAGENT=1 pi -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
-						: `RHO_SUBAGENT=1 pi --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
+						? `${isolatedEnv} RHO_SUBAGENT=1 pi --session-dir ${shellEscape(path.join(HOME, ".rho", "sessions"))} -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
+						: `${isolatedEnv} RHO_SUBAGENT=1 pi --session-dir ${shellEscape(path.join(HOME, ".rho", "sessions"))} --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
 				const innerCommand = `bash -lc ${shellEscape(script)}`;
 				const tmuxCommand = `tmux -L ${shellEscape(sessionName)} new-window -d -P -F "#{session_name}:#{window_index}" -t ${shellEscape(sessionName)} -n ${shellEscape(windowName)} ${shellEscape(innerCommand)}`;
 

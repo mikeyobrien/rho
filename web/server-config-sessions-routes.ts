@@ -201,14 +201,7 @@ app.post("/api/sessions/new", async (c) => {
 		const timestamp = new Date().toISOString();
 		const safeTimestamp = timestamp.replace(/[:.]/g, "-");
 		const cwd = process.env.HOME ?? process.cwd();
-		const safeCwd = cwd.replace(/\//g, "-");
-		const sessionDir = path.join(
-			process.env.HOME ?? "",
-			".pi",
-			"agent",
-			"sessions",
-			safeCwd,
-		);
+		const sessionDir = path.join(process.env.HOME ?? "", ".rho", "sessions");
 		await mkdir(sessionDir, { recursive: true });
 		const sessionFile = path.join(
 			sessionDir,
