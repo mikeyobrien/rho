@@ -215,7 +215,7 @@ console.log("\n=== Issue #8: Heartbeat window lifecycle ===\n");
 	// (maintainer feedback: users need to see heartbeat output)
 	const fnSlice = rhoSrc.slice(
 		rhoSrc.indexOf("function runHeartbeatInTmux"),
-		rhoSrc.indexOf("function runHeartbeatInTmux") + 2000,
+		rhoSrc.indexOf("function runHeartbeatInTmux") + 3000,
 	);
 	assertMatch(
 		fnSlice,
