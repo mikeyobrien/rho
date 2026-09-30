@@ -1,0 +1,52 @@
+# Rho's dedicated Herdr session. Not the user's default Herdr config.
+# Rho starts this session with HERDR_CONFIG_PATH pointing here.
+
+onboarding = false
+
+[terminal]
+shell_mode = "login"
+new_cwd = "~/.rho/workspace"
+
+[server]
+headless_cols = 160
+headless_rows = 50
+
+[ui]
+window_title = "rho"
+
+[ui.toast]
+delivery = "herdr"
+
+[ui.sound]
+enabled = false
+
+[ui.sound.agents]
+pi = "off"
+
+[ui.sidebar.agents.rows_by_agent]
+pi = [
+  ["state_icon", "agent", "$next"],
+  ["workspace"],
+]
+
+[session]
+# Rho's monitor restores the agent through `rho agent`; Herdr must not bypass it.
+resume_agents_on_restore = false
+
+[[keys.command]]
+key = "prefix+alt+t"
+type = "shell"
+command = "rho trigger"
+description = "trigger rho heartbeat"
+
+[[keys.command]]
+key = "prefix+alt+s"
+type = "popup"
+command = "rho status"
+description = "rho status"
+
+[[keys.command]]
+key = "prefix+alt+l"
+type = "popup"
+command = "rho logs"
+description = "rho logs"
