@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { RpcLiveModeLeaseRegistry, rpcLiveModeLeases } from "../web/rpc-live-mode-lease.ts";
+import {
+	RpcLiveModeLeaseRegistry,
+	rpcLiveModeLeases,
+} from "../web/rpc-live-mode-lease.ts";
 import { RpcSessionReliability } from "../web/rpc-reliability.ts";
 
 let PASS = 0;
@@ -34,7 +37,10 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<boolean> {
+async function waitFor(
+	predicate: () => boolean,
+	timeoutMs: number,
+): Promise<boolean> {
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
 		if (predicate()) {
@@ -108,14 +114,16 @@ console.log("\n-- /api/mobile/live-mode/lease routes (auth-protected) --");
 	const rawToken = "lease-route-token";
 	const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-	const tempRhoHome = fs.mkdtempSync(path.join(os.tmpdir(), "rho-lease-route-test-"));
+	const tempRhoHome = fs.mkdtempSync(
+		path.join(os.tmpdir(), "rho-lease-route-test-"),
+	);
 	process.env.RHO_HOME = tempRhoHome;
 	fs.writeFileSync(
 		path.join(tempRhoHome, "init.toml"),
 		[
 			"[settings.web]",
 			"auth_enabled = true",
-			`auth_token_hashes = [\"${tokenHash}\"]`,
+			`auth_token_hashes = ["${tokenHash}"]`,
 			"auth_session_ttl_seconds = 900",
 		].join("\n"),
 	);
@@ -126,7 +134,8 @@ console.log("\n-- /api/mobile/live-mode/lease routes (auth-protected) --");
 	const rpcManager = rpcModule.rpcManager as any;
 
 	rpcLiveModeLeases.clearAll();
-	const originalGetActiveSessions = rpcManager.getActiveSessions.bind(rpcManager);
+	const originalGetActiveSessions =
+		rpcManager.getActiveSessions.bind(rpcManager);
 	rpcManager.getActiveSessions = () => [
 		{
 			id: "rpc-live-lease-1",
@@ -156,7 +165,10 @@ console.log("\n-- /api/mobile/live-mode/lease routes (auth-protected) --");
 		);
 		assertEq(exchange.status, 200, "auth exchange succeeds for lease route test");
 		const cookie = exchange.headers.get("Set-Cookie") ?? "";
-		assert(cookie.includes("rho_mobile_session"), "auth exchange returns session cookie");
+		assert(
+			cookie.includes("rho_mobile_session"),
+			"auth exchange returns session cookie",
+		);
 
 		const createLease = await app.fetch(
 			new Request("http://localhost/api/mobile/live-mode/lease", {

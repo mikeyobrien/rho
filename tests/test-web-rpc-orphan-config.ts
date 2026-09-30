@@ -263,11 +263,7 @@ rpc_orphan_abort_delay_ms = 20000
 		cfg.orphanAbortDelayMs,
 	);
 
-	assertEq(
-		effectiveGrace,
-		240_000,
-		"config orphanGraceMs used when env absent",
-	);
+	assertEq(effectiveGrace, 240_000, "config orphanGraceMs used when env absent");
 	assertEq(
 		effectiveAbort,
 		20_000,

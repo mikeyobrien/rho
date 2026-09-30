@@ -40,7 +40,7 @@ function shouldReconnectState(state) {
 	if (state.status === "starting" || state.status === "streaming") {
 		return true;
 	}
-	if (Boolean(state.isStreaming) || Boolean(state.isSendingPrompt)) {
+	if (state.isStreaming || state.isSendingPrompt) {
 		return true;
 	}
 	return pendingReplayCount(state) > 0;
@@ -140,8 +140,7 @@ export function resumeReconnectSessions(vm) {
 	const reconnectTargets = collectReconnectSessionTargets(vm);
 	let resumedAnySession = false;
 	for (const target of reconnectTargets) {
-		const { sessionId, state, rpcSessionId, sessionFile, lastEventSeq } =
-			target;
+		const { sessionId, state, rpcSessionId, sessionFile, lastEventSeq } = target;
 		// Skip if already starting — a switch_session command is already in flight
 		// and the stale rpcSessionId would just trigger rpc_session_not_found.
 		if (state.status === "starting") {

@@ -60,10 +60,7 @@ function loadReviewDashboard(
 	fetchImpl: (url: string) => Promise<MockResponse>,
 ): {
 	dashboard: DashboardVm;
-	windowListeners: Map<
-		string,
-		(event?: { detail?: { name?: string } }) => void
-	>;
+	windowListeners: Map<string, (event?: { detail?: { name?: string } }) => void>;
 } {
 	const testDir = path.dirname(fileURLToPath(import.meta.url));
 	const sourcePath = path.resolve(testDir, "../web/public/js/review-panel.js");

@@ -13,7 +13,8 @@
 	--cyan: #5eead4;
 	--yellow: #fbbf24;
 	--red: #ef4444;
-	--mono: "Iosevka Web", "Iosevka", "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
+	--mono: "Iosevka Web", "Iosevka", "JetBrains Mono", "Cascadia Code",
+		"Fira Code", monospace;
 	--nav-height: 2.6rem;
 	--footer-height: 2.2rem;
 	--page-pad: 1.25rem;
@@ -35,8 +36,7 @@ body.theme-light {
 	--cyan: #0a3069;
 	--yellow: #9a6700;
 	--red: #cf222e;
-	background-image:
-		linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+	background-image: linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
 		linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
 }
 
@@ -112,9 +112,10 @@ body {
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
-	background-image:
-		linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-		linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+	background-image: linear-gradient(
+			rgba(255, 255, 255, 0.02) 1px,
+			transparent 1px
+		), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
 	background-size: 20px 20px;
 	background-position: -1px -1px;
 }
@@ -341,9 +342,7 @@ button {
 	text-transform: uppercase;
 	letter-spacing: 0.12em;
 	cursor: pointer;
-	transition:
-		border-color 0.2s ease,
-		color 0.2s ease;
+	transition: border-color 0.2s ease, color 0.2s ease;
 }
 
 .btn:hover:not(:disabled) {
@@ -497,9 +496,7 @@ button {
 	padding: 0.5rem 0.6rem;
 	text-align: left;
 	cursor: pointer;
-	transition:
-		border-color 0.2s ease,
-		color 0.2s ease;
+	transition: border-color 0.2s ease, color 0.2s ease;
 	min-width: 0;
 	width: 100%;
 	display: flex;
@@ -740,10 +737,7 @@ button {
 	padding: 0;
 	font-family: var(--mono);
 	cursor: pointer;
-	transition:
-		color 0.2s,
-		background 0.2s,
-		border-color 0.2s;
+	transition: color 0.2s, background 0.2s, border-color 0.2s;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -925,9 +919,7 @@ button {
 	letter-spacing: 0.09em;
 	cursor: pointer;
 	opacity: 1;
-	transition:
-		border-color 0.15s ease,
-		color 0.15s ease;
+	transition: border-color 0.15s ease, color 0.15s ease;
 }
 
 .chat-fork-button:hover,
@@ -2627,7 +2619,6 @@ body.theme-light .chat-block-body pre {
 		max-width: none;
 	}
 
-
 	/* Tighter message padding + smaller text */
 	.chat-message {
 		padding: 0.55rem 1.1rem;
@@ -2656,8 +2647,6 @@ body.theme-light .chat-block-body pre {
 	.chat-modifier-bar.visible {
 		display: flex;
 	}
-
-
 
 	/* Safe area insets */
 	.nav {
@@ -2726,7 +2715,6 @@ body.theme-light .chat-block-body pre {
 		min-height: 36px;
 	}
 
-
 	/* Tighter thread body gap + slight horizontal inset for message cards */
 	.chat-thread-body {
 		gap: 0.55rem;
@@ -2753,7 +2741,6 @@ body.theme-light .chat-block-body pre {
 	.footer-cost {
 		display: none;
 	}
-
 }
 
 @media (max-width: 480px) {
@@ -3242,7 +3229,6 @@ body.theme-light .chat-block-body pre {
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-
 
 	.chat-thread-meta {
 		font-size: 0.58rem;
@@ -3977,9 +3963,7 @@ body.theme-light .chat-block-body pre {
 	text-transform: uppercase;
 	letter-spacing: 0.1em;
 	cursor: pointer;
-	transition:
-		background 0.15s ease,
-		color 0.15s ease;
+	transition: background 0.15s ease, color 0.15s ease;
 }
 
 .memory-add-btn:hover {
@@ -4270,6 +4254,10 @@ body.theme-light .chat-block-body pre {
 }
 
 @keyframes ptr-spin {
-	from { transform: rotate(0deg); }
-	to { transform: rotate(360deg); }
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
 }

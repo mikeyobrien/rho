@@ -40,6 +40,7 @@ export interface StatusInfo {
   heartbeat: HeartbeatState | null;
   paneOutput: string | null;
   tmuxSocket?: string;
+  sessionAttach?: string;
 }
 
 export interface NotificationArgs {
@@ -85,9 +86,12 @@ export function buildNotificationArgs(
  */
 export function notificationToCliArgs(args: NotificationArgs): string[] {
   const result: string[] = [
-    "--title", args.title,
-    "--content", args.content,
-    "--id", args.id,
+    "--title",
+    args.title,
+    "--content",
+    args.content,
+    "--id",
+    args.id,
   ];
   if (args.ongoing) result.push("--ongoing");
   result.push("--action", args.action);
@@ -181,8 +185,12 @@ export function formatStatus(info: StatusInfo): string {
 
   lines.push(hbLine);
 
-  if (info.state.tmuxRunning && info.tmuxSocket) {
-    lines.push(`Session:   tmux -L ${info.tmuxSocket} attach -t ${SESSION_NAME}`);
+  if (info.state.tmuxRunning && info.sessionAttach) {
+    lines.push(`Session:   ${info.sessionAttach}`);
+  } else if (info.state.tmuxRunning && info.tmuxSocket) {
+    lines.push(
+      `Session:   tmux -L ${info.tmuxSocket} attach -t ${SESSION_NAME}`,
+    );
   }
 
   if (!info.state.tmuxRunning) {
@@ -225,10 +233,7 @@ export interface StartPlan {
 /**
  * Plan what the start command needs to do.
  */
-export function planStart(
-  state: DaemonState,
-  homeDir: string,
-): StartPlan {
+export function planStart(state: DaemonState, homeDir: string): StartPlan {
   return {
     needsWakeLock: state.platform === "android",
     needsNotification: state.platform === "android",

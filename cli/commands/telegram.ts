@@ -16,17 +16,29 @@ import {
   TELEGRAM_DIR,
   TELEGRAM_WORKER_LOCK_PATH,
 } from "../../extensions/telegram/lib.ts";
-import { loadOperatorConfig, saveOperatorConfig } from "../../extensions/telegram/operator-config.ts";
+import {
+  loadOperatorConfig,
+  saveOperatorConfig,
+} from "../../extensions/telegram/operator-config.ts";
 import {
   approvePendingByPin,
   listPendingApprovals,
   rejectPendingByPin,
 } from "../../extensions/telegram/pending-approvals.ts";
 import { readTelegramWorkerLockOwner } from "../../extensions/telegram/worker-lock.ts";
-import { getTelegramCheckTriggerState, requestTelegramCheckTrigger } from "../../extensions/telegram/check-trigger.ts";
-import { loadTelegramJobs, summarizeTelegramJobs } from "../../extensions/telegram/jobs.ts";
+import {
+  getTelegramCheckTriggerState,
+  requestTelegramCheckTrigger,
+} from "../../extensions/telegram/check-trigger.ts";
+import {
+  loadTelegramJobs,
+  summarizeTelegramJobs,
+} from "../../extensions/telegram/jobs.ts";
 import { renderTelegramStatusText } from "../../extensions/telegram/status.ts";
-import { isLeaseStale, readLeaseMeta } from "../../extensions/lib/lease-lock.ts";
+import {
+  isLeaseStale,
+  readLeaseMeta,
+} from "../../extensions/lib/lease-lock.ts";
 
 const DEFAULT_WORKER_LOCK_STALE_MS = 90_000;
 const ORPHAN_SWEEP_GRACE_MS = 1_200;
@@ -95,14 +107,18 @@ function listTelegramWorkerPids(): number[] {
   }
 }
 
-async function reapOrphanTelegramWorkers(keepPid: number | null): Promise<{ attempted: number; remaining: number }> {
+async function reapOrphanTelegramWorkers(
+  keepPid: number | null,
+): Promise<{ attempted: number; remaining: number }> {
   const candidates = listTelegramWorkerPids().filter((pid) => pid !== keepPid);
   if (candidates.length === 0) {
     return { attempted: 0, remaining: 0 };
   }
 
   for (const pid of candidates) {
-    try { process.kill(pid, "SIGTERM"); } catch {}
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {}
   }
 
   const deadline = Date.now() + ORPHAN_SWEEP_GRACE_MS;
@@ -115,24 +131,38 @@ async function reapOrphanTelegramWorkers(keepPid: number | null): Promise<{ atte
 
   for (const pid of candidates) {
     if (!pidAlive(pid)) continue;
-    try { process.kill(pid, "SIGKILL"); } catch {}
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
   }
 
   const remaining = candidates.filter((pid) => pidAlive(pid)).length;
   return { attempted: candidates.length, remaining };
 }
 
-function getWorkerStatus(): { owner: ReturnType<typeof readTelegramWorkerLockOwner>; stale: boolean } {
+function getWorkerStatus(): {
+  owner: ReturnType<typeof readTelegramWorkerLockOwner>;
+  stale: boolean;
+} {
   const meta = readLeaseMeta(TELEGRAM_WORKER_LOCK_PATH);
   if (!meta.payload) {
     return { owner: null, stale: false };
   }
-  const staleMs = parsePositiveIntEnv("RHO_TELEGRAM_WORKER_LOCK_STALE_MS", DEFAULT_WORKER_LOCK_STALE_MS);
+  const staleMs = parsePositiveIntEnv(
+    "RHO_TELEGRAM_WORKER_LOCK_STALE_MS",
+    DEFAULT_WORKER_LOCK_STALE_MS,
+  );
   const stale = isLeaseStale(meta, staleMs, Date.now());
-  return { owner: readTelegramWorkerLockOwner(TELEGRAM_WORKER_LOCK_PATH), stale };
+  return {
+    owner: readTelegramWorkerLockOwner(TELEGRAM_WORKER_LOCK_PATH),
+    stale,
+  };
 }
 
-function formatOwner(owner: ReturnType<typeof readTelegramWorkerLockOwner> | null, stale: boolean): { leadership: string; ownerText: string } {
+function formatOwner(
+  owner: ReturnType<typeof readTelegramWorkerLockOwner> | null,
+  stale: boolean,
+): { leadership: string; ownerText: string } {
   if (!owner) {
     return { leadership: "stopped", ownerText: "none" };
   }
@@ -153,8 +183,10 @@ function allowedText(values: number[]): string {
 function buildStatusText(): string {
   const settings = readTelegramSettings();
   const operator = loadOperatorConfig();
-  const runtimeAllowedChatIds = operator?.allowedChatIds ?? settings.allowedChatIds;
-  const runtimeAllowedUserIds = operator?.allowedUserIds ?? settings.allowedUserIds;
+  const runtimeAllowedChatIds =
+    operator?.allowedChatIds ?? settings.allowedChatIds;
+  const runtimeAllowedUserIds =
+    operator?.allowedUserIds ?? settings.allowedUserIds;
   const runtime = loadRuntimeState();
   const trigger = getTelegramCheckTriggerState(TELEGRAM_CHECK_TRIGGER_PATH, 0);
   const jobs = summarizeTelegramJobs(loadTelegramJobs());
@@ -171,7 +203,8 @@ function buildStatusText(): string {
     triggerPending: trigger.pending,
     triggerRequesterPid: trigger.requesterPid ?? null,
     triggerRequestedAt: trigger.requestedAt ?? null,
-    lastCheckRequestAt: runtime.last_check_request_at ?? trigger.requestedAt ?? null,
+    lastCheckRequestAt:
+      runtime.last_check_request_at ?? trigger.requestedAt ?? null,
     lastCheckConsumeAt: runtime.last_check_consume_at ?? null,
     lastCheckOutcome: runtime.last_check_outcome ?? null,
     lastCheckRequesterPid: runtime.last_check_requester_pid ?? null,
@@ -189,7 +222,11 @@ function buildStatusText(): string {
   });
 }
 
-function parseLogsArgs(args: string[]): { lines: number; follow: boolean; help: boolean } {
+function parseLogsArgs(args: string[]): {
+  lines: number;
+  follow: boolean;
+  help: boolean;
+} {
   let lines = 50;
   let follow = false;
   let help = false;
@@ -276,7 +313,11 @@ async function telegramGetMe(token: string): Promise<TelegramGetMeResult> {
     body: JSON.stringify({}),
   });
 
-  const json = await response.json().catch(() => null) as { ok?: boolean; result?: TelegramGetMeResult; description?: string } | null;
+  const json = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    result?: TelegramGetMeResult;
+    description?: string;
+  } | null;
   if (!response.ok || !json?.ok || !json.result) {
     const msg = json?.description || `HTTP ${response.status}`;
     throw new Error(msg);
@@ -284,12 +325,19 @@ async function telegramGetMe(token: string): Promise<TelegramGetMeResult> {
   return json.result;
 }
 
-async function waitForHandshakeUpdate(client: Api, timeoutSeconds: number, offset?: number): Promise<HandshakeUpdate> {
+async function waitForHandshakeUpdate(
+  client: Api,
+  timeoutSeconds: number,
+  offset?: number,
+): Promise<HandshakeUpdate> {
   const deadline = Date.now() + timeoutSeconds * 1000;
   let nextOffset = typeof offset === "number" ? offset : undefined;
 
   while (Date.now() < deadline) {
-    const remainingSeconds = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
+    const remainingSeconds = Math.max(
+      1,
+      Math.ceil((deadline - Date.now()) / 1000),
+    );
     const updates = await client.getUpdates({
       offset: nextOffset,
       timeout: Math.min(10, remainingSeconds),
@@ -303,7 +351,8 @@ async function waitForHandshakeUpdate(client: Api, timeoutSeconds: number, offse
         if (!msg || typeof msg.chat?.id !== "number") continue;
         const fromFirst = msg.from?.first_name || "";
         const fromLast = msg.from?.last_name || "";
-        const fromName = `${fromFirst} ${fromLast}`.trim() || msg.from?.username || "unknown";
+        const fromName =
+          `${fromFirst} ${fromLast}`.trim() || msg.from?.username || "unknown";
         return {
           chatId: msg.chat.id,
           userId: typeof msg.from?.id === "number" ? msg.from.id : null,
@@ -376,7 +425,9 @@ Options:
 async function startWorker(): Promise<void> {
   const settings = readTelegramSettings();
   if (!settings.enabled) {
-    console.error("Telegram is disabled in init.toml. Enable [settings.telegram].");
+    console.error(
+      "Telegram is disabled in init.toml. Enable [settings.telegram].",
+    );
     process.exitCode = 1;
     return;
   }
@@ -392,7 +443,9 @@ async function startWorker(): Promise<void> {
     console.log(`Telegram worker already running (pid ${status.owner.pid}).`);
     if (sweep.attempted > 0) {
       const cleaned = sweep.attempted - sweep.remaining;
-      console.log(`Orphan sweep: cleaned ${cleaned}/${sweep.attempted} extra worker(s).`);
+      console.log(
+        `Orphan sweep: cleaned ${cleaned}/${sweep.attempted} extra worker(s).`,
+      );
     }
     return;
   }
@@ -400,10 +453,15 @@ async function startWorker(): Promise<void> {
   const preStartSweep = await reapOrphanTelegramWorkers(null);
   if (preStartSweep.attempted > 0) {
     const cleaned = preStartSweep.attempted - preStartSweep.remaining;
-    console.log(`Orphan sweep: cleaned ${cleaned}/${preStartSweep.attempted} stale worker(s) before start.`);
+    console.log(
+      `Orphan sweep: cleaned ${cleaned}/${preStartSweep.attempted} stale worker(s) before start.`,
+    );
   }
 
-  const cliDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const cliDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+  );
   const workerTs = path.join(cliDir, "telegramd.ts");
   const workerShim = path.join(cliDir, "telegramd.mjs");
 
@@ -456,18 +514,24 @@ async function stopWorker(): Promise<void> {
     }
 
     const cleaned = sweep.attempted - sweep.remaining;
-    console.log(`Telegram worker lock missing. Orphan sweep cleaned ${cleaned}/${sweep.attempted} worker(s).`);
+    console.log(
+      `Telegram worker lock missing. Orphan sweep cleaned ${cleaned}/${sweep.attempted} worker(s).`,
+    );
     return;
   }
 
   if (status.stale || !pidAlive(status.owner.pid)) {
-    try { unlinkSync(TELEGRAM_WORKER_LOCK_PATH); } catch {}
+    try {
+      unlinkSync(TELEGRAM_WORKER_LOCK_PATH);
+    } catch {}
     const sweep = await reapOrphanTelegramWorkers(null);
     const cleaned = sweep.attempted - sweep.remaining;
 
     console.log("Removed stale telegram worker lock.");
     if (sweep.attempted > 0) {
-      console.log(`Orphan sweep: cleaned ${cleaned}/${sweep.attempted} worker(s).`);
+      console.log(
+        `Orphan sweep: cleaned ${cleaned}/${sweep.attempted} worker(s).`,
+      );
     }
     return;
   }
@@ -496,7 +560,9 @@ async function stopWorker(): Promise<void> {
       const cleaned = sweep.attempted - sweep.remaining;
       console.log("Telegram worker stopped.");
       if (sweep.attempted > 0) {
-        console.log(`Orphan sweep: cleaned ${cleaned}/${sweep.attempted} worker(s).`);
+        console.log(
+          `Orphan sweep: cleaned ${cleaned}/${sweep.attempted} worker(s).`,
+        );
       }
       return;
     }
@@ -510,7 +576,9 @@ async function stopWorker(): Promise<void> {
   const cleaned = sweep.attempted - sweep.remaining;
   console.log("Telegram worker stopped.");
   if (sweep.attempted > 0) {
-    console.log(`Orphan sweep: cleaned ${cleaned}/${sweep.attempted} worker(s).`);
+    console.log(
+      `Orphan sweep: cleaned ${cleaned}/${sweep.attempted} worker(s).`,
+    );
   }
 }
 
@@ -554,7 +622,9 @@ Options:
 
   const settings = readTelegramSettings();
   if (!settings.enabled) {
-    console.error("Telegram is disabled in init.toml. Enable [settings.telegram].");
+    console.error(
+      "Telegram is disabled in init.toml. Enable [settings.telegram].",
+    );
     process.exitCode = 1;
     return;
   }
@@ -567,18 +637,24 @@ Options:
   console.log("\nTelegram Onboarding\n===================\n");
 
   const envToken = (process.env[settings.botTokenEnv] || "").trim();
-  const promptedToken = opts.token?.trim() ? null : await promptForToken(settings.botTokenEnv);
+  const promptedToken = opts.token?.trim()
+    ? null
+    : await promptForToken(settings.botTokenEnv);
   const token = (opts.token?.trim() || envToken || promptedToken || "").trim();
 
   if (!token) {
-    console.error(`Missing token. Pass --token or set ${settings.botTokenEnv}.`);
+    console.error(
+      `Missing token. Pass --token or set ${settings.botTokenEnv}.`,
+    );
     process.exitCode = 1;
     return;
   }
 
   console.log("Step 2: Validate token");
   const me = await telegramGetMe(token).catch((error) => {
-    console.error(`  Token validation failed: ${(error as Error)?.message || String(error)}`);
+    console.error(
+      `  Token validation failed: ${(error as Error)?.message || String(error)}`,
+    );
     process.exitCode = 1;
     return null;
   });
@@ -597,19 +673,26 @@ Options:
     console.log(`  Send any message to: https://t.me/${username}`);
     console.log(`  Waiting up to ${opts.timeoutSeconds}s...`);
 
-    const detected = await waitForHandshakeUpdate(client, opts.timeoutSeconds, runtime.last_update_id)
-      .catch((error) => {
-        console.error(`  Detection failed: ${(error as Error)?.message || String(error)}`);
-        process.exitCode = 1;
-        return null;
-      });
+    const detected = await waitForHandshakeUpdate(
+      client,
+      opts.timeoutSeconds,
+      runtime.last_update_id,
+    ).catch((error) => {
+      console.error(
+        `  Detection failed: ${(error as Error)?.message || String(error)}`,
+      );
+      process.exitCode = 1;
+      return null;
+    });
     if (!detected) return;
 
     chatId = chatId ?? detected.chatId;
     userId = userId ?? detected.userId;
 
     console.log(`  Got message from ${detected.fromName}`);
-    console.log(`  chat_id=${chatId}${userId !== null ? ` user_id=${userId}` : ""}`);
+    console.log(
+      `  chat_id=${chatId}${userId === null ? "" : ` user_id=${userId}`}`,
+    );
   }
 
   if (chatId === null) {
@@ -637,7 +720,9 @@ Options:
     });
 
     console.log(`  Allowed chats: ${[...nextChats].join(",")}`);
-    console.log(`  Allowed users: ${[...nextUsers].length === 0 ? "all" : [...nextUsers].join(",")}`);
+    console.log(
+      `  Allowed users: ${[...nextUsers].length === 0 ? "all" : [...nextUsers].join(",")}`,
+    );
   } else {
     console.log("\nStep 4: Skipped allowlist update (--no-allowlist)");
   }
@@ -645,7 +730,9 @@ Options:
   console.log("\nStep 5: Send verification message");
   const verifyText = "✅ rho Telegram onboarding complete. You are authorized.";
   await client.sendMessage(chatId, verifyText).catch((error) => {
-    console.error(`  Failed to send verification message: ${(error as Error)?.message || String(error)}`);
+    console.error(
+      `  Failed to send verification message: ${(error as Error)?.message || String(error)}`,
+    );
     process.exitCode = 1;
   });
 
@@ -675,8 +762,13 @@ function showPendingApprovals(): void {
 
   console.log("Pending approvals:");
   for (const req of pending) {
-    const ageSec = Math.max(0, Math.floor((Date.now() - req.firstSeenAt) / 1000));
-    const preview = req.textPreview ? ` text=\"${req.textPreview.replace(/\"/g, "'")}\"` : "";
+    const ageSec = Math.max(
+      0,
+      Math.floor((Date.now() - req.firstSeenAt) / 1000),
+    );
+    const preview = req.textPreview
+      ? ` text="${req.textPreview.replace(/"/g, "'")}"`
+      : "";
     console.log(
       `  pin=${req.pin} chat=${req.chatId} user=${req.userId ?? "unknown"} age=${ageSec}s${preview}`,
     );
@@ -715,7 +807,9 @@ async function approvePending(args: string[]): Promise<void> {
     allowedUserIds: [...nextUsers],
   });
 
-  console.log(`Approved chat=${req.chatId} user=${req.userId ?? "unknown"} (pin=${req.pin}).`);
+  console.log(
+    `Approved chat=${req.chatId} user=${req.userId ?? "unknown"} (pin=${req.pin}).`,
+  );
   console.log(buildStatusText());
 }
 
@@ -734,7 +828,9 @@ async function rejectPending(args: string[]): Promise<void> {
     return;
   }
 
-  console.log(`Rejected chat=${req.chatId} user=${req.userId ?? "unknown"} (pin=${req.pin}).`);
+  console.log(
+    `Rejected chat=${req.chatId} user=${req.userId ?? "unknown"} (pin=${req.pin}).`,
+  );
 }
 
 export async function run(args: string[]): Promise<void> {

@@ -10,9 +10,21 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-import { parseFrontmatter, extractWikilinks, extractTitle, stripFrontmatter } from "./vault-lib.ts";
+import {
+  parseFrontmatter,
+  extractWikilinks,
+  extractTitle,
+  stripFrontmatter,
+} from "./vault-lib.ts";
 
-export type VaultNoteType = "concept" | "reference" | "pattern" | "project" | "log" | "moc" | "unknown";
+export type VaultNoteType =
+  | "concept"
+  | "reference"
+  | "pattern"
+  | "project"
+  | "log"
+  | "moc"
+  | "unknown";
 export type VaultSearchMode = "fts" | "grep";
 
 export interface VaultSearchResult {
@@ -105,7 +117,10 @@ function safeParseJson(json: string | null): string[] {
   }
 }
 
-function tagFilter(results: VaultSearchResult[], tags: string[]): VaultSearchResult[] {
+function tagFilter(
+  results: VaultSearchResult[],
+  tags: string[],
+): VaultSearchResult[] {
   if (!tags || tags.length === 0) return results;
   const required = new Set(tags.map((t) => t.toLowerCase()));
   return results.filter((r) => {
@@ -142,7 +157,11 @@ export class VaultSearch {
 
   close(): void {
     if (!this.db) return;
-    try { this.db.close(); } catch { /* ignore */ }
+    try {
+      this.db.close();
+    } catch {
+      /* ignore */
+    }
     this.db = null;
   }
 
@@ -151,14 +170,24 @@ export class VaultSearch {
     if (!ok) throw new Error("node:sqlite unavailable");
 
     this.close();
-    try { if (fs.existsSync(this.dbPath)) fs.unlinkSync(this.dbPath); } catch { /* ignore */ }
+    try {
+      if (fs.existsSync(this.dbPath)) fs.unlinkSync(this.dbPath);
+    } catch {
+      /* ignore */
+    }
 
     const db = this.getDb();
-    const totalDocs = (db.prepare("SELECT COUNT(*) as c FROM documents").get() as any).c;
+    const totalDocs = (
+      db.prepare("SELECT COUNT(*) as c FROM documents").get() as any
+    ).c;
     return totalDocs;
   }
 
-  async search(params: VaultSearchParams): Promise<{ mode: VaultSearchMode; indexed: number; results: VaultSearchResult[] }> {
+  async search(params: VaultSearchParams): Promise<{
+    mode: VaultSearchMode;
+    indexed: number;
+    results: VaultSearchResult[];
+  }> {
     if (!fs.existsSync(this.vaultDir)) {
       return { mode: "grep", indexed: 0, results: [] };
     }
@@ -174,20 +203,32 @@ export class VaultSearch {
     let indexed = 0;
 
     if (!hasSqlite || requestedMode === "grep") {
-      results = this.grepSearch(params.query, params.type, Math.min(limit * 5, 150));
+      results = this.grepSearch(
+        params.query,
+        params.type,
+        Math.min(limit * 5, 150),
+      );
       indexed = this.walkVault().length;
       modeUsed = "grep";
     } else {
       const db = this.getDb();
       this.fullIndex(db);
-      indexed = (db.prepare("SELECT COUNT(*) as c FROM documents").get() as any).c;
+      indexed = (db.prepare("SELECT COUNT(*) as c FROM documents").get() as any)
+        .c;
 
-      const ftsLimit = params.tags && params.tags.length > 0 ? Math.min(limit * 5, 150) : limit;
+      const ftsLimit =
+        params.tags && params.tags.length > 0
+          ? Math.min(limit * 5, 150)
+          : limit;
       results = this.ftsSearch(db, params.query, params.type, ftsLimit);
       modeUsed = "fts";
 
       if (!requestedMode && results.length === 0) {
-        const grep = this.grepSearch(params.query, params.type, Math.min(limit * 5, 150));
+        const grep = this.grepSearch(
+          params.query,
+          params.type,
+          Math.min(limit * 5, 150),
+        );
         if (grep.length > 0) {
           results = grep;
           modeUsed = "grep";
@@ -197,16 +238,22 @@ export class VaultSearch {
     }
 
     let filtered = results;
-    if (params.tags && params.tags.length > 0) filtered = tagFilter(results, params.tags);
+    if (params.tags && params.tags.length > 0)
+      filtered = tagFilter(results, params.tags);
     filtered = filtered.slice(0, limit);
 
     if (params.include_content) {
       for (const r of filtered) {
         try {
-          const full = fs.readFileSync(path.join(this.vaultDir, r.path), "utf-8");
-          r.content = full.length > maxContentChars
-            ? full.slice(0, maxContentChars) + `\n\n...(truncated, ${full.length} chars total)`
-            : full;
+          const full = fs.readFileSync(
+            path.join(this.vaultDir, r.path),
+            "utf-8",
+          );
+          r.content =
+            full.length > maxContentChars
+              ? full.slice(0, maxContentChars) +
+                `\n\n...(truncated, ${full.length} chars total)`
+              : full;
         } catch {
           r.content = "(file read error)";
         }
@@ -241,7 +288,11 @@ export class VaultSearch {
     const schemaOk = this.ensureSchema(this.db);
     if (!schemaOk) {
       this.close();
-      try { fs.unlinkSync(this.dbPath); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(this.dbPath);
+      } catch {
+        /* ignore */
+      }
       return this.getDb();
     }
 
@@ -274,13 +325,17 @@ export class VaultSearch {
 
     let existing: any;
     try {
-      existing = db.prepare("SELECT value FROM search_meta WHERE key = 'schema_version'").get();
+      existing = db
+        .prepare("SELECT value FROM search_meta WHERE key = 'schema_version'")
+        .get();
     } catch {
       existing = null;
     }
     if (existing?.value && existing.value !== SCHEMA_VERSION) return false;
 
-    db.prepare("INSERT OR REPLACE INTO search_meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
+    db.prepare(
+      "INSERT OR REPLACE INTO search_meta(key, value) VALUES ('schema_version', ?)",
+    ).run(SCHEMA_VERSION);
     return true;
   }
 
@@ -316,14 +371,20 @@ export class VaultSearch {
     db.exec("BEGIN");
     try {
       const insertDoc = db.prepare(
-        "INSERT OR REPLACE INTO documents(path, title, type, tags, wikilinks, content_hash, char_count, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO documents(path, title, type, tags, wikilinks, content_hash, char_count, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       );
-      const insertFts = db.prepare("INSERT INTO documents_fts(rowid, title, body, tags) VALUES (?, ?, ?, ?)");
+      const insertFts = db.prepare(
+        "INSERT INTO documents_fts(rowid, title, body, tags) VALUES (?, ?, ?, ?)",
+      );
       const deleteFts = db.prepare("DELETE FROM documents_fts WHERE rowid = ?");
-      const getDoc = db.prepare("SELECT id, content_hash FROM documents WHERE path = ?");
+      const getDoc = db.prepare(
+        "SELECT id, content_hash FROM documents WHERE path = ?",
+      );
 
       const existingPaths = new Set<string>();
-      for (const row of db.prepare("SELECT path FROM documents").all() as { path: string }[]) {
+      for (const row of db.prepare("SELECT path FROM documents").all() as {
+        path: string;
+      }[]) {
         existingPaths.add(row.path);
       }
 
@@ -340,7 +401,9 @@ export class VaultSearch {
         }
 
         const hash = hashContent(content);
-        const existing = getDoc.get(relPath) as { id: number; content_hash: string } | undefined;
+        const existing = getDoc.get(relPath) as
+          | { id: number; content_hash: string }
+          | undefined;
         if (existing && existing.content_hash === hash) continue;
 
         const note = parseNote(content);
@@ -349,20 +412,51 @@ export class VaultSearch {
 
         if (existing) {
           deleteFts.run(existing.id);
-          insertDoc.run(relPath, note.title, note.type, tagsJson, wikilinksJson, hash, content.length, now);
-          const updated = getDoc.get(relPath) as { id: number; content_hash: string };
+          insertDoc.run(
+            relPath,
+            note.title,
+            note.type,
+            tagsJson,
+            wikilinksJson,
+            hash,
+            content.length,
+            now,
+          );
+          const updated = getDoc.get(relPath) as {
+            id: number;
+            content_hash: string;
+          };
           insertFts.run(updated.id, note.title, note.body, note.tags.join(" "));
         } else {
-          insertDoc.run(relPath, note.title, note.type, tagsJson, wikilinksJson, hash, content.length, now);
-          const inserted = getDoc.get(relPath) as { id: number; content_hash: string };
-          insertFts.run(inserted.id, note.title, note.body, note.tags.join(" "));
+          insertDoc.run(
+            relPath,
+            note.title,
+            note.type,
+            tagsJson,
+            wikilinksJson,
+            hash,
+            content.length,
+            now,
+          );
+          const inserted = getDoc.get(relPath) as {
+            id: number;
+            content_hash: string;
+          };
+          insertFts.run(
+            inserted.id,
+            note.title,
+            note.body,
+            note.tags.join(" "),
+          );
         }
       }
 
       const deleteDoc = db.prepare("DELETE FROM documents WHERE path = ?");
       for (const oldPath of existingPaths) {
         if (!seenPaths.has(oldPath)) {
-          const old = getDoc.get(oldPath) as { id: number; content_hash: string } | undefined;
+          const old = getDoc.get(oldPath) as
+            | { id: number; content_hash: string }
+            | undefined;
           if (old) {
             deleteFts.run(old.id);
             deleteDoc.run(oldPath);
@@ -370,10 +464,16 @@ export class VaultSearch {
         }
       }
 
-      db.prepare("INSERT OR REPLACE INTO search_meta(key, value) VALUES ('last_full_index', ?)").run(now);
+      db.prepare(
+        "INSERT OR REPLACE INTO search_meta(key, value) VALUES ('last_full_index', ?)",
+      ).run(now);
       db.exec("COMMIT");
     } catch (e) {
-      try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        /* ignore */
+      }
       throw e;
     }
   }
@@ -382,7 +482,12 @@ export class VaultSearch {
   // Search implementations
   // ───────────────────────────────────────────────────────────────────────────
 
-  private ftsSearch(db: any, query: string, type?: string, limit: number = 10): VaultSearchResult[] {
+  private ftsSearch(
+    db: any,
+    query: string,
+    type?: string,
+    limit: number = 10,
+  ): VaultSearchResult[] {
     const ftsQuery = sanitizeFtsQuery(query);
 
     let sql = `
@@ -407,11 +512,17 @@ export class VaultSearch {
     try {
       rows = db.prepare(sql).all(...params);
     } catch {
-      const keywords = query.replace(/[^\w\s]/g, "").trim().split(/\s+/).filter(Boolean);
+      const keywords = query
+        .replace(/[^\w\s]/g, "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
       if (keywords.length === 0) return [];
       const keywordQuery = keywords.join(" OR ");
       try {
-        rows = db.prepare(sql).all("**", "**", "...", keywordQuery, ...(type ? [type] : []), limit);
+        rows = db
+          .prepare(sql)
+          .all("**", "**", "...", keywordQuery, ...(type ? [type] : []), limit);
       } catch {
         return [];
       }
@@ -428,7 +539,11 @@ export class VaultSearch {
     }));
   }
 
-  private grepSearch(query: string, type?: string, limit: number = 10): VaultSearchResult[] {
+  private grepSearch(
+    query: string,
+    type?: string,
+    limit: number = 10,
+  ): VaultSearchResult[] {
     const cleaned = query.replace(/[^\w\s-]/g, " ").trim();
     const terms = cleaned.split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
@@ -437,9 +552,11 @@ export class VaultSearch {
     const args = [
       "--no-heading",
       "--line-number",
-      "--max-count", "1",
+      "--max-count",
+      "1",
       "-S",
-      "--glob", "*.md",
+      "--glob",
+      "*.md",
       pattern,
       this.vaultDir,
     ];

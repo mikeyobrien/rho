@@ -20,9 +20,7 @@ async function resolveSessionIdHint(
 	sessionFile: string,
 ): Promise<string> {
 	const directHint =
-		typeof payload.sessionIdHint === "string"
-			? payload.sessionIdHint.trim()
-			: "";
+		typeof payload.sessionIdHint === "string" ? payload.sessionIdHint.trim() : "";
 	if (directHint) {
 		return directHint;
 	}
@@ -102,7 +100,18 @@ app.get(
 			const shouldReplayFromSeq = Object.hasOwn(payload, "lastEventSeq");
 			const lastEventSeq = parseLastEventSeq(payload);
 
-			if (!sessionId) {
+			if (sessionId) {
+				try {
+					subscribeToRpcSession(ws, sessionId);
+				} catch {
+					sendWsMessage(ws, {
+						type: "rpc_session_not_found",
+						sessionId,
+						message: `Unknown RPC session: ${sessionId}`,
+					});
+					return;
+				}
+			} else {
 				const sessionFile = extractSessionFile(payload);
 				if (!sessionFile) {
 					sendWsMessage(ws, {
@@ -127,15 +136,11 @@ app.get(
 					sessionId = existingId;
 				} else {
 					try {
-						sessionId = rpcManager.startSession(
-							sessionFile,
-							sessionCwd || undefined,
-						);
+						sessionId = rpcManager.startSession(sessionFile, sessionCwd || undefined);
 					} catch (error) {
 						sendWsMessage(ws, {
 							type: "error",
-							message:
-								(error as Error).message ?? "Failed to start RPC session",
+							message: (error as Error).message ?? "Failed to start RPC session",
 						});
 						return;
 					}
@@ -155,17 +160,6 @@ app.get(
 					});
 				}
 				if (command.type === "switch_session") {
-					return;
-				}
-			} else {
-				try {
-					subscribeToRpcSession(ws, sessionId);
-				} catch {
-					sendWsMessage(ws, {
-						type: "rpc_session_not_found",
-						sessionId,
-						message: `Unknown RPC session: ${sessionId}`,
-					});
 					return;
 				}
 			}

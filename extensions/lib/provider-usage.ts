@@ -42,7 +42,7 @@ function getHomeDir(): string {
 }
 
 export function getPiAuthPath(homeDir: string = getHomeDir()): string {
-	return path.join(homeDir, ".rho", "pi-agent", "auth.json");
+	return path.join(homeDir, ".rho", "agent", "auth.json");
 }
 
 export function readPiAuth(
@@ -257,9 +257,9 @@ function queryKiroCliDbValue(dbPath: string, key: string): string | undefined {
 		const { DatabaseSync } = esmRequire("node:sqlite");
 		const db = new DatabaseSync(dbPath, { open: true, readOnly: true });
 		try {
-			const row = db
-				.prepare("SELECT value FROM auth_kv WHERE key = ?")
-				.get(key) as { value: string } | undefined;
+			const row = db.prepare("SELECT value FROM auth_kv WHERE key = ?").get(key) as
+				| { value: string }
+				| undefined;
 			return row?.value || undefined;
 		} finally {
 			db.close();
@@ -370,8 +370,7 @@ function mapKiroUsageResponse(
 
 	// Use usageBreakdownList if available, otherwise usageBreakdown
 	const breakdowns =
-		data.usageBreakdownList ??
-		(data.usageBreakdown ? [data.usageBreakdown] : []);
+		data.usageBreakdownList ?? (data.usageBreakdown ? [data.usageBreakdown] : []);
 	for (const bd of breakdowns) {
 		const used = bd.currentUsageWithPrecision ?? bd.currentUsage;
 		const limit = bd.usageLimitWithPrecision ?? bd.usageLimit;

@@ -245,8 +245,7 @@ async function runTests(): Promise<void> {
 	assertEq(configRes.status, 200, "GET /api/config with auth → 200");
 	const configPayload = await configRes.json();
 	assert(
-		typeof configPayload.version === "string" &&
-			configPayload.version.length > 0,
+		typeof configPayload.version === "string" && configPayload.version.length > 0,
 		"GET /api/config includes rho version",
 	);
 

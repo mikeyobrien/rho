@@ -12,7 +12,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import { readBrain, foldBrain, appendBrainEntry, BRAIN_PATH } from "./brain-store.ts";
+import {
+  readBrain,
+  foldBrain,
+  appendBrainEntry,
+  BRAIN_PATH,
+} from "./brain-store.ts";
 
 const HOME = os.homedir();
 const RHO_DIR = path.join(HOME, ".rho");
@@ -93,9 +98,16 @@ function defaultPaths(): MigrationPaths {
 /**
  * Check if migration is needed. Accepts optional paths for testing.
  */
-export function detectMigrationWithPaths(paths: MigrationPaths): MigrationStatus {
+export function detectMigrationWithPaths(
+  paths: MigrationPaths,
+): MigrationStatus {
   const legacyFiles: string[] = [];
-  for (const f of [paths.legacyCore, paths.legacyMemory, paths.legacyContext, paths.legacyTasks]) {
+  for (const f of [
+    paths.legacyCore,
+    paths.legacyMemory,
+    paths.legacyContext,
+    paths.legacyTasks,
+  ]) {
     if (fs.existsSync(f)) {
       // Only count files that have actual content
       try {
@@ -109,7 +121,8 @@ export function detectMigrationWithPaths(paths: MigrationPaths): MigrationStatus
 
   const { entries } = readBrain(paths.brainPath);
   const brain = foldBrain(entries);
-  const alreadyMigrated = brain.meta.get("migration.v2")?.value === "done" ||
+  const alreadyMigrated =
+    brain.meta.get("migration.v2")?.value === "done" ||
     brain.meta.get("migration.v2")?.value === "skip";
 
   return {
@@ -130,7 +143,9 @@ export function detectMigration(): MigrationStatus {
  * Run the migration. Accepts optional paths for testing.
  * Returns a summary of what was migrated.
  */
-export async function runMigrationWithPaths(paths: MigrationPaths): Promise<MigrationStats> {
+export async function runMigrationWithPaths(
+  paths: MigrationPaths,
+): Promise<MigrationStats> {
   const stats: MigrationStats = {
     behaviors: 0,
     identity: 0,
@@ -149,8 +164,10 @@ export async function runMigrationWithPaths(paths: MigrationPaths): Promise<Migr
 
   // Build dedup sets from existing materialized state
   const existingTexts = new Set<string>();
-  for (const l of existing.learnings) existingTexts.add(l.text.toLowerCase().trim());
-  for (const p of existing.preferences) existingTexts.add(p.text.toLowerCase().trim());
+  for (const l of existing.learnings)
+    existingTexts.add(l.text.toLowerCase().trim());
+  for (const p of existing.preferences)
+    existingTexts.add(p.text.toLowerCase().trim());
 
   // ── Migrate core.jsonl (behaviors, identity, user) ──
   if (fs.existsSync(paths.legacyCore)) {
@@ -158,7 +175,11 @@ export async function runMigrationWithPaths(paths: MigrationPaths): Promise<Migr
     for (const entry of lines) {
       try {
         if (entry.type === "behavior") {
-          if (existing.behaviors.some((b) => b.text === entry.text && b.category === entry.category)) {
+          if (
+            existing.behaviors.some(
+              (b) => b.text === entry.text && b.category === entry.category,
+            )
+          ) {
             stats.skipped++;
             continue;
           }
@@ -334,7 +355,12 @@ export function cleanupLegacyFilesWithPaths(paths: MigrationPaths): string[] {
   }
 
   const removed: string[] = [];
-  for (const f of [paths.legacyCore, paths.legacyMemory, paths.legacyContext, paths.legacyTasks]) {
+  for (const f of [
+    paths.legacyCore,
+    paths.legacyMemory,
+    paths.legacyContext,
+    paths.legacyTasks,
+  ]) {
     if (fs.existsSync(f)) {
       fs.unlinkSync(f);
       removed.push(f);

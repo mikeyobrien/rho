@@ -96,9 +96,7 @@ export async function updateTask(
 		updated.description = update.description.trim();
 	if (update.priority !== undefined) updated.priority = update.priority;
 	if (update.tags !== undefined)
-		updated.tags = update.tags
-			.map((t) => t.trim().toLowerCase())
-			.filter(Boolean);
+		updated.tags = update.tags.map((t) => t.trim().toLowerCase()).filter(Boolean);
 	if (update.due !== undefined) updated.due = update.due;
 	if (update.status !== undefined) {
 		updated.status = update.status;

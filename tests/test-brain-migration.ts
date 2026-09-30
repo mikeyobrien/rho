@@ -69,7 +69,10 @@ function makePaths(dir: string): MigrationPaths {
 }
 
 function writeLines(filePath: string, entries: any[]): void {
-  fs.writeFileSync(filePath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  fs.writeFileSync(
+    filePath,
+    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
 }
 
 function cleanup(dir: string): void {
@@ -98,7 +101,13 @@ async function testDetect_LegacyCoreExists() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
     ]);
     const status = detectMigrationWithPaths(paths);
     assertEq(status.hasLegacy, true, "hasLegacy is true");
@@ -125,7 +134,9 @@ async function testDetect_EmptyLegacyFileNotCounted() {
 }
 
 async function testDetect_AlreadyMigrated() {
-  console.log("\n── detectMigration: meta marker present → alreadyMigrated=true");
+  console.log(
+    "\n── detectMigration: meta marker present → alreadyMigrated=true",
+  );
   const dir = makeTmpDir();
   try {
     const paths = makePaths(dir);
@@ -139,7 +150,13 @@ async function testDetect_AlreadyMigrated() {
     });
     // Even with legacy files present, should report already migrated
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
     ]);
     const status = detectMigrationWithPaths(paths);
     assertEq(status.hasLegacy, true, "hasLegacy is true");
@@ -150,7 +167,9 @@ async function testDetect_AlreadyMigrated() {
 }
 
 async function testDetect_SkipMarker() {
-  console.log("\n── detectMigration: meta marker 'skip' → alreadyMigrated=true");
+  console.log(
+    "\n── detectMigration: meta marker 'skip' → alreadyMigrated=true",
+  );
   const dir = makeTmpDir();
   try {
     const paths = makePaths(dir);
@@ -162,7 +181,11 @@ async function testDetect_SkipMarker() {
       created: new Date().toISOString(),
     });
     const status = detectMigrationWithPaths(paths);
-    assertEq(status.alreadyMigrated, true, "skip value also counts as migrated");
+    assertEq(
+      status.alreadyMigrated,
+      true,
+      "skip value also counts as migrated",
+    );
   } finally {
     cleanup(dir);
   }
@@ -174,9 +197,27 @@ async function testMigrate_CoreBehaviors() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
-      { id: "b-2", type: "behavior", category: "dont", text: "Hedge excessively", created: "2024-01-01" },
-      { id: "b-3", type: "behavior", category: "value", text: "Clarity over diplomacy", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
+      {
+        id: "b-2",
+        type: "behavior",
+        category: "dont",
+        text: "Hedge excessively",
+        created: "2024-01-01",
+      },
+      {
+        id: "b-3",
+        type: "behavior",
+        category: "value",
+        text: "Clarity over diplomacy",
+        created: "2024-01-01",
+      },
     ]);
     const stats = await runMigrationWithPaths(paths);
     assertEq(stats.behaviors, 3, "3 behaviors migrated");
@@ -184,8 +225,18 @@ async function testMigrate_CoreBehaviors() {
     const { entries } = readBrain(paths.brainPath);
     const brain = foldBrain(entries);
     assertEq(brain.behaviors.length, 3, "3 behaviors in brain");
-    assert(brain.behaviors.some((b) => b.text === "Be direct" && b.category === "do"), "do behavior present");
-    assert(brain.behaviors.some((b) => b.text === "Hedge excessively" && b.category === "dont"), "dont behavior present");
+    assert(
+      brain.behaviors.some(
+        (b) => b.text === "Be direct" && b.category === "do",
+      ),
+      "do behavior present",
+    );
+    assert(
+      brain.behaviors.some(
+        (b) => b.text === "Hedge excessively" && b.category === "dont",
+      ),
+      "dont behavior present",
+    );
   } finally {
     cleanup(dir);
   }
@@ -197,8 +248,20 @@ async function testMigrate_CoreIdentityAndUser() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "id-1", type: "identity", key: "name", value: "rho", created: "2024-01-01" },
-      { id: "u-1", type: "user", key: "name", value: "Mikey", created: "2024-01-01" },
+      {
+        id: "id-1",
+        type: "identity",
+        key: "name",
+        value: "rho",
+        created: "2024-01-01",
+      },
+      {
+        id: "u-1",
+        type: "user",
+        key: "name",
+        value: "Mikey",
+        created: "2024-01-01",
+      },
     ]);
     const stats = await runMigrationWithPaths(paths);
     assertEq(stats.identity, 1, "1 identity migrated");
@@ -214,13 +277,29 @@ async function testMigrate_CoreIdentityAndUser() {
 }
 
 async function testMigrate_MemoryLearnings() {
-  console.log("\n── runMigration: memory.jsonl learnings imported (legacy fields stripped)");
+  console.log(
+    "\n── runMigration: memory.jsonl learnings imported (legacy fields stripped)",
+  );
   const dir = makeTmpDir();
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyMemory, [
-      { id: "l-1", type: "learning", text: "Use tsx for TypeScript", used: 5, last_used: "2024-06-01", created: "2024-01-01" },
-      { id: "l-2", type: "learning", text: "Check exit codes", used: 0, last_used: "2024-01-01", created: "2024-02-01" },
+      {
+        id: "l-1",
+        type: "learning",
+        text: "Use tsx for TypeScript",
+        used: 5,
+        last_used: "2024-06-01",
+        created: "2024-01-01",
+      },
+      {
+        id: "l-2",
+        type: "learning",
+        text: "Check exit codes",
+        used: 0,
+        last_used: "2024-01-01",
+        created: "2024-02-01",
+      },
     ]);
     const stats = await runMigrationWithPaths(paths);
     assertEq(stats.learnings, 2, "2 learnings migrated");
@@ -228,12 +307,22 @@ async function testMigrate_MemoryLearnings() {
     const { entries } = readBrain(paths.brainPath);
     const brain = foldBrain(entries);
     assertEq(brain.learnings.length, 2, "2 learnings in brain");
-    assert(brain.learnings.some((l) => l.text === "Use tsx for TypeScript"), "first learning present");
-    assert(brain.learnings.some((l) => l.source === "migration"), "source set to migration");
+    assert(
+      brain.learnings.some((l) => l.text === "Use tsx for TypeScript"),
+      "first learning present",
+    );
+    assert(
+      brain.learnings.some((l) => l.source === "migration"),
+      "source set to migration",
+    );
     // Ensure legacy fields are NOT present
     const raw = entries.find((e) => e.type === "learning") as any;
     assertEq(raw?.used, undefined, "legacy 'used' field not carried over");
-    assertEq(raw?.last_used, undefined, "legacy 'last_used' field not carried over");
+    assertEq(
+      raw?.last_used,
+      undefined,
+      "legacy 'last_used' field not carried over",
+    );
   } finally {
     cleanup(dir);
   }
@@ -245,8 +334,19 @@ async function testMigrate_MemoryPreferences() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyMemory, [
-      { id: "p-1", type: "preference", category: "Communication", text: "User name: Mikey", created: "2024-01-01" },
-      { id: "p-2", type: "preference", text: "Dark mode", created: "2024-01-01" },
+      {
+        id: "p-1",
+        type: "preference",
+        category: "Communication",
+        text: "User name: Mikey",
+        created: "2024-01-01",
+      },
+      {
+        id: "p-2",
+        type: "preference",
+        text: "Dark mode",
+        created: "2024-01-01",
+      },
     ]);
     const stats = await runMigrationWithPaths(paths);
     assertEq(stats.preferences, 2, "2 preferences migrated");
@@ -254,8 +354,14 @@ async function testMigrate_MemoryPreferences() {
     const { entries } = readBrain(paths.brainPath);
     const brain = foldBrain(entries);
     assertEq(brain.preferences.length, 2, "2 preferences in brain");
-    assert(brain.preferences.some((p) => p.category === "Communication"), "category preserved");
-    assert(brain.preferences.some((p) => p.category === "General"), "missing category defaults to General");
+    assert(
+      brain.preferences.some((p) => p.category === "Communication"),
+      "category preserved",
+    );
+    assert(
+      brain.preferences.some((p) => p.category === "General"),
+      "missing category defaults to General",
+    );
   } finally {
     cleanup(dir);
   }
@@ -267,8 +373,26 @@ async function testMigrate_Tasks() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyTasks, [
-      { id: "t-1", description: "Build review extension", status: "pending", priority: "normal", tags: ["pi"], created: "2024-01-01T00:00:00Z", due: null, completedAt: null },
-      { id: "t-2", description: "Fix bug", status: "done", priority: "high", tags: [], created: "2024-01-01T00:00:00Z", due: "2024-02-01", completedAt: "2024-01-15T00:00:00Z" },
+      {
+        id: "t-1",
+        description: "Build review extension",
+        status: "pending",
+        priority: "normal",
+        tags: ["pi"],
+        created: "2024-01-01T00:00:00Z",
+        due: null,
+        completedAt: null,
+      },
+      {
+        id: "t-2",
+        description: "Fix bug",
+        status: "done",
+        priority: "high",
+        tags: [],
+        created: "2024-01-01T00:00:00Z",
+        due: "2024-02-01",
+        completedAt: "2024-01-15T00:00:00Z",
+      },
     ]);
     const stats = await runMigrationWithPaths(paths);
     assertEq(stats.tasks, 2, "2 tasks migrated");
@@ -276,7 +400,9 @@ async function testMigrate_Tasks() {
     const { entries } = readBrain(paths.brainPath);
     const brain = foldBrain(entries);
     assertEq(brain.tasks.length, 2, "2 tasks in brain");
-    const t1 = brain.tasks.find((t) => t.description === "Build review extension");
+    const t1 = brain.tasks.find(
+      (t) => t.description === "Build review extension",
+    );
     assert(!!t1, "first task present");
     assertEq(t1?.id, "t-1", "task id preserved from legacy");
     assertEq(t1?.tags?.[0], "pi", "task tags preserved");
@@ -314,14 +440,42 @@ async function testMigrate_DuplicatesSkipped() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
     ]);
     writeLines(paths.legacyMemory, [
-      { id: "l-1", type: "learning", text: "Use tsx", used: 0, last_used: "2024-01-01", created: "2024-01-01" },
-      { id: "p-1", type: "preference", category: "Code", text: "TypeScript preferred", created: "2024-01-01" },
+      {
+        id: "l-1",
+        type: "learning",
+        text: "Use tsx",
+        used: 0,
+        last_used: "2024-01-01",
+        created: "2024-01-01",
+      },
+      {
+        id: "p-1",
+        type: "preference",
+        category: "Code",
+        text: "TypeScript preferred",
+        created: "2024-01-01",
+      },
     ]);
     writeLines(paths.legacyTasks, [
-      { id: "t-1", description: "Do stuff", status: "pending", priority: "normal", tags: [], created: "2024-01-01T00:00:00Z", due: null, completedAt: null },
+      {
+        id: "t-1",
+        description: "Do stuff",
+        status: "pending",
+        priority: "normal",
+        tags: [],
+        created: "2024-01-01T00:00:00Z",
+        due: null,
+        completedAt: null,
+      },
     ]);
 
     // First migration
@@ -355,7 +509,11 @@ async function testMigrate_MetaMarkerWritten() {
 
     const { entries } = readBrain(paths.brainPath);
     const brain = foldBrain(entries);
-    assertEq(brain.meta.get("migration.v2")?.value, "done", "migration marker present");
+    assertEq(
+      brain.meta.get("migration.v2")?.value,
+      "done",
+      "migration marker present",
+    );
   } finally {
     cleanup(dir);
   }
@@ -367,13 +525,35 @@ async function testCleanup_RemovesLegacyFiles() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
     ]);
     writeLines(paths.legacyMemory, [
-      { id: "l-1", type: "learning", text: "Use tsx", used: 0, last_used: "2024-01-01", created: "2024-01-01" },
+      {
+        id: "l-1",
+        type: "learning",
+        text: "Use tsx",
+        used: 0,
+        last_used: "2024-01-01",
+        created: "2024-01-01",
+      },
     ]);
     writeLines(paths.legacyTasks, [
-      { id: "t-1", description: "Do stuff", status: "pending", priority: "normal", tags: [], created: "2024-01-01T00:00:00Z", due: null, completedAt: null },
+      {
+        id: "t-1",
+        description: "Do stuff",
+        status: "pending",
+        priority: "normal",
+        tags: [],
+        created: "2024-01-01T00:00:00Z",
+        due: null,
+        completedAt: null,
+      },
     ]);
 
     // Migrate first
@@ -402,7 +582,13 @@ async function testCleanup_FailsBeforeMigration() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
     ]);
 
     let threw = false;
@@ -410,7 +596,10 @@ async function testCleanup_FailsBeforeMigration() {
       cleanupLegacyFilesWithPaths(paths);
     } catch (e: any) {
       threw = true;
-      assert(e.message.includes("migration has not been completed"), "correct error message");
+      assert(
+        e.message.includes("migration has not been completed"),
+        "correct error message",
+      );
     }
     assert(threw, "cleanup threw before migration");
     assert(fs.existsSync(paths.legacyCore), "core.jsonl still exists");
@@ -425,7 +614,13 @@ async function testCleanup_SkipsMissingFiles() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
     ]);
     // Only core exists, no memory/context/tasks
 
@@ -444,19 +639,66 @@ async function testMigrate_MixedAllTypes() {
   try {
     const paths = makePaths(dir);
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
-      { id: "id-1", type: "identity", key: "name", value: "rho", created: "2024-01-01" },
-      { id: "u-1", type: "user", key: "name", value: "Mikey", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
+      {
+        id: "id-1",
+        type: "identity",
+        key: "name",
+        value: "rho",
+        created: "2024-01-01",
+      },
+      {
+        id: "u-1",
+        type: "user",
+        key: "name",
+        value: "Mikey",
+        created: "2024-01-01",
+      },
     ]);
     writeLines(paths.legacyMemory, [
-      { id: "l-1", type: "learning", text: "Use tsx", used: 0, last_used: "2024-01-01", created: "2024-01-01" },
-      { id: "p-1", type: "preference", category: "Code", text: "TypeScript", created: "2024-01-01" },
+      {
+        id: "l-1",
+        type: "learning",
+        text: "Use tsx",
+        used: 0,
+        last_used: "2024-01-01",
+        created: "2024-01-01",
+      },
+      {
+        id: "p-1",
+        type: "preference",
+        category: "Code",
+        text: "TypeScript",
+        created: "2024-01-01",
+      },
     ]);
     writeLines(paths.legacyContext, [
-      { id: "ctx-1", type: "context", project: "myapp", path: "/home/user/myapp", content: "Node.js project", created: "2024-01-01" },
+      {
+        id: "ctx-1",
+        type: "context",
+        project: "myapp",
+        path: "/home/user/myapp",
+        content: "Node.js project",
+        created: "2024-01-01",
+      },
     ]);
     writeLines(paths.legacyTasks, [
-      { id: "t-1", description: "Ship feature", status: "pending", priority: "high", tags: ["release"], created: "2024-01-01T00:00:00Z", due: "2024-03-01", completedAt: null },
+      {
+        id: "t-1",
+        description: "Ship feature",
+        status: "pending",
+        priority: "high",
+        tags: ["release"],
+        created: "2024-01-01T00:00:00Z",
+        due: "2024-03-01",
+        completedAt: null,
+      },
     ]);
 
     const stats = await runMigrationWithPaths(paths);
@@ -496,7 +738,13 @@ async function testMigrate_PreexistingBrainNotOverwritten() {
     });
 
     writeLines(paths.legacyCore, [
-      { id: "b-1", type: "behavior", category: "do", text: "Be direct", created: "2024-01-01" },
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "Be direct",
+        created: "2024-01-01",
+      },
     ]);
 
     const stats = await runMigrationWithPaths(paths);
@@ -505,8 +753,14 @@ async function testMigrate_PreexistingBrainNotOverwritten() {
     const { entries } = readBrain(paths.brainPath);
     const brain = foldBrain(entries);
     assertEq(brain.behaviors.length, 2, "both old and new behaviors present");
-    assert(brain.behaviors.some((b) => b.text === "Pre-existing value"), "pre-existing entry preserved");
-    assert(brain.behaviors.some((b) => b.text === "Be direct"), "migrated entry present");
+    assert(
+      brain.behaviors.some((b) => b.text === "Pre-existing value"),
+      "pre-existing entry preserved",
+    );
+    assert(
+      brain.behaviors.some((b) => b.text === "Be direct"),
+      "migrated entry present",
+    );
   } finally {
     cleanup(dir);
   }
@@ -517,9 +771,37 @@ async function testDetect_MultipleLegacyFiles() {
   const dir = makeTmpDir();
   try {
     const paths = makePaths(dir);
-    writeLines(paths.legacyCore, [{ id: "b-1", type: "behavior", category: "do", text: "x", created: "2024-01-01" }]);
-    writeLines(paths.legacyMemory, [{ id: "l-1", type: "learning", text: "y", used: 0, last_used: "2024-01-01", created: "2024-01-01" }]);
-    writeLines(paths.legacyTasks, [{ id: "t-1", description: "z", status: "pending", priority: "normal", tags: [], created: "2024-01-01T00:00:00Z", due: null, completedAt: null }]);
+    writeLines(paths.legacyCore, [
+      {
+        id: "b-1",
+        type: "behavior",
+        category: "do",
+        text: "x",
+        created: "2024-01-01",
+      },
+    ]);
+    writeLines(paths.legacyMemory, [
+      {
+        id: "l-1",
+        type: "learning",
+        text: "y",
+        used: 0,
+        last_used: "2024-01-01",
+        created: "2024-01-01",
+      },
+    ]);
+    writeLines(paths.legacyTasks, [
+      {
+        id: "t-1",
+        description: "z",
+        status: "pending",
+        priority: "normal",
+        tags: [],
+        created: "2024-01-01T00:00:00Z",
+        due: null,
+        completedAt: null,
+      },
+    ]);
 
     const status = detectMigrationWithPaths(paths);
     assertEq(status.hasLegacy, true, "hasLegacy=true");
@@ -530,17 +812,32 @@ async function testDetect_MultipleLegacyFiles() {
 }
 
 async function testMigrate_MalformedLinesSkipped() {
-  console.log("\n── runMigration: malformed JSON lines in legacy files skipped");
+  console.log(
+    "\n── runMigration: malformed JSON lines in legacy files skipped",
+  );
   const dir = makeTmpDir();
   try {
     const paths = makePaths(dir);
     // Write a mix of valid and invalid lines
-    const content = [
-      JSON.stringify({ id: "b-1", type: "behavior", category: "do", text: "Valid", created: "2024-01-01" }),
-      "this is not json",
-      "{broken json",
-      JSON.stringify({ id: "b-2", type: "behavior", category: "dont", text: "Also valid", created: "2024-01-01" }),
-    ].join("\n") + "\n";
+    const content =
+      [
+        JSON.stringify({
+          id: "b-1",
+          type: "behavior",
+          category: "do",
+          text: "Valid",
+          created: "2024-01-01",
+        }),
+        "this is not json",
+        "{broken json",
+        JSON.stringify({
+          id: "b-2",
+          type: "behavior",
+          category: "dont",
+          text: "Also valid",
+          created: "2024-01-01",
+        }),
+      ].join("\n") + "\n";
     fs.writeFileSync(paths.legacyCore, content);
 
     const stats = await runMigrationWithPaths(paths);

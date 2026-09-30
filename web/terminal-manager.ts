@@ -416,8 +416,7 @@ export class TerminalManager {
 		) {
 			const oldest = session.history[session.historyHead];
 			session.historyBytes -= oldest.bytes;
-			session.history[session.historyHead] =
-				undefined as unknown as HistoryChunk;
+			session.history[session.historyHead] = undefined as unknown as HistoryChunk;
 			session.historyHead = (session.historyHead + 1) % session.history.length;
 			session.historyLen--;
 		}
@@ -441,10 +440,7 @@ export class TerminalManager {
 		session.closeTimer = null;
 	}
 
-	private finalizeSession(
-		sessionId: string,
-		event: TerminalSessionEvent,
-	): void {
+	private finalizeSession(sessionId: string, event: TerminalSessionEvent): void {
 		const session = this.sessions.get(sessionId);
 		if (!session || session.closed) {
 			return;

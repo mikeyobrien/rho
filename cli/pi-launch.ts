@@ -39,7 +39,7 @@ export function planDaemonLaunch(input: {
 	const piArgs = piLaunchArgs(input.paths, ["-c"]).map(shellQuote).join(" ");
 	const piCommand = [
 		`PI_CODING_AGENT_DIR=${shellQuote(input.paths.piAgentDir)}`,
-		`PI_CODING_AGENT_SESSION_DIR=${shellQuote(input.paths.sessionDir)}`,
+		"env -u PI_CODING_AGENT_SESSION_DIR",
 		shellQuote(input.piBin),
 		piArgs,
 	].join(" ");
@@ -67,7 +67,13 @@ export function planDaemonLaunch(input: {
 				piCommand,
 			],
 			set("PI_CODING_AGENT_DIR", input.paths.piAgentDir),
-			set("PI_CODING_AGENT_SESSION_DIR", input.paths.sessionDir),
+			[
+				...input.tmuxBaseArgs,
+				"set-environment",
+				"-g",
+				"-u",
+				"PI_CODING_AGENT_SESSION_DIR",
+			],
 		],
 	};
 }

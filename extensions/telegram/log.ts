@@ -1,4 +1,11 @@
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
@@ -30,7 +37,11 @@ function safeRename(from: string, to: string): void {
   }
 }
 
-function rotateLogFiles(logPath: string, maxBytes: number, maxFiles: number): void {
+function rotateLogFiles(
+  logPath: string,
+  maxBytes: number,
+  maxFiles: number,
+): void {
   if (maxFiles < 2 || maxBytes <= 0) {
     return;
   }
@@ -59,11 +70,12 @@ function rotateLogFiles(logPath: string, maxBytes: number, maxFiles: number): vo
   safeRename(logPath, `${logPath}.1`);
 }
 
-function normalizeLogEvent(input: Record<string, unknown>): Record<string, unknown> {
+function normalizeLogEvent(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
   const { type: _legacyType, event, ...rest } = input;
-  const normalizedEvent = typeof event === "string" && event.trim().length > 0
-    ? event
-    : "unknown";
+  const normalizedEvent =
+    typeof event === "string" && event.trim().length > 0 ? event : "unknown";
 
   return {
     source: "telegram",
@@ -73,13 +85,25 @@ function normalizeLogEvent(input: Record<string, unknown>): Record<string, unkno
   };
 }
 
-export function appendTelegramLog(event: Record<string, unknown>, logPath: string = LOG_PATH): void {
+export function appendTelegramLog(
+  event: Record<string, unknown>,
+  logPath: string = LOG_PATH,
+): void {
   mkdirSync(dirname(logPath), { recursive: true });
 
-  const maxBytes = parsePositiveInt("RHO_TELEGRAM_LOG_MAX_BYTES", DEFAULT_MAX_BYTES);
-  const maxFiles = parsePositiveInt("RHO_TELEGRAM_LOG_MAX_FILES", DEFAULT_MAX_FILES);
+  const maxBytes = parsePositiveInt(
+    "RHO_TELEGRAM_LOG_MAX_BYTES",
+    DEFAULT_MAX_BYTES,
+  );
+  const maxFiles = parsePositiveInt(
+    "RHO_TELEGRAM_LOG_MAX_FILES",
+    DEFAULT_MAX_FILES,
+  );
   rotateLogFiles(logPath, maxBytes, maxFiles);
 
-  const line = JSON.stringify({ ts: new Date().toISOString(), ...normalizeLogEvent(event) });
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    ...normalizeLogEvent(event),
+  });
   appendFileSync(logPath, line + "\n");
 }

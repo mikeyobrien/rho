@@ -4,13 +4,16 @@
 import { applyMigration, previewMigration } from "../migrate-core.ts";
 import { resolveRhoPaths } from "../rho-paths.ts";
 
-function printReport(title: string, report: ReturnType<typeof previewMigration>): void {
+function printReport(
+	title: string,
+	report: ReturnType<typeof previewMigration>,
+): void {
 	console.log(title);
 	console.log(`  settings: ${report.sourceSettings} -> ${report.destSettings}`);
 	console.log(`  sessions: ${report.sourceSessions} -> ${report.destSessions}`);
 	console.log(`  auth: ${report.sourceAuth} -> ${report.destAuth}`);
 	console.log(
-		`  Rho package: ${report.rhoPackageDetected ? report.rhoPackageSource ?? "detected" : "not found"}`,
+		`  Rho package: ${report.rhoPackageDetected ? (report.rhoPackageSource ?? "detected") : "not found"}`,
 	);
 	console.log(`  sessions found: ${report.sessionCount}`);
 	console.log(`  copy auth: ${report.copiesAuth ? "yes" : "no"}`);
@@ -41,7 +44,10 @@ The ordinary Pi package entry is removed only with --apply --remove-package.`);
 	};
 	const paths = resolveRhoPaths();
 	if (!args.includes("--apply")) {
-		printReport("Migration preview (no files written):", previewMigration(paths, options));
+		printReport(
+			"Migration preview (no files written):",
+			previewMigration(paths, options),
+		);
 		console.log("Run `rho migrate --apply` to copy Rho settings and sessions.");
 		return;
 	}
@@ -49,6 +55,8 @@ The ordinary Pi package entry is removed only with --apply --remove-package.`);
 	const report = applyMigration(paths, options);
 	printReport("Migration applied:", report);
 	if (!options.copyAuth) {
-		console.log("Credentials were not copied. Run `rho login` for isolated auth.");
+		console.log(
+			"Credentials were not copied. Run `rho login` for isolated auth.",
+		);
 	}
 }

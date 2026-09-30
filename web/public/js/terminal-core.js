@@ -340,9 +340,7 @@ class TerminalClient {
 		const storedSessionId = readStoredSessionId();
 		if (storedSessionId) {
 			this.setSessionStatus(`Reattaching (${storedSessionId.slice(0, 8)})`);
-			this.setDetailStatus(
-				"Trying to reconnect to the existing shell session…",
-			);
+			this.setDetailStatus("Trying to reconnect to the existing shell session…");
 			this.send({ type: "attach", sessionId: storedSessionId });
 			return;
 		}
@@ -447,9 +445,7 @@ class TerminalClient {
 				return;
 			}
 			this.setConnectionStatus("Handshake…");
-			this.setDetailStatus(
-				"WebSocket connected. Waiting for terminal backend…",
-			);
+			this.setDetailStatus("WebSocket connected. Waiting for terminal backend…");
 		});
 		socket.addEventListener("message", (messageEvent) => {
 			if (this.ws !== socket) {
@@ -469,10 +465,7 @@ class TerminalClient {
 					? "Connection closed. Reconnect to reattach to the preserved shell session."
 					: "Connection closed. Reconnect to start a new shell session.",
 			);
-			this.showOverlay(
-				"Terminal offline",
-				"The terminal connection is closed.",
-			);
+			this.showOverlay("Terminal offline", "The terminal connection is closed.");
 		});
 		socket.addEventListener("error", () => {
 			if (this.ws !== socket) {

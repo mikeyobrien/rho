@@ -27,13 +27,18 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
     PASS++;
     return;
   }
-  console.error(`  FAIL: ${label} (expected ${String(expected)}, got ${String(actual)})`);
+  console.error(
+    `  FAIL: ${label} (expected ${String(expected)}, got ${String(actual)})`,
+  );
   FAIL++;
 }
 
 console.log("\n=== Cross-Channel Slash Contract Parity Tests ===\n");
 
-const webContractPath = path.resolve(import.meta.dirname!, "../web/public/js/slash-contract.js");
+const webContractPath = path.resolve(
+  import.meta.dirname!,
+  "../web/public/js/slash-contract.js",
+);
 await import(pathToFileURL(webContractPath).href);
 const webContract = (globalThis as any).__rhoSlashContract;
 if (!webContract) {
@@ -51,12 +56,25 @@ console.log("-- parity: slash classification decisions --");
   const webIndex = webContract.buildCommandIndex(inventory);
   const telegramIndex = buildTelegramCommandIndex(inventory);
 
-  const inputs = ["/telegram status", "/telegram@tau_rhobot status", "/settings", "/nope"];
+  const inputs = [
+    "/telegram status",
+    "/telegram@tau_rhobot status",
+    "/settings",
+    "/nope",
+  ];
   for (const input of inputs) {
     const web = webContract.classifySlashCommand(input, webIndex);
     const telegram = classifyTelegramSlash(input, telegramIndex);
-    assertEq(telegram.kind, web.kind, `classification kind matches for ${input}`);
-    assertEq(telegram.commandName, web.commandName, `commandName matches for ${input}`);
+    assertEq(
+      telegram.kind,
+      web.kind,
+      `classification kind matches for ${input}`,
+    );
+    assertEq(
+      telegram.commandName,
+      web.commandName,
+      `commandName matches for ${input}`,
+    );
   }
 }
 
@@ -72,7 +90,11 @@ console.log("\n-- parity: unsupported/interative error text --");
 
     const webMessage = webContract.formatUnsupportedMessage(web);
     const telegramMessage = formatTelegramUnsupported(telegram);
-    assertEq(telegramMessage, webMessage, `unsupported message matches for ${input}`);
+    assertEq(
+      telegramMessage,
+      webMessage,
+      `unsupported message matches for ${input}`,
+    );
   }
 
   const statusShortcutMessage = formatTelegramUnsupported(
@@ -97,12 +119,26 @@ console.log("\n-- parity: prompt failure categories --");
   for (const raw of cases) {
     const webMessage = webContract.formatPromptFailure(slash, raw);
     const telegramMessage = formatSlashPromptFailure(slash, raw);
-    assertEq(telegramMessage, webMessage, `prompt failure mapping matches for error: ${raw}`);
+    assertEq(
+      telegramMessage,
+      webMessage,
+      `prompt failure mapping matches for error: ${raw}`,
+    );
   }
 
-  const webStatusShortcut = webContract.formatPromptFailure("/status", "Unknown command: /status");
-  const telegramStatusShortcut = formatSlashPromptFailure("/status", "Unknown command: /status");
-  assertEq(telegramStatusShortcut, webStatusShortcut, "shortcut prompt failure message parity for /status");
+  const webStatusShortcut = webContract.formatPromptFailure(
+    "/status",
+    "Unknown command: /status",
+  );
+  const telegramStatusShortcut = formatSlashPromptFailure(
+    "/status",
+    "Unknown command: /status",
+  );
+  assertEq(
+    telegramStatusShortcut,
+    webStatusShortcut,
+    "shortcut prompt failure message parity for /status",
+  );
 
   const nonSlash = "hello";
   assertEq(

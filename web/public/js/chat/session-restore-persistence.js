@@ -82,7 +82,7 @@ function isRuntimeActiveState(state) {
 	if (state.status === "starting" || state.status === "streaming") {
 		return true;
 	}
-	if (Boolean(state.isStreaming) || Boolean(state.isSendingPrompt)) {
+	if (state.isStreaming || state.isSendingPrompt) {
 		return true;
 	}
 	if (hasReplayablePending(state)) {
@@ -436,15 +436,11 @@ export const rhoChatSessionRestoreMethods = {
 				if (!state) {
 					continue;
 				}
-				if (
-					normalizeSessionId(state.rpcSessionId) ||
-					state.status === "starting"
-				) {
+				if (normalizeSessionId(state.rpcSessionId) || state.status === "starting") {
 					continue;
 				}
 				try {
-					const sessionFile =
-						await this.resolveSessionFileForRestore(sessionId);
+					const sessionFile = await this.resolveSessionFileForRestore(sessionId);
 					if (!sessionFile) {
 						throw new Error("session file unavailable");
 					}

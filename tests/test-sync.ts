@@ -45,14 +45,14 @@ function assertIncludes(arr: string[], item: string, label: string): void {
 }
 
 function assertNotIncludes(arr: string[], item: string, label: string): void {
-	if (!arr.includes(item)) {
-		console.log(`  PASS: ${label}`);
-		PASS++;
-	} else {
+	if (arr.includes(item)) {
 		console.error(
 			`  FAIL: ${label} — ${JSON.stringify(item)} should not be in array`,
 		);
 		FAIL++;
+	} else {
+		console.log(`  PASS: ${label}`);
+		PASS++;
 	}
 }
 
@@ -106,7 +106,7 @@ function makeConfig(overrides?: {
 			"update-pi": true,
 			"visual-explainer": true,
 		},
-		ui: { "usage-bars": true },
+		ui: { "usage-bars": true, "tidy-tools": true },
 	};
 	if (overrides?.modules) {
 		for (const category of Object.keys(overrides.modules) as Array<
@@ -193,11 +193,7 @@ console.log(
 		"extensions/**/*.ts",
 		"includes extension entrypoints",
 	);
-	assertIncludes(
-		extensions,
-		"!extensions/email/**",
-		"excludes email extension",
-	);
+	assertIncludes(extensions, "!extensions/email/**", "excludes email extension");
 	const skills = expectArray(entry.skills, "skills array present");
 	assertIncludes(skills, "skills/*", "starts with skills/*");
 	assertIncludes(
@@ -360,6 +356,7 @@ console.log("\n-- collectExternalModulePackages: enabled modules --");
 			"npm:pi-mcp-adapter",
 			"npm:pi-interview",
 			"git:github.com/nicobailon/visual-explainer",
+			"npm:@mobrienv/pi-tidy-tools",
 		],
 		"collects default external package sources",
 	);

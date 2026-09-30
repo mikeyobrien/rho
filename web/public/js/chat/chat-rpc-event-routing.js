@@ -115,9 +115,7 @@ export const rhoChatRpcEventMethods = {
 		}
 
 		if (payload.type === "ui_event") {
-			window.dispatchEvent(
-				new CustomEvent("rho:ui-event", { detail: payload }),
-			);
+			window.dispatchEvent(new CustomEvent("rho:ui-event", { detail: payload }));
 			return;
 		}
 
@@ -173,10 +171,7 @@ export const rhoChatRpcEventMethods = {
 		}
 
 		if (payload.type === "session_started") {
-			const routeByFile = findSessionRouteBySessionFile(
-				this,
-				payload.sessionFile,
-			);
+			const routeByFile = findSessionRouteBySessionFile(this, payload.sessionFile);
 			const focusedSessionId =
 				typeof this.focusedSessionId === "string"
 					? this.focusedSessionId.trim()
@@ -302,8 +297,7 @@ export const rhoChatRpcEventMethods = {
 				} else if (this.recoveringRpcSession) {
 					this.recoveringRpcSession = false;
 					const sessionFile =
-						this.activeRpcSessionFile ||
-						this.getSessionFile(this.activeSessionId);
+						this.activeRpcSessionFile || this.getSessionFile(this.activeSessionId);
 					if (sessionFile) {
 						this.activeRpcSessionId = "";
 						this.startRpcSession(sessionFile);

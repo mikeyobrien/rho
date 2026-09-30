@@ -69,8 +69,7 @@ function reviewApp() {
 				const warnRes = await fetch(`${api}/warnings?${qsToken()}`);
 				if (warnRes.ok) {
 					const warns = await warnRes.json();
-					if (Array.isArray(warns) && warns.length > 0)
-						this.fileWarnings = warns;
+					if (Array.isArray(warns) && warns.length > 0) this.fileWarnings = warns;
 				}
 			} catch {}
 			try {
@@ -297,9 +296,7 @@ function reviewApp() {
 				endLine: this.activeComment.endLine,
 			};
 			const last =
-				this.activeComment.rangeHistory[
-					this.activeComment.rangeHistory.length - 1
-				];
+				this.activeComment.rangeHistory[this.activeComment.rangeHistory.length - 1];
 			if (
 				last &&
 				last.startLine === snapshot.startLine &&
@@ -450,7 +447,7 @@ function reviewApp() {
 				}
 			}
 			this._ws.send(JSON.stringify({ type: "submit", comments: allComments }));
-			this.reviewComplete = `Review submitted — ${allComments.length} comment${allComments.length !== 1 ? "s" : ""} sent`;
+			this.reviewComplete = `Review submitted — ${allComments.length} comment${allComments.length === 1 ? "" : "s"} sent`;
 			setTimeout(() => {
 				window.location.href = "/review";
 			}, 1500);

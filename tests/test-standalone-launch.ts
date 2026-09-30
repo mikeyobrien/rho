@@ -23,9 +23,13 @@ sleep 5
 fs.chmodSync(path.join(stubDir, "pi"), 0o755);
 process.env.PATH = `${stubDir}${path.delimiter}${process.env.PATH ?? ""}`;
 
-const { planDaemonLaunch, skillProviderScope } = await import("../cli/pi-launch.ts");
+const { planDaemonLaunch, skillProviderScope } = await import(
+	"../cli/pi-launch.ts"
+);
 const { resolveRhoPaths } = await import("../cli/rho-paths.ts");
-const { resolveSessionFile } = await import("../extensions/telegram/session-map.ts");
+const { resolveSessionFile } = await import(
+	"../extensions/telegram/session-map.ts"
+);
 const { DEFAULT_SESSION_DIR } = await import("../web/session-reader-types.ts");
 const { buildRpcLaunch } = await import("../web/rpc-manager.ts");
 
@@ -64,10 +68,13 @@ const plan = planDaemonLaunch({
 });
 assert(plan.ok, "daemon launch plans");
 assert(plan.cwd === paths.workspaceDir, "daemon cwd is Rho workspace");
-assert(plan.env.PI_CODING_AGENT_DIR === paths.piAgentDir, "daemon env agent dir");
 assert(
-	plan.env.PI_CODING_AGENT_SESSION_DIR === paths.sessionDir,
-	"daemon env session dir",
+	plan.env.PI_CODING_AGENT_DIR === paths.piAgentDir,
+	"daemon env agent dir",
+);
+assert(
+	plan.env.PI_CODING_AGENT_SESSION_DIR === undefined,
+	"daemon env does not force a session dir",
 );
 assert(
 	plan.tmuxCommands[0]?.includes("new-session"),
@@ -75,23 +82,45 @@ assert(
 );
 assert(
 	plan.tmuxCommands.some(
-		(args) => args.includes("PI_CODING_AGENT_DIR") && args.includes(paths.piAgentDir),
+		(args) =>
+			args.includes("PI_CODING_AGENT_DIR") && args.includes(paths.piAgentDir),
 	),
 	"tmux receives isolated agent dir",
 );
-assert(plan.piCommand.includes("--session-dir"), "daemon command sets session dir");
-assert(plan.piCommand.includes(paths.sessionDir), "daemon command uses Rho sessions");
-assert(!planDaemonLaunch({
-	piBin: null,
-	paths,
-	tmuxBaseArgs: ["-L", "rho-test"],
-	sessionName: "rho",
-}).ok, "missing pi fails the launch plan");
+assert(
+	!plan.piCommand.includes("--session-dir"),
+	"daemon command does not force a session dir",
+);
+assert(
+	plan.piCommand.includes("env -u PI_CODING_AGENT_SESSION_DIR"),
+	"daemon command clears an inherited session dir",
+);
+assert(
+	plan.tmuxCommands.some(
+		(args) =>
+			args.includes("set-environment") &&
+			args.includes("-u") &&
+			args.includes("PI_CODING_AGENT_SESSION_DIR"),
+	),
+	"tmux unsets an inherited session dir",
+);
+assert(
+	!planDaemonLaunch({
+		piBin: null,
+		paths,
+		tmuxBaseArgs: ["-L", "rho-test"],
+		sessionName: "rho",
+	}).ok,
+	"missing pi fails the launch plan",
+);
 
 const vercel = skillProviderScope("vercel", paths);
 assert(vercel.ok === false, "unscoped skill provider is rejected");
 const clawhub = skillProviderScope("clawhub", paths);
-assert(clawhub.ok && clawhub.workdir === paths.piAgentDir, "clawhub uses Rho agent dir");
+assert(
+	clawhub.ok && clawhub.workdir === paths.piAgentDir,
+	"clawhub uses Rho agent dir",
+);
 
 const channel = resolveSessionFile({
 	updateId: 1,
@@ -103,20 +132,40 @@ const channel = resolveSessionFile({
 	text: "hi",
 	isReplyToBot: false,
 });
-assert(channel.sessionFile.startsWith(paths.sessionDir), "channel session uses Rho sessions");
-assert(!channel.sessionFile.includes(`${path.sep}.pi${path.sep}`), "channel session avoids ordinary Pi");
-assert(DEFAULT_SESSION_DIR === paths.sessionDir, "web session reader uses Rho sessions");
+assert(
+	channel.sessionFile.startsWith(paths.sessionDir),
+	"channel session uses Rho sessions",
+);
+assert(
+	!channel.sessionFile.includes(`${path.sep}.pi${path.sep}`),
+	"channel session avoids ordinary Pi",
+);
+assert(
+	DEFAULT_SESSION_DIR === paths.sessionDir,
+	"web session reader uses Rho sessions",
+);
 
 const webLaunch = buildRpcLaunch(paths);
 assert(webLaunch.command === "pi", "web RPC launches pi");
-assert(webLaunch.env.PI_CODING_AGENT_DIR === paths.piAgentDir, "web RPC sets agent dir");
-assert(webLaunch.env.PI_CODING_AGENT_SESSION_DIR === paths.sessionDir, "web RPC sets session dir");
-assert(webLaunch.args.includes("--session-dir"), "web RPC passes session dir");
-assert(webLaunch.args.includes(paths.sessionDir), "web RPC uses Rho sessions");
+assert(
+	webLaunch.env.PI_CODING_AGENT_DIR === paths.piAgentDir,
+	"web RPC sets agent dir",
+);
+assert(
+	webLaunch.env.PI_CODING_AGENT_SESSION_DIR === undefined,
+	"web RPC does not force a session dir",
+);
+assert(
+	!webLaunch.args.includes("--session-dir"),
+	"web RPC does not pass session dir",
+);
 assert(webLaunch.args.includes("rpc"), "web RPC uses rpc mode");
 
 for (const [file, bytes] of before) {
-	assert(fs.readFileSync(file).equals(bytes), `ordinary Pi sentinel unchanged: ${path.basename(file)}`);
+	assert(
+		fs.readFileSync(file).equals(bytes),
+		`ordinary Pi sentinel unchanged: ${path.basename(file)}`,
+	);
 }
 
 const cli = spawnSync(
@@ -128,7 +177,13 @@ const cli = spawnSync(
 		encoding: "utf8",
 	},
 );
-assert(cli.status === 0 || (cli.stderr ?? "").includes("not isolated") || (cli.stdout ?? "").includes(paths.piAgentDir) || (cli.stderr ?? "").includes("layout"), "doctor does not need ordinary Pi");
+assert(
+	cli.status === 0 ||
+		(cli.stderr ?? "").includes("not isolated") ||
+		(cli.stdout ?? "").includes(paths.piAgentDir) ||
+		(cli.stderr ?? "").includes("layout"),
+	"doctor does not need ordinary Pi",
+);
 
 if (failed > 0) {
 	console.error(`\n${failed} failed`);

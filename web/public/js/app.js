@@ -166,10 +166,7 @@ document.addEventListener("alpine:init", () => {
 				this._onTerminalEvent = null;
 			}
 			if (this._onVisibilityChange) {
-				document.removeEventListener(
-					"visibilitychange",
-					this._onVisibilityChange,
-				);
+				document.removeEventListener("visibilitychange", this._onVisibilityChange);
 				this._onVisibilityChange = null;
 			}
 			if (this._onWindowResize) {
@@ -211,9 +208,7 @@ document.addEventListener("alpine:init", () => {
 				const terminalRes = await fetch("/api/terminal/sessions");
 				if (terminalRes.ok) {
 					const sessions = await terminalRes.json();
-					this.activeTerminalCount = Array.isArray(sessions)
-						? sessions.length
-						: 0;
+					this.activeTerminalCount = Array.isArray(sessions) ? sessions.length : 0;
 				}
 			} catch {
 				/* ignore */
@@ -424,9 +419,7 @@ document.addEventListener("alpine:init", () => {
 				const footerTop =
 					document.querySelector(".footer")?.getBoundingClientRect().top ??
 					window.innerHeight;
-				this.terminalHeight = clampTerminalHeight(
-					footerTop - moveEvent.clientY,
-				);
+				this.terminalHeight = clampTerminalHeight(footerTop - moveEvent.clientY);
 			};
 			this._onTerminalResizeUp = () => {
 				this.terminalResizing = false;

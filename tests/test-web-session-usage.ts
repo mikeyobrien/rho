@@ -335,11 +335,7 @@ async function loadChatVm(): Promise<ChatVm> {
 	};
 
 	chat.handleMessageEnd(turn3);
-	assertEq(
-		chat.sessionStats.tokens,
-		25,
-		"new assistant turn increments tokens",
-	);
+	assertEq(chat.sessionStats.tokens, 25, "new assistant turn increments tokens");
 	assertApprox(
 		chat.sessionStats.cost,
 		0.107,

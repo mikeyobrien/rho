@@ -38,7 +38,12 @@ try {
     const now = Date.now();
     const staleMs = 2000;
 
-    const first = stepTelegramWorkerLock(state, { lockPath, nonce: "nonce-a", now, staleMs });
+    const first = stepTelegramWorkerLock(state, {
+      lockPath,
+      nonce: "nonce-a",
+      now,
+      staleMs,
+    });
     assert(first.isOwner === true, "first contender becomes owner");
     assert(first.acquired === true, "first contender reports acquisition");
 
@@ -66,7 +71,12 @@ try {
     const now = Date.now();
     const staleMs = 2000;
 
-    stepTelegramWorkerLock(state, { lockPath, nonce: "nonce-owner", now, staleMs });
+    stepTelegramWorkerLock(state, {
+      lockPath,
+      nonce: "nonce-owner",
+      now,
+      staleMs,
+    });
 
     const blocked = stepTelegramWorkerLock(contender, {
       lockPath,
@@ -75,8 +85,14 @@ try {
       staleMs,
     });
 
-    assert(blocked.isOwner === false, "second contender blocked while owner holds lock");
-    assert(blocked.ownerPid === process.pid, "blocked contender sees owner pid");
+    assert(
+      blocked.isOwner === false,
+      "second contender blocked while owner holds lock",
+    );
+    assert(
+      blocked.ownerPid === process.pid,
+      "blocked contender sees owner pid",
+    );
 
     releaseTelegramWorkerLock(state);
     assert(!existsSync(lockPath), "lock removed before takeover");

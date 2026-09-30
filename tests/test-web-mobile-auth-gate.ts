@@ -111,9 +111,7 @@ async function runTests() {
 		assertEq(resStatus.status, 200, "/api/auth/status is exempt");
 
 		// Protected API without auth
-		const resNoAuth = await app.fetch(
-			new Request("http://localhost/api/config"),
-		);
+		const resNoAuth = await app.fetch(new Request("http://localhost/api/config"));
 		assertEq(resNoAuth.status, 401, "Protected API blocked without auth");
 
 		const resUsageNoAuth = await app.fetch(

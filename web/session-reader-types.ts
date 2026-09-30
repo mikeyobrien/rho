@@ -114,4 +114,9 @@ export type SessionInfo = {
 	lastMessage?: string;
 };
 
-export const DEFAULT_SESSION_DIR = path.join(os.homedir(), ".rho", "sessions");
+export const DEFAULT_SESSION_DIR = path.join(
+	os.homedir(),
+	".rho",
+	"agent",
+	"sessions",
+);

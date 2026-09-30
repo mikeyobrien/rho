@@ -11,7 +11,10 @@ export function renderOutboundText(text: string): string {
   return (text || "").trim() || "(empty response)";
 }
 
-export function chunkTelegramText(text: string, maxLen = MAX_TELEGRAM_TEXT): string[] {
+export function chunkTelegramText(
+  text: string,
+  maxLen = MAX_TELEGRAM_TEXT,
+): string[] {
   const normalized = renderOutboundText(text);
   if (normalized.length <= maxLen) return [normalized];
 
@@ -34,15 +37,25 @@ export function chunkTelegramText(text: string, maxLen = MAX_TELEGRAM_TEXT): str
   return chunks;
 }
 
-export function renderTelegramOutboundChunks(text: string, maxLen = MAX_TELEGRAM_TEXT): TelegramOutboundChunk[] {
+export function renderTelegramOutboundChunks(
+  text: string,
+  maxLen = MAX_TELEGRAM_TEXT,
+): TelegramOutboundChunk[] {
   const normalized = renderOutboundText(text);
-  const sourceChunks = chunkTelegramText(normalized, Math.min(maxLen, TELEGRAM_MARKDOWN_CHUNK_TARGET));
+  const sourceChunks = chunkTelegramText(
+    normalized,
+    Math.min(maxLen, TELEGRAM_MARKDOWN_CHUNK_TARGET),
+  );
 
   const outbound: TelegramOutboundChunk[] = [];
   for (const sourceChunk of sourceChunks) {
     const html = renderTelegramHtml(sourceChunk);
     if (html.length > 0 && html.length <= maxLen) {
-      outbound.push({ text: html, parseMode: "HTML", fallbackText: sourceChunk });
+      outbound.push({
+        text: html,
+        parseMode: "HTML",
+        fallbackText: sourceChunk,
+      });
       continue;
     }
 
@@ -54,7 +67,12 @@ export function renderTelegramOutboundChunks(text: string, maxLen = MAX_TELEGRAM
 
   return outbound.length > 0
     ? outbound
-    : [{ text: normalized.slice(0, maxLen), fallbackText: normalized.slice(0, maxLen) }];
+    : [
+        {
+          text: normalized.slice(0, maxLen),
+          fallbackText: normalized.slice(0, maxLen),
+        },
+      ];
 }
 
 function renderTelegramHtml(text: string): string {
@@ -67,12 +85,14 @@ function renderTelegramHtml(text: string): string {
   for (const line of lines) {
     const trimmed = line.trimStart();
     if (trimmed.startsWith("```")) {
-      if (!inCodeFence) {
+      if (inCodeFence) {
+        out.push(
+          `<pre><code>${escapeHtml(codeFenceLines.join("\n"))}</code></pre>`,
+        );
+        inCodeFence = false;
+      } else {
         inCodeFence = true;
         codeFenceLines.length = 0;
-      } else {
-        out.push(`<pre><code>${escapeHtml(codeFenceLines.join("\n"))}</code></pre>`);
-        inCodeFence = false;
       }
       continue;
     }
@@ -92,7 +112,9 @@ function renderTelegramHtml(text: string): string {
   }
 
   if (inCodeFence) {
-    out.push(`<pre><code>${escapeHtml(codeFenceLines.join("\n"))}</code></pre>`);
+    out.push(
+      `<pre><code>${escapeHtml(codeFenceLines.join("\n"))}</code></pre>`,
+    );
   }
 
   return out.join("\n");
@@ -108,9 +130,12 @@ function formatInlineMarkdown(line: string): string {
     return token;
   });
 
-  escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, label: string, url: string) => {
-    return `<a href="${url}">${label}</a>`;
-  });
+  escaped = escaped.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_match, label: string, url: string) => {
+      return `<a href="${url}">${label}</a>`;
+    },
+  );
 
   escaped = escaped.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
   escaped = escaped.replace(/__([^_\n]+)__/g, "<b>$1</b>");

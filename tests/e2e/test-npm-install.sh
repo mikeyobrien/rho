@@ -48,7 +48,7 @@ check_grep_file() {
 }
 
 RHO_DIR="$HOME/.rho"
-PI_DIR="$HOME/.rho/pi-agent"
+PI_DIR="$HOME/.rho/agent"
 
 # Find where npm installed the package
 NPM_GLOBAL_PREFIX="$(npm config get prefix)"

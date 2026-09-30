@@ -52,8 +52,24 @@ import {
 	readBrain,
 } from "../lib/brain-store.ts";
 import { handleBrainAction } from "../lib/brain-tool.ts";
+import {
+	buildWorkPrompt,
+	daemonIsUp,
+	handleDelegate,
+	handleJobAction,
+	listJobs,
+	markNoticesSent,
+	noticeText,
+	pendingNotices,
+} from "../lib/jobs.ts";
 import { isTransient } from "../lib/transient-blocklist.js";
 import { withFileLock } from "../lib/file-lock.ts";
+import {
+	herdrArgv,
+	herdrSpawn,
+	resolveMultiplexer,
+	runHerdrPane,
+} from "../lib/multiplexer.ts";
 import {
 	type LeaseHandle,
 	isLeaseStale,
@@ -170,6 +186,10 @@ function shellEscape(value: string): string {
 	return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
+function isolatedPiPrefix(): string {
+	return `env -u PI_CODING_AGENT_SESSION_DIR PI_CODING_AGENT_DIR=${shellEscape(path.join(HOME, ".rho", "agent"))}`;
+}
+
 function extractJsonObject(text: string): string | null {
 	const trimmed = text.trim();
 	if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
@@ -202,10 +222,7 @@ function setRhoHeader(ctx: ExtensionContext): void {
 			const maxRight = Math.max(0, width - visibleWidth(left) - 1);
 			const rightPlain = formatPathForHeader(ctx.cwd, maxRight);
 			const right = theme.fg("muted", rightPlain);
-			const spaces = Math.max(
-				1,
-				width - visibleWidth(left) - visibleWidth(right),
-			);
+			const spaces = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
 			return [truncateToWidth(left + " ".repeat(spaces) + right, width)];
 		},
 	}));
@@ -286,7 +303,10 @@ const MIN_CONTAINMENT_LENGTH = 30;
 
 /** Check if one normalized text is contained in another (with minimum length guard). */
 function containsNormalized(existingNorm: string, newNorm: string): boolean {
-	if (existingNorm.length < MIN_CONTAINMENT_LENGTH || newNorm.length < MIN_CONTAINMENT_LENGTH) {
+	if (
+		existingNorm.length < MIN_CONTAINMENT_LENGTH ||
+		newNorm.length < MIN_CONTAINMENT_LENGTH
+	) {
 		return false;
 	}
 	return existingNorm.includes(newNorm) || newNorm.includes(existingNorm);
@@ -297,11 +317,15 @@ function isSemanticDuplicate(
 	allEntries: BrainEntry[],
 	candidate: BrainEntry,
 ): boolean {
-	const candidateNorm = normalizeNumbers(normalizeMemoryText(candidate.text || "")).toLowerCase();
+	const candidateNorm = normalizeNumbers(
+		normalizeMemoryText(candidate.text || ""),
+	).toLowerCase();
 
 	for (const e of allEntries) {
 		if (e.type === "tombstone") continue;
-		const existingNorm = normalizeNumbers(normalizeMemoryText(e.text || "")).toLowerCase();
+		const existingNorm = normalizeNumbers(
+			normalizeMemoryText(e.text || ""),
+		).toLowerCase();
 
 		// Same-type exact match (existing behavior, preserved)
 		if (candidate.type === e.type && candidateNorm === existingNorm) {
@@ -427,7 +451,12 @@ type AutoMemoryResponse = {
 	preferences?: Array<{ text?: string; category?: string }>;
 };
 
-type AutoMemorySkipReason = "empty" | "duplicate" | "too_long" | "item_limit" | "transient";
+type AutoMemorySkipReason =
+	| "empty"
+	| "duplicate"
+	| "too_long"
+	| "item_limit"
+	| "transient";
 
 type AutoMemoryDecision = {
 	kind: "learning" | "preference";
@@ -746,9 +775,7 @@ async function runAutoMemoryExtraction(
 					messages: [
 						{
 							role: "user" as const,
-							content: [
-								{ type: "text" as const, text: "Return strict JSON only." },
-							],
+							content: [{ type: "text" as const, text: "Return strict JSON only." }],
 							timestamp: Date.now(),
 						},
 					],
@@ -757,15 +784,12 @@ async function runAutoMemoryExtraction(
 			);
 			if (result.stopReason === "error") {
 				const message =
-					result.errorMessage?.trim() ||
-					"provider returned an error stop reason";
+					result.errorMessage?.trim() || "provider returned an error stop reason";
 				candidateErrors.push(
 					`${candidate.model.provider}/${candidate.model.id}: ${message}`,
 				);
 				if (AUTO_MEMORY_DEBUG) {
-					console.error(
-						`Auto-memory error from ${candidate.model.id}: ${message}`,
-					);
+					console.error(`Auto-memory error from ${candidate.model.id}: ${message}`);
 				}
 				continue;
 			}
@@ -777,9 +801,7 @@ async function runAutoMemoryExtraction(
 				`${candidate.model.provider}/${candidate.model.id}: ${message}`,
 			);
 			if (AUTO_MEMORY_DEBUG) {
-				console.error(
-					`Auto-memory failed with ${candidate.model.id}: ${message}`,
-				);
+				console.error(`Auto-memory failed with ${candidate.model.id}: ${message}`);
 			}
 		}
 	}
@@ -1669,16 +1691,7 @@ function heartbeatPaneBusy(sessionName: string): boolean {
 			{ encoding: "utf-8" },
 		).trim();
 		// Shell names that indicate the pane is idle and ready for a command
-		const shells = [
-			"bash",
-			"sh",
-			"zsh",
-			"fish",
-			"dash",
-			"-bash",
-			"-sh",
-			"-zsh",
-		];
+		const shells = ["bash", "sh", "zsh", "fish", "dash", "-bash", "-sh", "-zsh"];
 		return !shells.includes(cmd);
 	} catch {
 		return false;
@@ -1703,7 +1716,51 @@ function ensureTmuxSession(sessionName: string): boolean {
 	}
 }
 
+function requestedSessionHost(): string {
+	const env = (process.env.RHO_SESSION_HOST || "").trim();
+	if (env) return env;
+	try {
+		const text = fs.readFileSync(path.join(RHO_DIR, "init.toml"), "utf-8");
+		return text.match(/^\s*host\s*=\s*"([^"]+)"/m)?.[1] ?? "";
+	} catch {
+		return "";
+	}
+}
+
+function herdrAvailable(): boolean {
+	try {
+		execSync("command -v herdr", { stdio: "ignore" });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
+	const host = resolveMultiplexer({
+		requested: requestedSessionHost(),
+		herdrAvailable: herdrAvailable(),
+	});
+	if (host.host === "herdr") {
+		if (host.error) return false;
+		try {
+			fs.mkdirSync(RESULTS_DIR, { recursive: true });
+			fs.writeFileSync(HEARTBEAT_PROMPT_FILE, prompt, "utf-8");
+		} catch {
+			return false;
+		}
+		const promptArg = `@${HEARTBEAT_PROMPT_FILE}`;
+		const flags = modelFlags ? ` ${modelFlags}` : "";
+		const command = `clear; ${isolatedPiPrefix()} RHO_SUBAGENT=1 pi -p --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
+		return runHerdrPane({
+			label: HEARTBEAT_WINDOW_NAME,
+			command,
+			cwd: path.join(HOME, ".rho", "workspace"),
+			replace: true,
+			run: herdrSpawn(),
+		}).ok;
+	}
+
 	try {
 		execSync("command -v tmux", { stdio: "ignore" });
 	} catch {
@@ -1725,7 +1782,7 @@ function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
 	const flags = modelFlags ? ` ${modelFlags}` : "";
 	// -p: pi exits after the prompt completes (no lingering interactive session).
 	// remain-on-exit (set below) keeps the output visible in tmux until the next heartbeat.
-	const command = `clear; PI_CODING_AGENT_DIR=${shellEscape(path.join(HOME, ".rho", "pi-agent"))} PI_CODING_AGENT_SESSION_DIR=${shellEscape(path.join(HOME, ".rho", "sessions"))} RHO_SUBAGENT=1 pi --session-dir ${shellEscape(path.join(HOME, ".rho", "sessions"))} -p --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
+	const command = `clear; ${isolatedPiPrefix()} RHO_SUBAGENT=1 pi -p --no-session${flags} ${shellEscape(promptArg)}; rm -f ${shellEscape(HEARTBEAT_PROMPT_FILE)}`;
 
 	try {
 		if (!heartbeatWindowExists(sessionName)) {
@@ -1737,10 +1794,7 @@ function runHeartbeatInTmux(prompt: string, modelFlags?: string): boolean {
 			execSync(`tmux set-option -t ${shellEscape(target)} remain-on-exit on`, {
 				stdio: "ignore",
 			});
-		} else if (
-			heartbeatPaneDead(sessionName) ||
-			heartbeatPaneBusy(sessionName)
-		) {
+		} else if (heartbeatPaneDead(sessionName) || heartbeatPaneBusy(sessionName)) {
 			// Previous heartbeat finished (dead pane) or still running — respawn a fresh shell
 			execSync(`tmux respawn-pane -k -t ${shellEscape(target)}`, {
 				stdio: "ignore",
@@ -2095,10 +2149,8 @@ export default function (pi: ExtensionAPI) {
 					);
 					if (range.newMessageCount > 0) {
 						const currentModel = task.modelRef
-							? (ctx.modelRegistry.find(
-									task.modelRef.provider,
-									task.modelRef.id,
-								) ?? ctx.model)
+							? (ctx.modelRegistry.find(task.modelRef.provider, task.modelRef.id) ??
+								ctx.model)
 							: ctx.model;
 						const result = await runAutoMemoryExtraction(task.messages, ctx, {
 							source: task.source,
@@ -2209,16 +2261,13 @@ export default function (pi: ExtensionAPI) {
 		scheduleAutoMemoryDrain(ctx);
 	}
 
-	function buildAgenticBootstrapPrompt(
-		brain: MaterializedBrain,
-	): string | null {
+	function buildAgenticBootstrapPrompt(brain: MaterializedBrain): string | null {
 		const modeRaw = brain.meta.get("bootstrap.mode")?.value;
 		const phaseRaw = brain.meta.get("bootstrap.phase")?.value;
 		const injectRaw = brain.meta.get("bootstrap.inject")?.value;
 		const completedRaw = brain.meta.get("bootstrap.completed")?.value;
 
-		const mode =
-			typeof modeRaw === "string" ? modeRaw.trim().toLowerCase() : "";
+		const mode = typeof modeRaw === "string" ? modeRaw.trim().toLowerCase() : "";
 		const phase =
 			typeof phaseRaw === "string" && phaseRaw.trim()
 				? phaseRaw.trim()
@@ -2236,8 +2285,7 @@ export default function (pi: ExtensionAPI) {
 			(k) => !brain.user.has(k),
 		);
 
-		let phaseGoal =
-			"Discuss user values, boundaries, and operating preferences.";
+		let phaseGoal = "Discuss user values, boundaries, and operating preferences.";
 		if (phase === "identity_discovery") {
 			phaseGoal =
 				'Start naturally: "I’m online with a fresh context. Help me set my starter identity: name, vibe, and how you want me to work with you." and co-discover a starter identity + user profile.';
@@ -2305,6 +2353,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	let hbTimer: NodeJS.Timeout | null = null;
+	let jobNoticeTimer: NodeJS.Timeout | null = null;
 	let hbStatusTimer: NodeJS.Timeout | null = null;
 	let hbCachedModel: ResolvedModel | null = null;
 
@@ -2416,9 +2465,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const buildStatusSnapshot = async (
-		ctx: ExtensionContext,
-	): Promise<string> => {
+	const buildStatusSnapshot = async (ctx: ExtensionContext): Promise<string> => {
 		const cu = ctx.getContextUsage();
 		const contextTokens = typeof cu?.tokens === "number" ? cu.tokens : null;
 		const contextWindow =
@@ -2428,9 +2475,7 @@ export default function (pi: ExtensionAPI) {
 		const { entries } = readBrain(BRAIN_PATH);
 		const brain = foldBrain(entries);
 		const memoryCount = getMemoryCount();
-		const pendingTasks = brain.tasks.filter(
-			(t) => t.status === "pending",
-		).length;
+		const pendingTasks = brain.tasks.filter((t) => t.status === "pending").length;
 		const activeReminders = brain.reminders.filter((r) => r.enabled).length;
 
 		const vaultStatus = getVaultStatus(VAULT_DIR, vaultGraph);
@@ -2547,19 +2592,14 @@ export default function (pi: ExtensionAPI) {
 					const mem = formatMemoryCount();
 					const vlt = formatVaultCount();
 					const rhoRole = formatRhoRole();
-					const rightPlain = [usage, mem, vlt, rhoRole]
-						.filter(Boolean)
-						.join("  ");
+					const rightPlain = [usage, mem, vlt, rhoRole].filter(Boolean).join("  ");
 					const right = theme.fg("dim", rightPlain);
 
 					const spaces = Math.max(
 						1,
 						width - visibleWidth(left) - visibleWidth(right),
 					);
-					const line2 = truncateToWidth(
-						left + " ".repeat(spaces) + right,
-						width,
-					);
+					const line2 = truncateToWidth(left + " ".repeat(spaces) + right, width);
 
 					return [line1, line2];
 				},
@@ -2647,8 +2687,7 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				// Pull settings changes written by other processes.
-				const before =
-					hbLastSettingsFingerprint ?? heartbeatSettingsFingerprint();
+				const before = hbLastSettingsFingerprint ?? heartbeatSettingsFingerprint();
 				// Fast-path: if someone touched settings trigger, reload immediately.
 				const st = consumeHeartbeatSettingsReload(hbSettingsTriggerSeenMtimeMs);
 				hbSettingsTriggerSeenMtimeMs = st.nextSeen;
@@ -2782,8 +2821,7 @@ export default function (pi: ExtensionAPI) {
 			if (typeof parsed.intervalMs !== "number") return null;
 			if (
 				!(
-					parsed.heartbeatModel === null ||
-					typeof parsed.heartbeatModel === "string"
+					parsed.heartbeatModel === null || typeof parsed.heartbeatModel === "string"
 				)
 			)
 				return null;
@@ -2914,9 +2952,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const available = ctx.modelRegistry.getAvailable();
 			if (!available.length) return null;
-			const sorted = [...available].sort(
-				(a, b) => a.cost.output - b.cost.output,
-			);
+			const sorted = [...available].sort((a, b) => a.cost.output - b.cost.output);
 			for (const candidate of sorted) {
 				const apiKey = await ctx.modelRegistry.getApiKey(candidate);
 				if (apiKey) {
@@ -3110,17 +3146,12 @@ Instructions:
 
 		buildModelFlags(ctx)
 			.then((modelFlags) => {
-				const sentToTmux = runHeartbeatInTmux(
-					fullPrompt,
-					modelFlags || undefined,
-				);
-				if (!sentToTmux)
-					pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
+				const sentToTmux = runHeartbeatInTmux(fullPrompt, modelFlags || undefined);
+				if (!sentToTmux) pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
 			})
 			.catch(() => {
 				const sentToTmux = runHeartbeatInTmux(fullPrompt);
-				if (!sentToTmux)
-					pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
+				if (!sentToTmux) pi.sendUserMessage(fullPrompt, { deliverAs: "followUp" });
 			});
 
 		scheduleNext(ctx);
@@ -3130,6 +3161,7 @@ Instructions:
 
 	pi.on("session_start", async (_event, ctx) => {
 		currentCwd = ctx.cwd;
+		pi.setTitle(`rho - ${path.basename(ctx.cwd)}`);
 
 		if (!IS_SUBAGENT) {
 			setRhoHeader(ctx);
@@ -3206,6 +3238,17 @@ Instructions:
 
 		// Heartbeat: restore state, acquire leadership, and schedule
 		if (!IS_SUBAGENT) {
+			const surfaceJobNotices = () => {
+				if (!ctx.hasUI) return;
+				const pending = pendingNotices(listJobs(RHO_DIR));
+				if (pending.length === 0) return;
+				for (const job of pending) ctx.ui.notify(noticeText(job), job.status === "failed" ? "error" : "info");
+				void markNoticesSent(RHO_DIR, pending.map((job) => job.id));
+			};
+			surfaceJobNotices();
+			if (jobNoticeTimer) clearInterval(jobNoticeTimer);
+			jobNoticeTimer = setInterval(surfaceJobNotices, 5000);
+			jobNoticeTimer.unref?.();
 			startHeartbeatLeadership(ctx);
 			loadHbState();
 			reconstructHbState(ctx);
@@ -3231,10 +3274,12 @@ Instructions:
 			isSubagent: IS_SUBAGENT,
 		});
 
+		const workPrompt = IS_SUBAGENT ? null : buildWorkPrompt(listJobs(RHO_DIR));
 		const sections = [
 			metaPrompt,
 			cachedBootstrapPrompt,
 			cachedBrainPrompt,
+			workPrompt,
 		].filter(Boolean);
 		if (sections.length > 0) {
 			return {
@@ -3349,6 +3394,10 @@ Instructions:
 			}
 			setAutoMemoryUiStatus(ctx);
 
+			if (jobNoticeTimer) {
+				clearInterval(jobNoticeTimer);
+				jobNoticeTimer = null;
+			}
 			if (hbTimer) {
 				clearTimeout(hbTimer);
 				hbTimer = null;
@@ -3516,14 +3565,12 @@ Instructions:
 			),
 			content: Type.Optional(
 				Type.String({
-					description:
-						"Note content (full markdown for write, text for capture)",
+					description: "Note content (full markdown for write, text for capture)",
 				}),
 			),
 			type: Type.Optional(
 				Type.String({
-					description:
-						"Note type: concept, project, pattern, reference, log, moc",
+					description: "Note type: concept, project, pattern, reference, log, moc",
 				}),
 			),
 			source: Type.Optional(
@@ -3565,9 +3612,7 @@ Instructions:
 				case "capture": {
 					if (!params.content)
 						return {
-							content: [
-								{ type: "text", text: "Error: content required for capture" },
-							],
+							content: [{ type: "text", text: "Error: content required for capture" }],
 							details: { error: true },
 						};
 					const entry = captureToInbox(
@@ -3585,17 +3630,13 @@ Instructions:
 				case "read": {
 					if (!params.slug)
 						return {
-							content: [
-								{ type: "text", text: "Error: slug required for read" },
-							],
+							content: [{ type: "text", text: "Error: slug required for read" }],
 							details: { error: true },
 						};
 					const result = readNote(VAULT_DIR, params.slug, vaultGraph);
 					if (!result)
 						return {
-							content: [
-								{ type: "text", text: `Note not found: ${params.slug}` },
-							],
+							content: [{ type: "text", text: `Note not found: ${params.slug}` }],
 							details: { error: true, slug: params.slug },
 						};
 					let text = result.content;
@@ -3615,25 +3656,16 @@ Instructions:
 				case "write": {
 					if (!params.slug)
 						return {
-							content: [
-								{ type: "text", text: "Error: slug required for write" },
-							],
+							content: [{ type: "text", text: "Error: slug required for write" }],
 							details: { error: true },
 						};
 					if (!params.content)
 						return {
-							content: [
-								{ type: "text", text: "Error: content required for write" },
-							],
+							content: [{ type: "text", text: "Error: content required for write" }],
 							details: { error: true },
 						};
 					const noteType = params.type || "concept";
-					const result = writeNote(
-						VAULT_DIR,
-						params.slug,
-						params.content,
-						noteType,
-					);
+					const result = writeNote(VAULT_DIR, params.slug, params.content, noteType);
 					if (!result.valid)
 						return {
 							content: [{ type: "text", text: `Rejected: ${result.reason}` }],
@@ -3717,9 +3749,7 @@ Instructions:
 				case "search": {
 					if (!params.query) {
 						return {
-							content: [
-								{ type: "text", text: "Error: query required for search" },
-							],
+							content: [{ type: "text", text: "Error: query required for search" }],
 							details: { error: true },
 						};
 					}
@@ -3766,9 +3796,7 @@ Instructions:
 
 					const header = `${res.results.length} result(s) for "${params.query}" (${res.mode}, ${res.indexed} notes)`;
 					return {
-						content: [
-							{ type: "text", text: `${header}\n\n${lines.join("\n\n")}` },
-						],
+						content: [{ type: "text", text: `${header}\n\n${lines.join("\n\n")}` }],
 						details: {
 							action: "search",
 							query: params.query,
@@ -3823,8 +3851,7 @@ Instructions:
 				switch (params.action) {
 					case "enable":
 						hbState.enabled = true;
-						if (hbState.intervalMs === 0)
-							hbState.intervalMs = DEFAULT_INTERVAL_MS;
+						if (hbState.intervalMs === 0) hbState.intervalMs = DEFAULT_INTERVAL_MS;
 						writeHbSettingsFile({
 							enabled: hbState.enabled,
 							intervalMs: hbState.intervalMs,
@@ -3955,9 +3982,7 @@ Instructions:
 						requestHeartbeatSettingsReload(Date.now());
 						scheduleNext(ctx);
 						const status =
-							intervalMs === 0
-								? "disabled"
-								: `set to ${formatInterval(intervalMs)}`;
+							intervalMs === 0 ? "disabled" : `set to ${formatInterval(intervalMs)}`;
 						return {
 							content: [{ type: "text", text: `Rho interval ${status}` }],
 							details: {
@@ -4020,11 +4045,7 @@ Instructions:
 						} else {
 							text += "- Last check-in: never\n";
 						}
-						if (
-							hbState.nextCheckAt &&
-							hbState.enabled &&
-							hbState.intervalMs > 0
-						) {
+						if (hbState.nextCheckAt && hbState.enabled && hbState.intervalMs > 0) {
 							text += `- Next check-in: in ${Math.ceil((hbState.nextCheckAt - Date.now()) / (60 * 1000))}m\n`;
 						}
 						text += `- Brain: ${activeReminders} active reminders, ${pendingTaskCount} pending tasks`;
@@ -4137,8 +4158,7 @@ Instructions:
 
 			renderCall(args, theme) {
 				let text =
-					theme.fg("toolTitle", theme.bold("rho ")) +
-					theme.fg("muted", args.action);
+					theme.fg("toolTitle", theme.bold("rho ")) + theme.fg("muted", args.action);
 				if (args.interval) text += ` ${theme.fg("accent", args.interval)}`;
 				if (args.model) text += ` ${theme.fg("accent", args.model)}`;
 				return new Text(text, 0, 0);
@@ -4165,9 +4185,7 @@ Instructions:
 					? theme.fg("success", "on")
 					: theme.fg("dim", "off");
 				return new Text(
-					theme.fg("success", "✓ ") +
-						theme.fg("muted", `${details.action} `) +
-						st,
+					theme.fg("success", "✓ ") + theme.fg("muted", `${details.action} `) + st,
 					0,
 					0,
 				);
@@ -4177,14 +4195,66 @@ Instructions:
 		// ── Tool: rho_subagent ─────────────────────────────────────────────────────
 
 		pi.registerTool({
+			name: "delegate",
+			label: "Delegate",
+			description:
+				"Queue a multi-step job for the rho daemon. Returns immediately. Do not do the job in this turn and do not poll. Use rho_subagent only when the user wants a visible pane.",
+			parameters: Type.Object({
+				title: Type.String({ description: "Short job label" }),
+				prompt: Type.String({ description: "What the runner should do" }),
+				cwd: Type.Optional(
+					Type.String({ description: "Working directory for the runner" }),
+				),
+			}),
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+				const result = await handleDelegate(RHO_DIR, params, {
+					daemonUp: daemonIsUp(HOME),
+					cwd: ctx.cwd,
+				});
+				return {
+					content: [{ type: "text", text: result.text }],
+					details: { error: result.error },
+				};
+			},
+		});
+
+		pi.registerTool({
+			name: "job",
+			label: "Job",
+			description:
+				"Inspect or control daemon jobs. Actions: list, show, reply, cancel. reply is only for a job waiting on the user. A normal chat message is not a reply.",
+			parameters: Type.Object({
+				action: StringEnum(["list", "show", "reply", "cancel"] as const),
+				id: Type.Optional(Type.String({ description: "Job id" })),
+				answer: Type.Optional(
+					Type.String({ description: "Answer for action=reply" }),
+				),
+			}),
+			async execute(_toolCallId, params) {
+				const result = await handleJobAction(RHO_DIR, params);
+				if (result.killPid) {
+					try {
+						process.kill(result.killPid, "SIGTERM");
+					} catch {
+						/* runner already exited */
+					}
+				}
+				return {
+					content: [{ type: "text", text: result.text }],
+					details: { error: result.error },
+				};
+			},
+		});
+
+		pi.registerTool({
 			name: "rho_subagent",
 			label: "Subagent",
-			description: `Run a pi subagent in a new tmux window (session '${DEFAULT_SESSION_NAME}' by default). Default mode is interactive; print mode writes results to ~/.rho/results.`,
+			description: `Run a pi subagent in the active Rho session. Herdr is used exclusively when it is the session host. Default mode is interactive; print mode writes results to ~/.rho/results.`,
 			parameters: Type.Object({
 				prompt: Type.String({ description: "Prompt to run in the subagent" }),
 				session: Type.Optional(
 					Type.String({
-						description: `tmux session name (default: ${DEFAULT_SESSION_NAME})`,
+						description: `tmux session name when tmux is the session host (default: ${DEFAULT_SESSION_NAME})`,
 					}),
 				),
 				window: Type.Optional(
@@ -4209,18 +4279,29 @@ Instructions:
 						details: { error: true },
 					};
 
-				try {
-					execSync("command -v tmux", { stdio: "ignore" });
-				} catch {
+				const host = resolveMultiplexer({
+					requested: requestedSessionHost(),
+					herdrAvailable: herdrAvailable(),
+				});
+				if (host.error) {
 					return {
-						content: [{ type: "text", text: "Error: tmux not installed" }],
+						content: [{ type: "text", text: `Error: ${host.error}` }],
 						details: { error: true },
 					};
 				}
+				if (host.host !== "herdr") {
+					try {
+						execSync("command -v tmux", { stdio: "ignore" });
+					} catch {
+						return {
+							content: [{ type: "text", text: "Error: tmux not installed" }],
+							details: { error: true },
+						};
+					}
+				}
 
 				const sessionName =
-					(params.session || DEFAULT_SESSION_NAME).trim() ||
-					DEFAULT_SESSION_NAME;
+					(params.session || DEFAULT_SESSION_NAME).trim() || DEFAULT_SESSION_NAME;
 				const mode = (params.mode || "interactive").trim().toLowerCase();
 				if (mode !== "interactive" && mode !== "print") {
 					return {
@@ -4234,29 +4315,28 @@ Instructions:
 					};
 				}
 
-				try {
-					execSync(
-						`tmux -L ${shellEscape(sessionName)} has-session -t ${shellEscape(sessionName)}`,
-						{ stdio: "ignore" },
-					);
-				} catch {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Error: tmux session '${sessionName}' not found`,
-							},
-						],
-						details: { error: true },
-					};
+				if (host.host !== "herdr") {
+					try {
+						execSync(
+							`tmux -L ${shellEscape(sessionName)} has-session -t ${shellEscape(sessionName)}`,
+							{ stdio: "ignore" },
+						);
+					} catch {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Error: tmux session '${sessionName}' not found`,
+								},
+							],
+							details: { error: true },
+						};
+					}
 				}
 
 				fs.mkdirSync(RESULTS_DIR, { recursive: true });
 
-				const windowSeed = new Date()
-					.toISOString()
-					.slice(11, 16)
-					.replace(":", "");
+				const windowSeed = new Date().toISOString().slice(11, 16).replace(":", "");
 				const windowName = sanitizeWindowName(
 					params.window?.trim() || `subagent-${windowSeed}`,
 				);
@@ -4273,12 +4353,43 @@ Instructions:
 					modelFlags = ` --provider ${shellEscape(ctx.model.provider)} --model ${shellEscape(ctx.model.id)}`;
 
 				const shellPath = process.env.SHELL || "bash";
-				const isolatedEnv = `PI_CODING_AGENT_DIR=${shellEscape(path.join(HOME, ".rho", "pi-agent"))} PI_CODING_AGENT_SESSION_DIR=${shellEscape(path.join(HOME, ".rho", "sessions"))}`;
 				const script =
 					mode === "print"
-						? `${isolatedEnv} RHO_SUBAGENT=1 pi --session-dir ${shellEscape(path.join(HOME, ".rho", "sessions"))} -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
-						: `${isolatedEnv} RHO_SUBAGENT=1 pi --session-dir ${shellEscape(path.join(HOME, ".rho", "sessions"))} --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
+						? `${isolatedPiPrefix()} RHO_SUBAGENT=1 pi -p --no-session${modelFlags} ${shellEscape(prompt)} 2>&1 | tee ${shellEscape(outputFile)}; exec ${shellEscape(shellPath)}`
+						: `${isolatedPiPrefix()} RHO_SUBAGENT=1 pi --no-session${modelFlags} ${shellEscape(prompt)}; exec ${shellEscape(shellPath)}`;
 				const innerCommand = `bash -lc ${shellEscape(script)}`;
+				if (host.host === "herdr") {
+					const launched = runHerdrPane({
+						label: windowName,
+						command: innerCommand,
+						cwd: ctx.cwd,
+						run: herdrSpawn(),
+					});
+					if (!launched.ok) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Error: ${launched.error ?? "failed to create Herdr pane"}`,
+								},
+							],
+							details: { error: true },
+						};
+					}
+					const message =
+						mode === "print"
+							? `Started subagent in ${launched.target} (output: ${outputFile})`
+							: `Started subagent in ${launched.target} (interactive mode)`;
+					return {
+						content: [{ type: "text", text: message }],
+						details: {
+							session: "rho",
+							window: launched.target,
+							outputFile: mode === "print" ? outputFile : undefined,
+							mode,
+						},
+					};
+				}
 				const tmuxCommand = `tmux -L ${shellEscape(sessionName)} new-window -d -P -F "#{session_name}:#{window_index}" -t ${shellEscape(sessionName)} -n ${shellEscape(windowName)} ${shellEscape(innerCommand)}`;
 
 				let windowId = "";
@@ -4291,9 +4402,7 @@ Instructions:
 						);
 				} catch {
 					return {
-						content: [
-							{ type: "text", text: "Error: failed to create tmux window" },
-						],
+						content: [{ type: "text", text: "Error: failed to create tmux window" }],
 						details: { error: true },
 					};
 				}
@@ -4347,8 +4456,7 @@ Instructions:
 				}
 
 				// Search across all text fields in all entry types
-				const allSearchable: Array<{ type: string; id: string; text: string }> =
-					[];
+				const allSearchable: Array<{ type: string; id: string; text: string }> = [];
 				for (const b of brain.behaviors)
 					allSearchable.push({ type: "behavior", id: b.id, text: b.text });
 				for (const l of brain.learnings)
@@ -4385,8 +4493,7 @@ Instructions:
 					const lines = matches
 						.slice(0, 10)
 						.map((m) => `[${m.type}:${m.id}] ${m.text}`);
-					const more =
-						matches.length > 10 ? `\n(+${matches.length - 10} more)` : "";
+					const more = matches.length > 10 ? `\n(+${matches.length - 10} more)` : "";
 					ctx.ui.notify(
 						`Found ${matches.length} matches:\n${lines.join("\n")}${more}`,
 						"info",
@@ -4439,8 +4546,7 @@ Instructions:
 						savedItems.length > 2 ? ` +${savedItems.length - 2} more` : "";
 					const created =
 						typeof run.created === "string" ? run.created : "unknown-time";
-					const sourceLabel =
-						typeof run.source === "string" ? run.source : "auto";
+					const sourceLabel = typeof run.source === "string" ? run.source : "auto";
 					const base = `- [${created}] ${sourceLabel}: +${savedTotal} saved, ${skippedTotal} skipped`;
 					return preview ? `${base} :: ${preview}${more}` : base;
 				});
@@ -4520,8 +4626,31 @@ Instructions:
 
 	if (!IS_SUBAGENT) {
 		pi.registerCommand("subagents", {
-			description: "List active subagent tmux windows",
+			description: "List active subagent panes",
 			handler: async (_args, ctx) => {
+				const host = resolveMultiplexer({
+					requested: requestedSessionHost(),
+					herdrAvailable: herdrAvailable(),
+				});
+				if (host.host === "herdr") {
+					const listed = herdrSpawn()(herdrArgv(["tab", "list"]));
+					let tabs: Array<{ label?: string }> = [];
+					try {
+						tabs = JSON.parse(listed.stdout)?.result?.tabs ?? [];
+					} catch {
+						tabs = [];
+					}
+					const names = tabs
+						.map((tab) => tab.label ?? "")
+						.filter((label) => label === "heartbeat" || label.startsWith("subagent"));
+					ctx.ui.notify(
+						names.length
+							? `Subagents (${names.length}):\n${names.join("\n")}`
+							: "No active subagent panes.",
+						"info",
+					);
+					return;
+				}
 				try {
 					const sessionName = DEFAULT_SESSION_NAME;
 					// List windows in the agent session, using the dedicated socket
@@ -4535,9 +4664,7 @@ Instructions:
 							const [idx, name, dead] = line.split(":");
 							return { idx, name, dead: dead === "1" };
 						})
-						.filter(
-							(w) => w.name.startsWith("subagent") || w.name === "heartbeat",
-						);
+						.filter((w) => w.name.startsWith("subagent") || w.name === "heartbeat");
 
 					if (subagents.length === 0) {
 						ctx.ui.notify("No active subagent windows.", "info");
@@ -4627,8 +4754,7 @@ Instructions:
 					}
 					case "enable":
 						hbState.enabled = true;
-						if (hbState.intervalMs === 0)
-							hbState.intervalMs = DEFAULT_INTERVAL_MS;
+						if (hbState.intervalMs === 0) hbState.intervalMs = DEFAULT_INTERVAL_MS;
 						writeHbSettingsFile({
 							enabled: hbState.enabled,
 							intervalMs: hbState.intervalMs,
@@ -4715,8 +4841,7 @@ Instructions:
 						if (!mode || mode === "status") {
 							const settings = getAutoMemorySettingsSnapshot();
 							let text = `Auto-memory: ${current.enabled ? "on" : "off"} (${current.source}, mode=${settings.autoMemoryMode}, debounce=${settings.autoMemoryDebounceMs}ms)`;
-							if (cfgVal !== undefined)
-								text += `, init=${cfgVal ? "on" : "off"}`;
+							if (cfgVal !== undefined) text += `, init=${cfgVal ? "on" : "off"}`;
 							const envRaw = (process.env.RHO_AUTO_MEMORY || "").trim();
 							if (envRaw) text += `, env=${envRaw}`;
 							ctx.ui.notify(text, "info");

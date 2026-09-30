@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+	encodeSessionBucket,
+	resolveRhoPaths,
+} from "../cli/rho-paths.ts";
+import {
 	readCodexUsageSummaryFromAuth,
 	readKiroUsageSummaryFromAuth,
 } from "../extensions/lib/provider-usage.ts";
@@ -201,7 +205,10 @@ app.post("/api/sessions/new", async (c) => {
 		const timestamp = new Date().toISOString();
 		const safeTimestamp = timestamp.replace(/[:.]/g, "-");
 		const cwd = process.env.HOME ?? process.cwd();
-		const sessionDir = path.join(process.env.HOME ?? "", ".rho", "sessions");
+		const sessionDir = path.join(
+			resolveRhoPaths().sessionDir,
+			encodeSessionBucket(cwd),
+		);
 		await mkdir(sessionDir, { recursive: true });
 		const sessionFile = path.join(
 			sessionDir,

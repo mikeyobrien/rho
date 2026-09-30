@@ -63,7 +63,9 @@ function sameJson(left: unknown, right: unknown): boolean {
 	return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function readJson(filePath: string): { ok: true; value: unknown } | { ok: false; error: string } {
+function readJson(
+	filePath: string,
+): { ok: true; value: unknown } | { ok: false; error: string } {
 	try {
 		return { ok: true, value: JSON.parse(fs.readFileSync(filePath, "utf8")) };
 	} catch (error) {
@@ -103,7 +105,12 @@ function copyAtomic(source: string, destination: string): void {
 	fs.renameSync(tmp, destination);
 }
 
-function backupFile(source: string, backupRoot: string, rel: string, hooks?: MigrateHooks): void {
+function backupFile(
+	source: string,
+	backupRoot: string,
+	rel: string,
+	hooks?: MigrateHooks,
+): void {
 	hooks?.onBackupFile?.(rel);
 	copyAtomic(source, path.join(backupRoot, rel));
 }
@@ -113,7 +120,11 @@ function rhoEntries(settings: unknown): unknown[] {
 	return settings.packages.filter(isRhoPackage);
 }
 
-function collisionFor(rel: string, source: string, destination: string): string | null {
+function collisionFor(
+	rel: string,
+	source: string,
+	destination: string,
+): string | null {
 	if (!fs.existsSync(destination)) return null;
 	if (sameBytes(source, destination)) return null;
 	return `${rel} exists and differs; left unchanged`;
@@ -130,7 +141,10 @@ export function previewMigration(
 	let rhoPackageDetected = false;
 	let rhoPackageSource: string | null = null;
 
-	if (fs.existsSync(paths.ordinaryPiAgentDir) && fs.existsSync(path.join(paths.ordinaryPiAgentDir, "settings.json"))) {
+	if (
+		fs.existsSync(paths.ordinaryPiAgentDir) &&
+		fs.existsSync(path.join(paths.ordinaryPiAgentDir, "settings.json"))
+	) {
 		const parsed = readJson(path.join(paths.ordinaryPiAgentDir, "settings.json"));
 		if (parsed.ok) {
 			const entries = rhoEntries(parsed.value);
@@ -155,20 +169,29 @@ export function previewMigration(
 
 	const stateSource = path.join(paths.ordinaryPiAgentDir, "rho-state.json");
 	if (fs.existsSync(stateSource)) {
-		const collision = collisionFor("rho-state.json", stateSource, path.join(paths.rhoDir, "rho-state.json"));
+		const collision = collisionFor(
+			"rho-state.json",
+			stateSource,
+			path.join(paths.rhoDir, "rho-state.json"),
+		);
 		if (collision) collisions.push(collision);
 		else if (!fs.existsSync(path.join(paths.rhoDir, "rho-state.json"))) {
 			actions.push("copy rho-state.json");
 		}
 	}
 
-	if (copyAuth && fs.existsSync(path.join(paths.ordinaryPiAgentDir, "auth.json"))) {
+	if (
+		copyAuth &&
+		fs.existsSync(path.join(paths.ordinaryPiAgentDir, "auth.json"))
+	) {
 		actions.push("copy auth.json because --copy-auth was set");
 	} else if (fs.existsSync(path.join(paths.ordinaryPiAgentDir, "auth.json"))) {
 		actions.push("leave auth.json in ordinary Pi");
 	}
 	if (removePackage && rhoPackageDetected) {
-		actions.push("remove Rho package entry from ordinary Pi because --remove-package was set");
+		actions.push(
+			"remove Rho package entry from ordinary Pi because --remove-package was set",
+		);
 	}
 
 	return {
@@ -191,8 +214,13 @@ export function previewMigration(
 	};
 }
 
-function mergePackageEntry(destination: SettingsFile, entry: unknown): "copied" | "present" | "collision" {
-	const packages = Array.isArray(destination.packages) ? destination.packages : [];
+function mergePackageEntry(
+	destination: SettingsFile,
+	entry: unknown,
+): "copied" | "present" | "collision" {
+	const packages = Array.isArray(destination.packages)
+		? destination.packages
+		: [];
 	const existing = packages.find(isRhoPackage);
 	if (existing && sameJson(existing, entry)) return "present";
 	if (existing) return "collision";
@@ -224,16 +252,22 @@ export function applyMigration(
 			const entries = rhoEntries(parsed.value);
 			if (entries.length > 0) {
 				const destExists = fs.existsSync(paths.settingsPath);
-				const current = destExists ? readJson(paths.settingsPath) : { ok: true as const, value: {} };
+				const current = destExists
+					? readJson(paths.settingsPath)
+					: { ok: true as const, value: {} };
 				if (!current.ok) {
-					collisions.push(`isolated settings.json is not valid JSON: ${current.error}`);
+					collisions.push(
+						`isolated settings.json is not valid JSON: ${current.error}`,
+					);
 				} else if (isRecord(current.value)) {
 					const next = { ...current.value } as SettingsFile;
 					let changed = false;
 					for (const entry of entries) {
 						const result = mergePackageEntry(next, entry);
 						if (result === "collision") {
-							collisions.push("isolated settings.json already has a different Rho package entry; left unchanged");
+							collisions.push(
+								"isolated settings.json already has a different Rho package entry; left unchanged",
+							);
 							changed = false;
 							break;
 						}
@@ -241,7 +275,11 @@ export function applyMigration(
 					}
 					if (changed) {
 						atomicWrite(paths.settingsPath, `${JSON.stringify(next, null, 2)}\n`);
-						actions.push(destExists ? "merged Rho package entry" : "created isolated settings.json");
+						actions.push(
+							destExists
+								? "merged Rho package entry"
+								: "created isolated settings.json",
+						);
 					} else if (!collisions.some((item) => item.includes("settings.json"))) {
 						actions.push("Rho package entry already present");
 					}
@@ -289,7 +327,11 @@ export function applyMigration(
 
 	if (options.removePackage === true && fs.existsSync(settingsSource)) {
 		const parsed = readJson(settingsSource);
-		if (parsed.ok && isRecord(parsed.value) && Array.isArray(parsed.value.packages)) {
+		if (
+			parsed.ok &&
+			isRecord(parsed.value) &&
+			Array.isArray(parsed.value.packages)
+		) {
 			const kept = parsed.value.packages.filter((entry) => !isRhoPackage(entry));
 			if (kept.length !== parsed.value.packages.length) {
 				hooks?.onCopyFile?.("remove-package");

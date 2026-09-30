@@ -9,6 +9,7 @@ import {
 	type RhoPaths,
 	classifyInstall,
 	legacyBlockMessage,
+	relocateLegacyAgentLayout,
 	resolveRhoPaths,
 } from "./rho-paths.ts";
 
@@ -40,6 +41,7 @@ export function refuseLegacy(paths: RhoPaths = resolveRhoPaths()): RhoPaths {
 		console.error(legacyBlockMessage());
 		process.exit(1);
 	}
+	if (loaded.kind === "v2") relocateLegacyAgentLayout(loaded.paths);
 	return loaded.paths;
 }
 

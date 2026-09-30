@@ -27,8 +27,7 @@ export const rhoChatSessionUiMethods = {
 		const messageId = String(message?.id ?? this.streamMessageId ?? "");
 
 		if (role === "assistant") {
-			const turnId =
-				this.streamMessageId || messageId || `stream-${Date.now()}`;
+			const turnId = this.streamMessageId || messageId || `stream-${Date.now()}`;
 			const idx = this.renderedMessages.findIndex(
 				(item) => item.id === turnId || item.id === messageId,
 			);
@@ -224,10 +223,7 @@ export const rhoChatSessionUiMethods = {
 			const resp = await fetch(
 				`/api/sessions?limit=${this.sessionsPageSize}&offset=0`,
 			);
-			const total = Number.parseInt(
-				resp.headers.get("X-Total-Count") ?? "0",
-				10,
-			);
+			const total = Number.parseInt(resp.headers.get("X-Total-Count") ?? "0", 10);
 			const sessions = await resp.json();
 			// Avoid DOM thrashing: only update if sessions actually changed
 			const newSessionIds = new Set(sessions.map((s) => s.id));

@@ -13,8 +13,8 @@
 ## Global Constraints
 
 - Reuse the installed `pi` executable. Do not bundle or fork Pi.
-- Defaults are `~/.rho/pi-agent`, `~/.rho/sessions`, and `~/.rho/workspace`.
-- Set `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` only on Rho's Pi children.
+- Defaults are `~/.rho/agent`, `~/.rho/agent/sessions/<encoded-cwd>`, and `~/.rho/workspace`.
+- Set `PI_CODING_AGENT_DIR` only on Rho's Pi children. Do not set `PI_CODING_AGENT_SESSION_DIR` or pass `--session-dir`.
 - Fresh init/sync must not read or write `~/.pi/agent`.
 - No fallback to `~/.pi/agent` when Pi or an isolated path is unavailable.
 - Legacy installs are not converted unless `rho migrate --apply` is confirmed.

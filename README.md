@@ -40,21 +40,21 @@ Most AI tools are stateless chat tabs. rho is built for ongoing operation.
 
 ## 2-minute quick start (recommended)
 
-Prerequisites: **Node.js 18+**, **tmux**, **git**
+Prerequisites: **Node.js 18+**, **git**, and **herdr** or **tmux**. Rho uses Herdr when `herdr` is on PATH. Set `[settings.heartbeat] host = "tmux"` or `RHO_SESSION_HOST=tmux` to keep the tmux session.
 
 ```bash
 npm install -g @rhobot-dev/rho
 rho init && rho sync
 rho login && rho start
-rho
+rho agent
 ```
 
 That gives you:
 - initialized config in `~/.rho/`
-- Pi agent state in `~/.rho/pi-agent`, sessions in `~/.rho/sessions`, and workspace in `~/.rho/workspace`
+- Pi agent state in `~/.rho/agent`, sessions in `~/.rho/agent/sessions/<encoded-cwd>`, and workspace in `~/.rho/workspace`
 - authenticated provider access via `rho login` (separate from ordinary `pi` login)
 - background heartbeat daemon
-- an attached interactive session
+- an interactive Rho agent (`rho` or `rho agent`; `rho start --foreground` attaches the daemon session)
 
 Rho does not read or write `~/.pi/agent` during a fresh install. An existing Rho install is left unchanged until you preview and apply migration:
 
@@ -234,7 +234,7 @@ rho                      # start and attach
 rho init                 # initialize ~/.rho config
 rho sync                 # sync rho config to pi
 rho doctor               # health + config checks
-rho login                # authenticate providers in ~/.rho/pi-agent
+rho login                # authenticate providers in ~/.rho/agent
 rho migrate              # preview isolation migration (writes nothing)
 rho migrate --apply      # copy Rho settings and sessions, not credentials
 rho start                # start background daemon

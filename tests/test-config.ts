@@ -155,10 +155,7 @@ memory = true
 `;
 	const cfg = parseInitToml(toml);
 	const normalized = normalizePath(cfg.projectsDir ?? "");
-	assert(
-		normalized.endsWith("/projects"),
-		"projects_dir top-level is resolved",
-	);
+	assert(normalized.endsWith("/projects"), "projects_dir top-level is resolved");
 }
 
 console.log("\n-- parseInitToml: agent.projects_dir is ignored --");

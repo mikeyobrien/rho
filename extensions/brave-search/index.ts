@@ -82,7 +82,8 @@ export default function (pi: ExtensionAPI) {
 					content: [
 						{
 							type: "text",
-							text: 'Error: BRAVE_API_KEY not set. Add to ~/.bashrc:\nexport BRAVE_API_KEY="your-key"',
+							text:
+								'Error: BRAVE_API_KEY not set. Add to ~/.bashrc:\nexport BRAVE_API_KEY="your-key"',
 						},
 					],
 					details: { error: true },
@@ -95,17 +96,14 @@ export default function (pi: ExtensionAPI) {
 
 				if (results.length === 0) {
 					return {
-						content: [
-							{ type: "text", text: `No results for: ${params.query}` },
-						],
+						content: [{ type: "text", text: `No results for: ${params.query}` }],
 						details: { query: params.query, count: 0 },
 					};
 				}
 
 				const formatted = results
 					.map(
-						(r, i) =>
-							`${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.description}`,
+						(r, i) => `${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.description}`,
 					)
 					.join("\n\n");
 
@@ -144,9 +142,7 @@ export default function (pi: ExtensionAPI) {
 				} else {
 					ctx.ui.notify(`Found ${results.length} results`, "success");
 					// Set results in editor for easy use
-					const text = results
-						.map((r) => `- [${r.title}](${r.url})`)
-						.join("\n");
+					const text = results.map((r) => `- [${r.title}](${r.url})`).join("\n");
 					ctx.ui.setEditorText(text);
 				}
 			} catch (err) {

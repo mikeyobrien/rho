@@ -26,7 +26,10 @@
  *   email(action="send", to="...", body="...", in_reply_to="...") -- Reply
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -36,8 +39,18 @@ import { execSync } from "node:child_process";
 
 // ─── Config ──────────────────────────────────────────────────────────
 
-const CREDS_PATH = join(process.env.HOME || "", ".config", "rho-cloud", "credentials.json");
-const CONFIG_PATH = join(process.env.HOME || "", ".config", "rho-cloud", "config.json");
+const CREDS_PATH = join(
+  process.env.HOME || "",
+  ".config",
+  "rho-cloud",
+  "credentials.json",
+);
+const CONFIG_PATH = join(
+  process.env.HOME || "",
+  ".config",
+  "rho-cloud",
+  "config.json",
+);
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const API_BASE = "https://api.rhobot.dev/v1";
 
@@ -99,7 +112,10 @@ function isSenderAllowed(sender: string, allowlist: string[]): boolean {
   return false;
 }
 
-function filterAllowedMessages(messages: InboxMessage[], allowlist: string[]): {
+function filterAllowedMessages(
+  messages: InboxMessage[],
+  allowlist: string[],
+): {
   allowed: InboxMessage[];
   blocked: InboxMessage[];
 } {
@@ -118,29 +134,57 @@ function filterAllowedMessages(messages: InboxMessage[], allowlist: string[]): {
 
 // ─── Server-side allowlist sync ──────────────────────────────────────
 
-async function syncAllowlistToServer(creds: Credentials, patterns: string[]): Promise<boolean> {
-  const result = await apiFetch(creds, "PUT", `/agents/${creds.agent_id}/senders`, {
-    allowed_senders: patterns,
-  }) as { ok?: boolean };
+async function syncAllowlistToServer(
+  creds: Credentials,
+  patterns: string[],
+): Promise<boolean> {
+  const result = (await apiFetch(
+    creds,
+    "PUT",
+    `/agents/${creds.agent_id}/senders`,
+    {
+      allowed_senders: patterns,
+    },
+  )) as { ok?: boolean };
   return result?.ok === true;
 }
 
-async function addSenderToServer(creds: Credentials, pattern: string): Promise<boolean> {
-  const result = await apiFetch(creds, "POST", `/agents/${creds.agent_id}/senders`, {
-    pattern,
-  }) as { ok?: boolean };
+async function addSenderToServer(
+  creds: Credentials,
+  pattern: string,
+): Promise<boolean> {
+  const result = (await apiFetch(
+    creds,
+    "POST",
+    `/agents/${creds.agent_id}/senders`,
+    {
+      pattern,
+    },
+  )) as { ok?: boolean };
   return result?.ok === true;
 }
 
-async function removeSenderFromServer(creds: Credentials, pattern: string): Promise<boolean> {
-  const result = await apiFetch(creds, "DELETE", `/agents/${creds.agent_id}/senders`, {
-    pattern,
-  }) as { ok?: boolean };
+async function removeSenderFromServer(
+  creds: Credentials,
+  pattern: string,
+): Promise<boolean> {
+  const result = (await apiFetch(
+    creds,
+    "DELETE",
+    `/agents/${creds.agent_id}/senders`,
+    {
+      pattern,
+    },
+  )) as { ok?: boolean };
   return result?.ok === true;
 }
 
 async function fetchServerAllowlist(creds: Credentials): Promise<string[]> {
-  const result = await apiFetch(creds, "GET", `/agents/${creds.agent_id}/senders`) as {
+  const result = (await apiFetch(
+    creds,
+    "GET",
+    `/agents/${creds.agent_id}/senders`,
+  )) as {
     ok?: boolean;
     data?: { allowed_senders?: string[] };
   };
@@ -201,7 +245,9 @@ async function apiFetch(
   retries = 2,
 ): Promise<unknown> {
   const url = `${API_BASE}${path}`;
-  const headers: Record<string, string> = { Authorization: `Bearer ${creds.api_key}` };
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${creds.api_key}`,
+  };
   if (body) headers["Content-Type"] = "application/json";
 
   let lastError: Error | null = null;
@@ -215,7 +261,9 @@ async function apiFetch(
 
       // Don't retry client errors (4xx), only server errors (5xx) and network issues
       if (res.status >= 400 && res.status < 500) {
-        try { return await res.json(); } catch {
+        try {
+          return await res.json();
+        } catch {
           return { ok: false, error: `HTTP ${res.status}: ${res.statusText}` };
         }
       }
@@ -226,49 +274,85 @@ async function apiFetch(
           await new Promise((r) => setTimeout(r, 1000 * (attempt + 1))); // linear backoff
           continue;
         }
-        try { return await res.json(); } catch {
+        try {
+          return await res.json();
+        } catch {
           return { ok: false, error: lastError.message };
         }
       }
 
-      try { return await res.json(); } catch {
+      try {
+        return await res.json();
+      } catch {
         return { ok: false, error: "Invalid JSON response from API" };
       }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < retries) {
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        continue;
       }
     }
   }
-  return { ok: false, error: `Network error after ${retries + 1} attempts: ${lastError?.message || "unknown"}` };
+  return {
+    ok: false,
+    error: `Network error after ${retries + 1} attempts: ${lastError?.message || "unknown"}`,
+  };
 }
 
 async function apiGet(creds: Credentials, path: string): Promise<unknown> {
   return apiFetch(creds, "GET", path);
 }
 
-async function apiPost(creds: Credentials, path: string, body: Record<string, unknown>): Promise<unknown> {
+async function apiPost(
+  creds: Credentials,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<unknown> {
   return apiFetch(creds, "POST", path, body);
 }
 
-async function apiPatch(creds: Credentials, path: string, body: Record<string, unknown>): Promise<unknown> {
+async function apiPatch(
+  creds: Credentials,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<unknown> {
   return apiFetch(creds, "PATCH", path, body);
 }
 
-async function fetchInbox(creds: Credentials, status = "unread", limit = 20): Promise<InboxResponse> {
-  return apiGet(creds, `/agents/${creds.agent_id}/inbox?status=${status}&limit=${limit}`) as Promise<InboxResponse>;
+async function fetchInbox(
+  creds: Credentials,
+  status = "unread",
+  limit = 20,
+): Promise<InboxResponse> {
+  return apiGet(
+    creds,
+    `/agents/${creds.agent_id}/inbox?status=${status}&limit=${limit}`,
+  ) as Promise<InboxResponse>;
 }
 
-async function fetchMessage(creds: Credentials, msgId: string): Promise<MessageResponse> {
-  return apiGet(creds, `/agents/${creds.agent_id}/inbox/${msgId}`) as Promise<MessageResponse>;
+async function fetchMessage(
+  creds: Credentials,
+  msgId: string,
+): Promise<MessageResponse> {
+  return apiGet(
+    creds,
+    `/agents/${creds.agent_id}/inbox/${msgId}`,
+  ) as Promise<MessageResponse>;
 }
 
-async function markMessage(creds: Credentials, msgId: string, status: string, actionLog?: string): Promise<MessageResponse> {
+async function markMessage(
+  creds: Credentials,
+  msgId: string,
+  status: string,
+  actionLog?: string,
+): Promise<MessageResponse> {
   const body: Record<string, unknown> = { status };
   if (actionLog) body.action_log = actionLog;
-  return apiPatch(creds, `/agents/${creds.agent_id}/inbox/${msgId}`, body) as Promise<MessageResponse>;
+  return apiPatch(
+    creds,
+    `/agents/${creds.agent_id}/inbox/${msgId}`,
+    body,
+  ) as Promise<MessageResponse>;
 }
 
 async function sendOutbound(
@@ -280,7 +364,11 @@ async function sendOutbound(
 ): Promise<SendResponse> {
   const payload: Record<string, unknown> = { recipient, subject, body };
   if (inReplyTo) payload.in_reply_to = inReplyTo;
-  return apiPost(creds, `/agents/${creds.agent_id}/outbox`, payload) as Promise<SendResponse>;
+  return apiPost(
+    creds,
+    `/agents/${creds.agent_id}/outbox`,
+    payload,
+  ) as Promise<SendResponse>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -289,7 +377,7 @@ function notify(title: string, body: string) {
   try {
     execSync(
       `termux-notification --title ${shellEscape(title)} --content ${shellEscape(body)} --id rho-email`,
-      { stdio: "ignore", timeout: 5000 }
+      { stdio: "ignore", timeout: 5000 },
     );
   } catch {
     // not critical
@@ -322,7 +410,10 @@ function formatMessageList(messages: InboxMessage[], total: number): string {
   const lines = [`${total} message(s):\n`];
   for (const msg of messages) {
     const subj = msg.subject || "(no subject)";
-    const preview = (msg.body_text || "").slice(0, 80).replace(/\n/g, " ").trim();
+    const preview = (msg.body_text || "")
+      .slice(0, 80)
+      .replace(/\n/g, " ")
+      .trim();
     lines.push(`  ${msg.id}  ${msg.sender}`);
     lines.push(`    ${subj}${preview ? " -- " + preview : ""}`);
     lines.push(`    ${msg.received_at}  [${msg.status}]`);
@@ -342,7 +433,10 @@ export default function (pi: ExtensionAPI) {
     pi.registerCommand("email", {
       description: "Agent email (not configured)",
       handler: async (_args, ctx) => {
-        ctx.ui.notify("No rho-cloud credentials at ~/.config/rho-cloud/credentials.json", "warning");
+        ctx.ui.notify(
+          "No rho-cloud credentials at ~/.config/rho-cloud/credentials.json",
+          "warning",
+        );
       },
     });
     return;
@@ -354,16 +448,20 @@ export default function (pi: ExtensionAPI) {
   let currentUnread = 0;
   let currentHeld = 0; // messages from unknown senders
   let consecutivePollFailures = 0;
-  let config = loadConfig();
+  const config = loadConfig();
 
   // ── Status bar ──
 
   const updateStatus = (ctx: ExtensionContext) => {
     if (!ctx.hasUI) return;
     const theme = ctx.ui.theme;
-    const heldSuffix = currentHeld > 0 ? theme.fg("dim", ` +${currentHeld} held`) : "";
+    const heldSuffix =
+      currentHeld > 0 ? theme.fg("dim", ` +${currentHeld} held`) : "";
     if (currentUnread > 0 || currentHeld > 0) {
-      ctx.ui.setStatus("email", theme.fg("warning", `✉ ${currentUnread}`) + heldSuffix);
+      ctx.ui.setStatus(
+        "email",
+        theme.fg("warning", `✉ ${currentUnread}`) + heldSuffix,
+      );
     } else {
       ctx.ui.setStatus("email", undefined);
     }
@@ -384,7 +482,10 @@ export default function (pi: ExtensionAPI) {
 
       consecutivePollFailures = 0;
       const allowlist = config.allowed_senders || [];
-      const { allowed, blocked } = filterAllowedMessages(result.data, allowlist);
+      const { allowed, blocked } = filterAllowedMessages(
+        result.data,
+        allowlist,
+      );
 
       const newIds = new Set(result.data.map((m) => m.id));
 
@@ -393,27 +494,28 @@ export default function (pi: ExtensionAPI) {
       const brandNewBlocked = blocked.filter((m) => !lastSeenIds.has(m.id));
 
       if (brandNew.length > 0 && lastSeenIds.size > 0) {
-        const subjects = brandNew.map((m) => m.subject || "(no subject)").join(", ");
+        const subjects = brandNew
+          .map((m) => m.subject || "(no subject)")
+          .join(", ");
         const senders = [...new Set(brandNew.map((m) => m.sender))].join(", ");
         notify(
           `✉ ${brandNew.length} new email${brandNew.length > 1 ? "s" : ""}`,
-          `From: ${senders}\n${subjects}`
+          `From: ${senders}\n${subjects}`,
         );
 
         if (!silent && ctx.hasUI) {
-          ctx.ui.notify(
-            `✉ ${brandNew.length} new: ${subjects}`,
-            "info"
-          );
+          ctx.ui.notify(`✉ ${brandNew.length} new: ${subjects}`, "info");
         }
       }
 
       // Notify about held messages separately (user-facing, not agent-facing)
       if (brandNewBlocked.length > 0 && lastSeenIds.size > 0) {
-        const senders = [...new Set(brandNewBlocked.map((m) => m.sender))].join(", ");
+        const senders = [...new Set(brandNewBlocked.map((m) => m.sender))].join(
+          ", ",
+        );
         notify(
           `✉ ${brandNewBlocked.length} held (unknown sender)`,
-          `From: ${senders} -- use /email held to review`
+          `From: ${senders} -- use /email held to review`,
         );
       }
 
@@ -436,8 +538,9 @@ export default function (pi: ExtensionAPI) {
       const localList = config.allowed_senders || [];
       // Merge: union of server + local, deduplicated
       const merged = [...new Set([...serverList, ...localList])];
-      const changed = merged.length !== localList.length ||
-        merged.some(s => !localList.includes(s));
+      const changed =
+        merged.length !== localList.length ||
+        merged.some((s) => !localList.includes(s));
       if (changed) {
         config.allowed_senders = merged;
         saveConfig(config);
@@ -490,15 +593,45 @@ export default function (pi: ExtensionAPI) {
       "Actions: check (poll for new mail), list (show messages), read (single message), " +
       "act (mark as acted with log), archive (archive message), send (send an email).",
     parameters: Type.Object({
-      action: StringEnum(["check", "list", "read", "act", "archive", "send"] as const),
-      id: Type.Optional(Type.String({ description: "Message ID (for read/act/archive)" })),
-      to: Type.Optional(Type.String({ description: "Recipient email address (required for send)" })),
-      subject: Type.Optional(Type.String({ description: "Email subject (for send)" })),
-      body: Type.Optional(Type.String({ description: "Email body text (for send)" })),
-      in_reply_to: Type.Optional(Type.String({ description: "Inbox message ID to reply to (for send)" })),
-      status: Type.Optional(Type.String({ description: "Filter for list: unread, read, acted, archived (default: unread)" })),
-      log: Type.Optional(Type.String({ description: "Action log describing what was done (for act)" })),
-      limit: Type.Optional(Type.Number({ description: "Max messages to return (default: 20)" })),
+      action: StringEnum([
+        "check",
+        "list",
+        "read",
+        "act",
+        "archive",
+        "send",
+      ] as const),
+      id: Type.Optional(
+        Type.String({ description: "Message ID (for read/act/archive)" }),
+      ),
+      to: Type.Optional(
+        Type.String({
+          description: "Recipient email address (required for send)",
+        }),
+      ),
+      subject: Type.Optional(
+        Type.String({ description: "Email subject (for send)" }),
+      ),
+      body: Type.Optional(
+        Type.String({ description: "Email body text (for send)" }),
+      ),
+      in_reply_to: Type.Optional(
+        Type.String({ description: "Inbox message ID to reply to (for send)" }),
+      ),
+      status: Type.Optional(
+        Type.String({
+          description:
+            "Filter for list: unread, read, acted, archived (default: unread)",
+        }),
+      ),
+      log: Type.Optional(
+        Type.String({
+          description: "Action log describing what was done (for act)",
+        }),
+      ),
+      limit: Type.Optional(
+        Type.Number({ description: "Max messages to return (default: 20)" }),
+      ),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -507,10 +640,17 @@ export default function (pi: ExtensionAPI) {
           await pollInbox(ctx, false);
           const result = await fetchInbox(creds, "unread", params.limit || 50);
           if (!result.ok) {
-            return { content: [{ type: "text", text: `Error: ${result.error || "API error"}` }] };
+            return {
+              content: [
+                { type: "text", text: `Error: ${result.error || "API error"}` },
+              ],
+            };
           }
           const allowlist = config.allowed_senders || [];
-          const { allowed, blocked } = filterAllowedMessages(result.data, allowlist);
+          const { allowed, blocked } = filterAllowedMessages(
+            result.data,
+            allowlist,
+          );
           let text = "";
           if (allowed.length === 0) {
             text = "No unread messages from allowed senders.";
@@ -530,7 +670,11 @@ export default function (pi: ExtensionAPI) {
           const status = params.status || "unread";
           const result = await fetchInbox(creds, status, params.limit || 20);
           if (!result.ok) {
-            return { content: [{ type: "text", text: `Error: ${result.error || "API error"}` }] };
+            return {
+              content: [
+                { type: "text", text: `Error: ${result.error || "API error"}` },
+              ],
+            };
           }
           // Filter by allowlist for unread/read statuses (not acted/archived -- those were already approved)
           const allowlist = config.allowed_senders || [];
@@ -539,24 +683,43 @@ export default function (pi: ExtensionAPI) {
             ? filterAllowedMessages(result.data, allowlist).allowed
             : result.data;
           return {
-            content: [{ type: "text", text: formatMessageList(data, data.length) }],
+            content: [
+              { type: "text", text: formatMessageList(data, data.length) },
+            ],
             details: { count: data.length, status },
           };
         }
 
         case "read": {
           if (!params.id) {
-            return { content: [{ type: "text", text: "Error: message ID required" }] };
+            return {
+              content: [{ type: "text", text: "Error: message ID required" }],
+            };
           }
           const result = await fetchMessage(creds, params.id);
           if (!result.ok) {
-            return { content: [{ type: "text", text: `Error: ${result.error || "message not found"}` }] };
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error: ${result.error || "message not found"}`,
+                },
+              ],
+            };
           }
           // Block reads of messages from unknown senders
           const allowlist = config.allowed_senders || [];
-          if (allowlist.length > 0 && !isSenderAllowed(result.data.sender, allowlist)) {
+          if (
+            allowlist.length > 0 &&
+            !isSenderAllowed(result.data.sender, allowlist)
+          ) {
             return {
-              content: [{ type: "text", text: `Blocked: message from unknown sender (${result.data.sender}). Use /email allow ${result.data.sender} to approve.` }],
+              content: [
+                {
+                  type: "text",
+                  text: `Blocked: message from unknown sender (${result.data.sender}). Use /email allow ${result.data.sender} to approve.`,
+                },
+              ],
               details: { blocked: true, sender: result.data.sender },
             };
           }
@@ -572,27 +735,52 @@ export default function (pi: ExtensionAPI) {
 
         case "act": {
           if (!params.id) {
-            return { content: [{ type: "text", text: "Error: message ID required" }] };
+            return {
+              content: [{ type: "text", text: "Error: message ID required" }],
+            };
           }
           const log = params.log || "Acted on by agent";
           const result = await markMessage(creds, params.id, "acted", log);
           if (!result.ok) {
-            return { content: [{ type: "text", text: `Error: ${(result as any).error || "update failed"}` }] };
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error: ${(result as any).error || "update failed"}`,
+                },
+              ],
+            };
           }
           // Refresh count
           await pollInbox(ctx);
           return {
-            content: [{ type: "text", text: `Marked as acted: ${params.id}\nLog: ${log}` }],
+            content: [
+              {
+                type: "text",
+                text: `Marked as acted: ${params.id}\nLog: ${log}`,
+              },
+            ],
             details: { id: params.id, status: "acted" },
           };
         }
 
         case "send": {
           if (!params.to) {
-            return { content: [{ type: "text", text: "Error: recipient email required (use 'to' parameter)" }] };
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "Error: recipient email required (use 'to' parameter)",
+                },
+              ],
+            };
           }
           if (!params.subject && !params.body) {
-            return { content: [{ type: "text", text: "Error: subject or body required" }] };
+            return {
+              content: [
+                { type: "text", text: "Error: subject or body required" },
+              ],
+            };
           }
           const sendResult = await sendOutbound(
             creds,
@@ -603,26 +791,46 @@ export default function (pi: ExtensionAPI) {
           );
           if (!sendResult.ok) {
             return {
-              content: [{ type: "text", text: `Send failed: ${sendResult.error || "unknown error"}` }],
-              details: { error: sendResult.error, tier: sendResult.tier, limit: sendResult.limit },
+              content: [
+                {
+                  type: "text",
+                  text: `Send failed: ${sendResult.error || "unknown error"}`,
+                },
+              ],
+              details: {
+                error: sendResult.error,
+                tier: sendResult.tier,
+                limit: sendResult.limit,
+              },
             };
           }
           return {
-            content: [{
-              type: "text",
-              text: `Sent email to ${params.to}\nSubject: ${params.subject || "(no subject)"}\nOutbox ID: ${sendResult.data!.outbox_id}`,
-            }],
+            content: [
+              {
+                type: "text",
+                text: `Sent email to ${params.to}\nSubject: ${params.subject || "(no subject)"}\nOutbox ID: ${sendResult.data!.outbox_id}`,
+              },
+            ],
             details: { outbox_id: sendResult.data!.outbox_id, status: "sent" },
           };
         }
 
         case "archive": {
           if (!params.id) {
-            return { content: [{ type: "text", text: "Error: message ID required" }] };
+            return {
+              content: [{ type: "text", text: "Error: message ID required" }],
+            };
           }
           const result = await markMessage(creds, params.id, "archived");
           if (!result.ok) {
-            return { content: [{ type: "text", text: `Error: ${(result as any).error || "update failed"}` }] };
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error: ${(result as any).error || "update failed"}`,
+                },
+              ],
+            };
           }
           await pollInbox(ctx);
           return {
@@ -634,9 +842,12 @@ export default function (pi: ExtensionAPI) {
     },
 
     renderCall(args, theme) {
-      let text = theme.fg("toolTitle", theme.bold("email ")) + theme.fg("muted", args.action);
+      let text =
+        theme.fg("toolTitle", theme.bold("email ")) +
+        theme.fg("muted", args.action);
       if (args.to) text += ` ${theme.fg("accent", args.to)}`;
-      else if (args.id) text += ` ${theme.fg("accent", args.id.slice(0, 12) + "...")}`;
+      else if (args.id)
+        text += ` ${theme.fg("accent", args.id.slice(0, 12) + "...")}`;
       if (args.subject) text += ` ${theme.fg("dim", `"${args.subject}"`)}`;
       if (args.status) text += ` ${theme.fg("dim", args.status)}`;
       return new Text(text, 0, 0);
@@ -650,7 +861,8 @@ export default function (pi: ExtensionAPI) {
           n === 0
             ? theme.fg("dim", "No unread messages")
             : theme.fg("warning", `✉ ${n} unread`),
-          0, 0
+          0,
+          0,
         );
       }
       if (details?.count !== undefined) {
@@ -669,7 +881,8 @@ export default function (pi: ExtensionAPI) {
         const msg = details.message as InboxMessage;
         return new Text(
           theme.fg("muted", `${msg.sender}: ${msg.subject || "(no subject)"}`),
-          0, 0
+          0,
+          0,
         );
       }
       const text = result.content[0];
@@ -680,7 +893,8 @@ export default function (pi: ExtensionAPI) {
   // ── Slash command ──
 
   pi.registerCommand("email", {
-    description: "Agent email: list, read <id>, act <id>, check, send <to> <subject>",
+    description:
+      "Agent email: list, read <id>, act <id>, check, send <to> <subject>",
     handler: async (args, ctx) => {
       const [subcmd, ...rest] = args.trim().split(/\s+/);
       const arg = rest.join(" ");
@@ -693,7 +907,7 @@ export default function (pi: ExtensionAPI) {
             currentUnread > 0
               ? `✉ ${currentUnread} unread at ${creds.email}`
               : `No unread mail at ${creds.email}`,
-            currentUnread > 0 ? "info" : "success"
+            currentUnread > 0 ? "info" : "success",
           );
           break;
         }
@@ -726,7 +940,8 @@ export default function (pi: ExtensionAPI) {
             return;
           }
           const lines = result.data.map(
-            (m) => `${m.id.slice(0, 12)}  ${m.sender}: ${m.subject || "(no subject)"}`
+            (m) =>
+              `${m.id.slice(0, 12)}  ${m.sender}: ${m.subject || "(no subject)"}`,
           );
           ctx.ui.notify(lines.join("\n"), "info");
           break;
@@ -751,7 +966,12 @@ export default function (pi: ExtensionAPI) {
             ctx.ui.notify("Usage: /email act <message-id>", "warning");
             return;
           }
-          const result = await markMessage(creds, arg, "acted", "Acted via /email command");
+          const result = await markMessage(
+            creds,
+            arg,
+            "acted",
+            "Acted via /email command",
+          );
           if (!result.ok) {
             ctx.ui.notify("Failed to update message", "error");
             return;
@@ -767,16 +987,25 @@ export default function (pi: ExtensionAPI) {
           const recipient = rest[0];
           const subject = rest.slice(1).join(" ");
           if (!recipient || !recipient.includes("@")) {
-            ctx.ui.notify("Usage: /email send <recipient@email.com> <subject>", "warning");
+            ctx.ui.notify(
+              "Usage: /email send <recipient@email.com> <subject>",
+              "warning",
+            );
             return;
           }
           if (!subject) {
-            ctx.ui.notify("Usage: /email send <recipient@email.com> <subject>", "warning");
+            ctx.ui.notify(
+              "Usage: /email send <recipient@email.com> <subject>",
+              "warning",
+            );
             return;
           }
           const result = await sendOutbound(creds, recipient, subject, "");
           if (!result.ok) {
-            ctx.ui.notify(`Send failed: ${result.error || "unknown error"}`, "error");
+            ctx.ui.notify(
+              `Send failed: ${result.error || "unknown error"}`,
+              "error",
+            );
             return;
           }
           ctx.ui.notify(`Sent to ${recipient}: ${subject}`, "success");
@@ -786,8 +1015,11 @@ export default function (pi: ExtensionAPI) {
         case "allow": {
           // /email allow user@example.com  OR  /email allow *@example.com
           const sender = arg.trim().toLowerCase();
-          if (!sender || (!sender.includes("@"))) {
-            ctx.ui.notify("Usage: /email allow <sender@domain.com> or /email allow *@domain.com", "warning");
+          if (!sender || !sender.includes("@")) {
+            ctx.ui.notify(
+              "Usage: /email allow <sender@domain.com> or /email allow *@domain.com",
+              "warning",
+            );
             return;
           }
           if (!config.allowed_senders) config.allowed_senders = [];
@@ -801,7 +1033,7 @@ export default function (pi: ExtensionAPI) {
           const addOk = await addSenderToServer(creds, sender);
           ctx.ui.notify(
             `Allowed: ${sender}${addOk ? " (synced to server)" : " (local only, server sync failed)"}`,
-            "success"
+            "success",
           );
           await pollInbox(ctx);
           break;
@@ -810,7 +1042,10 @@ export default function (pi: ExtensionAPI) {
         case "revoke": {
           const sender = arg.trim().toLowerCase();
           if (!sender) {
-            ctx.ui.notify("Usage: /email revoke <sender@domain.com>", "warning");
+            ctx.ui.notify(
+              "Usage: /email revoke <sender@domain.com>",
+              "warning",
+            );
             return;
           }
           if (!config.allowed_senders) {
@@ -828,7 +1063,7 @@ export default function (pi: ExtensionAPI) {
           const rmOk = await removeSenderFromServer(creds, sender);
           ctx.ui.notify(
             `Revoked: ${sender}${rmOk ? " (synced to server)" : " (local only, server sync failed)"}`,
-            "success"
+            "success",
           );
           await pollInbox(ctx);
           break;
@@ -837,9 +1072,15 @@ export default function (pi: ExtensionAPI) {
         case "senders": {
           const list = config.allowed_senders || [];
           if (list.length === 0) {
-            ctx.ui.notify("No allowlist configured (all senders accepted)", "info");
+            ctx.ui.notify(
+              "No allowlist configured (all senders accepted)",
+              "info",
+            );
           } else {
-            ctx.ui.notify(`Allowed senders (${list.length}):\n${list.map(s => `  ${s}`).join("\n")}`, "info");
+            ctx.ui.notify(
+              `Allowed senders (${list.length}):\n${list.map((s) => `  ${s}`).join("\n")}`,
+              "info",
+            );
           }
           break;
         }
@@ -858,14 +1099,21 @@ export default function (pi: ExtensionAPI) {
             return;
           }
           const lines = blocked.map(
-            (m) => `${m.id.slice(0, 12)}  ${m.sender}\n    ${m.subject || "(no subject)"}`
+            (m) =>
+              `${m.id.slice(0, 12)}  ${m.sender}\n    ${m.subject || "(no subject)"}`,
           );
-          ctx.ui.notify(`${blocked.length} held from unknown senders:\n${lines.join("\n")}\n\nUse /email allow <sender> to approve`, "warning");
+          ctx.ui.notify(
+            `${blocked.length} held from unknown senders:\n${lines.join("\n")}\n\nUse /email allow <sender> to approve`,
+            "warning",
+          );
           break;
         }
 
         default:
-          ctx.ui.notify("Usage: /email [status|check|list|read|act|send|allow|revoke|senders|held]", "warning");
+          ctx.ui.notify(
+            "Usage: /email [status|check|list|read|act|send|allow|revoke|senders|held]",
+            "warning",
+          );
       }
     },
   });

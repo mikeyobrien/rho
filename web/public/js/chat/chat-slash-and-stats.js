@@ -17,8 +17,7 @@ export const rhoChatSlashAndStatsMethods = {
 		const firstText = message?.parts?.find((part) => part.type === "text");
 		const text = firstText ? extractText(firstText.content ?? "") : "";
 		return (
-			clampString(text.replace(/\s+/g, " ").trim(), 80) ||
-			"Fork from this prompt"
+			clampString(text.replace(/\s+/g, " ").trim(), 80) || "Fork from this prompt"
 		);
 	},
 
@@ -338,8 +337,7 @@ export const rhoChatSlashAndStatsMethods = {
 		const currentInput = toFiniteNumber(this.sessionStats?.inputTokens) ?? 0;
 		const currentOutput = toFiniteNumber(this.sessionStats?.outputTokens) ?? 0;
 		const currentCacheRead = toFiniteNumber(this.sessionStats?.cacheRead) ?? 0;
-		const currentCacheWrite =
-			toFiniteNumber(this.sessionStats?.cacheWrite) ?? 0;
+		const currentCacheWrite = toFiniteNumber(this.sessionStats?.cacheWrite) ?? 0;
 
 		const incomingAllZero =
 			totalTokens === 0 &&

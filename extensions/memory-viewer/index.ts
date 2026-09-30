@@ -16,17 +16,33 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
-import { Markdown, Input, matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import {
+	Markdown,
+	Input,
+	matchesKey,
+	Key,
+	truncateToWidth,
+	visibleWidth,
+} from "@mariozechner/pi-tui";
 import type { TUI } from "@mariozechner/pi-tui";
 import type { Theme } from "@mariozechner/pi-coding-agent";
-import { readBrain, foldBrain, BRAIN_PATH, scoreLearning, getInjectedIds } from "../lib/brain-store.ts";
+import {
+	readBrain,
+	foldBrain,
+	BRAIN_PATH,
+	scoreLearning,
+	getInjectedIds,
+} from "../lib/brain-store.ts";
 import type { LearningEntry } from "../lib/brain-store.ts";
 
 function fmtDate(iso: string): string {
 	return iso.slice(0, 10);
 }
 
-function matches(query: string, ...fields: (string | undefined | null)[]): boolean {
+function matches(
+	query: string,
+	...fields: (string | undefined | null)[]
+): boolean {
 	const q = query.toLowerCase();
 	return fields.some((f) => f && f.toLowerCase().includes(q));
 }
@@ -38,58 +54,87 @@ function buildMarkdown(detailed = false, filter = ""): string {
 	const cwd = process.cwd();
 	const f = filter.trim();
 	const injected = getInjectedIds(brain, cwd);
-	const dot = (id: string) => injected.has(id) ? "●" : "○";
+	const dot = (id: string) => (injected.has(id) ? "●" : "○");
 
 	// Behavior section
-	const filteredBehaviors = f ? brain.behaviors.filter((b) => matches(f, b.text)) : brain.behaviors;
+	const filteredBehaviors = f
+		? brain.behaviors.filter((b) => matches(f, b.text))
+		: brain.behaviors;
 	if (filteredBehaviors.length > 0) {
 		const dos = filteredBehaviors.filter((b) => b.category === "do");
 		const donts = filteredBehaviors.filter((b) => b.category === "dont");
 		const values = filteredBehaviors.filter((b) => b.category === "value");
 
-		const count = f ? `${filteredBehaviors.length}/${brain.behaviors.length} match` : `${dos.length} do, ${donts.length} don't, ${values.length} values`;
+		const count = f
+			? `${filteredBehaviors.length}/${brain.behaviors.length} match`
+			: `${dos.length} do, ${donts.length} don't, ${values.length} values`;
 		let s = `# Behavior (${count})\n`;
 		if (dos.length > 0) {
 			s += "\n**Do:**\n";
-			for (const b of dos) s += detailed ? `- ${dot(b.id)} ${b.text}  \`[${b.id}]\`\n` : `- ${dot(b.id)} ${b.text}\n`;
+			for (const b of dos)
+				s += detailed
+					? `- ${dot(b.id)} ${b.text}  \`[${b.id}]\`\n`
+					: `- ${dot(b.id)} ${b.text}\n`;
 		}
 		if (donts.length > 0) {
 			s += "\n**Don't:**\n";
-			for (const b of donts) s += detailed ? `- ${dot(b.id)} ${b.text}  \`[${b.id}]\`\n` : `- ${dot(b.id)} ${b.text}\n`;
+			for (const b of donts)
+				s += detailed
+					? `- ${dot(b.id)} ${b.text}  \`[${b.id}]\`\n`
+					: `- ${dot(b.id)} ${b.text}\n`;
 		}
 		if (values.length > 0) {
 			s += "\n**Values:**\n";
-			for (const b of values) s += detailed ? `- ${dot(b.id)} ${b.text}  \`[${b.id}]\`\n` : `- ${dot(b.id)} ${b.text}\n`;
+			for (const b of values)
+				s += detailed
+					? `- ${dot(b.id)} ${b.text}  \`[${b.id}]\`\n`
+					: `- ${dot(b.id)} ${b.text}\n`;
 		}
 		sections.push(s);
 	}
 
 	// Identity section
-	const filteredIdentity = f ? [...brain.identity].filter(([k, e]) => matches(f, k, e.value)) : [...brain.identity];
+	const filteredIdentity = f
+		? [...brain.identity].filter(([k, e]) => matches(f, k, e.value))
+		: [...brain.identity];
 	if (filteredIdentity.length > 0) {
-		const count = f ? `${filteredIdentity.length}/${brain.identity.size} match` : `${brain.identity.size}`;
+		const count = f
+			? `${filteredIdentity.length}/${brain.identity.size} match`
+			: `${brain.identity.size}`;
 		let s = `# Identity (${count})\n`;
 		for (const [key, entry] of filteredIdentity) {
-			s += detailed ? `- ○ ${key}: ${entry.value}  \`[${fmtDate(entry.created)}]\`\n` : `- ○ ${key}: ${entry.value}\n`;
+			s += detailed
+				? `- ○ ${key}: ${entry.value}  \`[${fmtDate(entry.created)}]\`\n`
+				: `- ○ ${key}: ${entry.value}\n`;
 		}
 		sections.push(s);
 	}
 
 	// User section
-	const filteredUser = f ? [...brain.user].filter(([k, e]) => matches(f, k, e.value)) : [...brain.user];
+	const filteredUser = f
+		? [...brain.user].filter(([k, e]) => matches(f, k, e.value))
+		: [...brain.user];
 	if (filteredUser.length > 0) {
-		const count = f ? `${filteredUser.length}/${brain.user.size} match` : `${brain.user.size}`;
+		const count = f
+			? `${filteredUser.length}/${brain.user.size} match`
+			: `${brain.user.size}`;
 		let s = `# User (${count})\n`;
 		for (const [key, entry] of filteredUser) {
-			s += detailed ? `- ○ ${key}: ${entry.value}  \`[${fmtDate(entry.created)}]\`\n` : `- ○ ${key}: ${entry.value}\n`;
+			s += detailed
+				? `- ○ ${key}: ${entry.value}  \`[${fmtDate(entry.created)}]\`\n`
+				: `- ○ ${key}: ${entry.value}\n`;
 		}
 		sections.push(s);
 	}
 
 	// Preferences section
-	const filteredPrefs = f ? brain.preferences.filter((p) => matches(f, p.text, p.category)) : brain.preferences;
+	const filteredPrefs = f
+		? brain.preferences.filter((p) => matches(f, p.text, p.category))
+		: brain.preferences;
 	if (filteredPrefs.length > 0) {
-		const count = f ? `${filteredPrefs.length}/${brain.preferences.length} match` : `${brain.preferences.length}`;
+		const count = f
+			? `${filteredPrefs.length}/${brain.preferences.length} match`
+			: `${brain.preferences.length}`;
 		let s = `# Preferences (${count})\n`;
 		const byCategory = new Map<string, typeof filteredPrefs>();
 		for (const p of filteredPrefs) {
@@ -99,26 +144,39 @@ function buildMarkdown(detailed = false, filter = ""): string {
 		}
 		for (const [cat, prefs] of byCategory) {
 			s += `\n**${cat}:**\n`;
-			for (const e of prefs) s += detailed ? `- ${dot(e.id)} ${e.text}  \`[${e.id} · ${fmtDate(e.created)}]\`\n` : `- ${dot(e.id)} ${e.text}\n`;
+			for (const e of prefs)
+				s += detailed
+					? `- ${dot(e.id)} ${e.text}  \`[${e.id} · ${fmtDate(e.created)}]\`\n`
+					: `- ${dot(e.id)} ${e.text}\n`;
 		}
 		sections.push(s);
 	}
 
 	// Context section
-	const filteredContexts = f ? brain.contexts.filter((c) => matches(f, c.project, c.path, c.content)) : brain.contexts;
+	const filteredContexts = f
+		? brain.contexts.filter((c) => matches(f, c.project, c.path, c.content))
+		: brain.contexts;
 	if (filteredContexts.length > 0) {
-		const count = f ? `${filteredContexts.length}/${brain.contexts.length} match` : `${brain.contexts.length}`;
+		const count = f
+			? `${filteredContexts.length}/${brain.contexts.length} match`
+			: `${brain.contexts.length}`;
 		let s = `# Context (${count})\n`;
 		for (const c of filteredContexts) {
-			s += detailed ? `- ${dot(c.id)} **${c.project}** — ${c.path}  \`[${c.id} · ${fmtDate(c.created)}]\`\n` : `- ${dot(c.id)} **${c.project}** — ${c.path}\n`;
+			s += detailed
+				? `- ${dot(c.id)} **${c.project}** — ${c.path}  \`[${c.id} · ${fmtDate(c.created)}]\`\n`
+				: `- ${dot(c.id)} **${c.project}** — ${c.path}\n`;
 		}
 		sections.push(s);
 	}
 
 	// Learnings section
-	const filteredLearnings = f ? brain.learnings.filter((l) => matches(f, l.text)) : brain.learnings;
+	const filteredLearnings = f
+		? brain.learnings.filter((l) => matches(f, l.text))
+		: brain.learnings;
 	if (filteredLearnings.length > 0) {
-		const count = f ? `${filteredLearnings.length}/${brain.learnings.length} match` : `${brain.learnings.length}`;
+		const count = f
+			? `${filteredLearnings.length}/${brain.learnings.length} match`
+			: `${brain.learnings.length}`;
 		let s = `# Learnings (${count})\n`;
 		for (const l of filteredLearnings) {
 			if (detailed) {
@@ -133,13 +191,20 @@ function buildMarkdown(detailed = false, filter = ""): string {
 	}
 
 	// Reminders section
-	const filteredReminders = f ? brain.reminders.filter((r) => matches(f, r.text)) : brain.reminders;
+	const filteredReminders = f
+		? brain.reminders.filter((r) => matches(f, r.text))
+		: brain.reminders;
 	if (filteredReminders.length > 0) {
-		const count = f ? `${filteredReminders.length}/${brain.reminders.length} match` : `${brain.reminders.length}`;
+		const count = f
+			? `${filteredReminders.length}/${brain.reminders.length} match`
+			: `${brain.reminders.length}`;
 		let s = `# Reminders (${count})\n\n`;
 		for (const r of filteredReminders) {
 			const status = r.enabled ? "active" : "disabled";
-			const cadence = r.cadence.kind === "interval" ? `every ${r.cadence.every}` : `daily at ${r.cadence.at}`;
+			const cadence =
+				r.cadence.kind === "interval"
+					? `every ${r.cadence.every}`
+					: `daily at ${r.cadence.at}`;
 			if (detailed) {
 				const lastRun = r.last_run ? `last:${fmtDate(r.last_run)}` : "never run";
 				const nextDue = r.next_due ? `next:${fmtDate(r.next_due)}` : "";
@@ -154,14 +219,18 @@ function buildMarkdown(detailed = false, filter = ""): string {
 	}
 
 	// Tasks section
-	const filteredTasks = f ? brain.tasks.filter((t) => matches(f, t.description)) : brain.tasks;
+	const filteredTasks = f
+		? brain.tasks.filter((t) => matches(f, t.description))
+		: brain.tasks;
 	if (filteredTasks.length > 0) {
 		const pending = filteredTasks.filter((t) => t.status === "pending");
 		const done = filteredTasks.filter((t) => t.status === "done");
-		const count = f ? `${filteredTasks.length}/${brain.tasks.length} match` : `${pending.length} pending, ${done.length} done`;
+		const count = f
+			? `${filteredTasks.length}/${brain.tasks.length} match`
+			: `${pending.length} pending, ${done.length} done`;
 		let s = `# Tasks (${count})\n\n`;
 		for (const t of pending) {
-			const pri = t.priority !== "normal" ? ` (${t.priority})` : "";
+			const pri = t.priority === "normal" ? "" : ` (${t.priority})`;
 			const due = t.due ? ` due:${t.due}` : "";
 			if (detailed) {
 				const tags = t.tags?.length ? ` tags:${t.tags.join(",")}` : "";
@@ -172,7 +241,9 @@ function buildMarkdown(detailed = false, filter = ""): string {
 		}
 		for (const t of done) {
 			if (detailed) {
-				const completed = t.completedAt ? `completed:${fmtDate(t.completedAt)}` : "";
+				const completed = t.completedAt
+					? `completed:${fmtDate(t.completedAt)}`
+					: "";
 				const tags = t.tags?.length ? ` tags:${t.tags.join(",")}` : "";
 				s += `- ○ [x] [${t.id}] ${t.description}  \`[${completed}${tags}]\`\n`;
 			} else {
@@ -183,9 +254,13 @@ function buildMarkdown(detailed = false, filter = ""): string {
 	}
 
 	// Meta section
-	const filteredMeta = f ? [...brain.meta].filter(([k, e]) => matches(f, k, e.value)) : [...brain.meta];
+	const filteredMeta = f
+		? [...brain.meta].filter(([k, e]) => matches(f, k, e.value))
+		: [...brain.meta];
 	if (filteredMeta.length > 0) {
-		const count = f ? `${filteredMeta.length}/${brain.meta.size} match` : `${brain.meta.size}`;
+		const count = f
+			? `${filteredMeta.length}/${brain.meta.size} match`
+			: `${brain.meta.size}`;
 		let s = `# Meta (${count})\n`;
 		for (const [key, entry] of filteredMeta) {
 			s += `- ○ ${key}: ${entry.value}\n`;
@@ -203,7 +278,10 @@ function buildMarkdown(detailed = false, filter = ""): string {
 
 // Strip ANSI escape codes to get visible text
 function stripAnsi(s: string): string {
-	return s.replace(/\x1b\[[0-9;]*m|\x1b\]8;[^;]*;[^\x1b]*\x1b\\|\x1b\[[0-9]*[A-Za-z]/g, "");
+	return s.replace(
+		/\x1b\[[0-9;]*m|\x1b\]8;[^;]*;[^\x1b]*\x1b\\|\x1b\[[0-9]*[A-Za-z]/g,
+		"",
+	);
 }
 
 class MemoryViewerComponent {
@@ -214,8 +292,8 @@ class MemoryViewerComponent {
 	private md: Markdown;
 	private disposed = false;
 	private detailed = false;
-	private filterMode = false;   // input visible and focused
-	private filterText = "";      // active filter (persists after Enter)
+	private filterMode = false; // input visible and focused
+	private filterText = ""; // active filter (persists after Enter)
 	private searchInput: Input | null = null;
 
 	constructor(
@@ -242,7 +320,11 @@ class MemoryViewerComponent {
 		for (let i = 0; i < this.allLines.length; i++) {
 			const visible = stripAnsi(this.allLines[i]).trim();
 			// Markdown renders # headings as styled text — match lines that look like section headers
-			if (/^(Behavior|Identity|User|Preferences|Context|Learnings|Reminders|Tasks|Meta)\s*\(/.test(visible)) {
+			if (
+				/^(Behavior|Identity|User|Preferences|Context|Learnings|Reminders|Tasks|Meta)\s*\(/.test(
+					visible,
+				)
+			) {
 				this.sectionOffsets.push({ name: visible.split("(")[0].trim(), line: i });
 			}
 		}
@@ -262,7 +344,9 @@ class MemoryViewerComponent {
 		for (const s of this.sectionOffsets) {
 			if (s.line < this.scrollOffset) prev = s;
 		}
-		this.scrollOffset = prev ? prev.line : this.sectionOffsets[this.sectionOffsets.length - 1].line; // wrap to bottom
+		this.scrollOffset = prev
+			? prev.line
+			: this.sectionOffsets[this.sectionOffsets.length - 1].line; // wrap to bottom
 		this.tui.requestRender();
 	}
 
@@ -331,7 +415,10 @@ class MemoryViewerComponent {
 		} else if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.ctrl("u"))) {
 			this.scrollOffset = Math.max(0, this.scrollOffset - pageSize);
 			this.tui.requestRender();
-		} else if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.ctrl("d"))) {
+		} else if (
+			matchesKey(data, Key.pageDown) ||
+			matchesKey(data, Key.ctrl("d"))
+		) {
 			this.scrollOffset = Math.min(maxScroll, this.scrollOffset + pageSize);
 			this.tui.requestRender();
 		} else if (matchesKey(data, Key.home) || matchesKey(data, "g")) {
@@ -384,10 +471,14 @@ class MemoryViewerComponent {
 
 		// ── Top border: title + scroll info ──
 		const total = this.allLines.length;
-		const pos = total > 0 ? Math.floor(((this.scrollOffset + visible / 2) / Math.max(1, total)) * 100) : 0;
+		const pos =
+			total > 0
+				? Math.floor(((this.scrollOffset + visible / 2) / Math.max(1, total)) * 100)
+				: 0;
 		const pct = `${Math.min(pos, 100)}%`;
 		const titleLeft = ` Memories `;
-		const filterTag = (!this.filterMode && this.filterText) ? ` filter: "${this.filterText}" ` : "";
+		const filterTag =
+			!this.filterMode && this.filterText ? ` filter: "${this.filterText}" ` : "";
 		const detailTag = this.detailed ? " detailed " : "";
 		const titleRight = ` ${[pct, detailTag, filterTag].filter(Boolean).join("· ").trim()} `;
 		const titleLeftW = visibleWidth(titleLeft);
@@ -413,9 +504,14 @@ class MemoryViewerComponent {
 		}
 
 		// ── Content lines ──
-		const visibleSlice = this.allLines.slice(this.scrollOffset, this.scrollOffset + visible);
+		const visibleSlice = this.allLines.slice(
+			this.scrollOffset,
+			this.scrollOffset + visible,
+		);
 		for (const line of visibleSlice) {
-			result.push(border("│") + truncateToWidth(line, innerW, "…", true) + border("│"));
+			result.push(
+				border("│") + truncateToWidth(line, innerW, "…", true) + border("│"),
+			);
 		}
 
 		// Pad if content is shorter than visible area
@@ -424,7 +520,8 @@ class MemoryViewerComponent {
 		}
 
 		// ── Bottom border: keybind hints (progressive — shed hints on narrow screens) ──
-		const hint = (key: string, desc: string) => th.fg("dim", key) + th.fg("muted", " " + desc);
+		const hint = (key: string, desc: string) =>
+			th.fg("dim", key) + th.fg("muted", " " + desc);
 		const sep = th.fg("border", " · ");
 		const sepW = 3; // " · "
 
@@ -458,10 +555,7 @@ class MemoryViewerComponent {
 		const hintsW = visibleWidth(hintsStr);
 		const hintFill = Math.max(0, innerW - hintsW);
 		result.push(
-			border("╰") +
-				hintsStr +
-				border("─".repeat(hintFill)) +
-				border("╯"),
+			border("╰") + hintsStr + border("─".repeat(hintFill)) + border("╯"),
 		);
 
 		return result;

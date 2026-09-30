@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 
 import { parseInitToml } from "../config.ts";
 import { SESSION_NAME } from "../daemon-core.ts";
+import { herdrAgentLive, herdrServerRunning, readHerdrAgent } from "../herdr-client.ts";
 
 const HOME = process.env.HOME || os.homedir();
 const RHO_DIR = path.join(HOME, ".rho");
@@ -39,13 +40,17 @@ function tmuxArgs(extra: string[]): string[] {
 }
 
 function sessionExists(): boolean {
-  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", SESSION_NAME]), { stdio: "ignore" });
+  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", SESSION_NAME]), {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 
 function windowExists(window: string): boolean {
   const target = `${SESSION_NAME}:${window}`;
-  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", target]), { stdio: "ignore" });
+  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", target]), {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 
@@ -57,7 +62,11 @@ function capturePane(target: string): string[] {
   return (r.stdout || "").split("\n");
 }
 
-function parseArgs(args: string[]): { lines: number; follow: boolean; help: boolean } {
+function parseArgs(args: string[]): {
+  lines: number;
+  follow: boolean;
+  help: boolean;
+} {
   let lines = 50;
   let follow = false;
   let help = false;
@@ -88,13 +97,39 @@ export async function run(args: string[]): Promise<void> {
   if (opts.help) {
     console.log(`rho logs
 
-Show recent heartbeat output from the rho tmux session.
+Show recent heartbeat output from the dedicated rho Herdr or tmux session.
 
 Options:
   -n, --lines N   Number of lines to show (default: 50)
   -f, --follow    Poll for new output every 2 seconds
   -h, --help      Show this help`);
     return;
+  }
+
+  if (herdrServerRunning()) {
+    if (!herdrAgentLive()) {
+      console.error("Rho Herdr session is up, but the rho agent is not running.");
+      process.exitCode = 1;
+      return;
+    }
+    const show = () => {
+      const text = readHerdrAgent(opts.lines);
+      const tail = text.split("\n").slice(-opts.lines);
+      process.stdout.write(tail.join("\n") + "\n");
+    };
+    if (!opts.follow) {
+      show();
+      return;
+    }
+    let last = "";
+    while (true) {
+      const text = readHerdrAgent(opts.lines);
+      if (text !== last) {
+        process.stdout.write(text.endsWith("\n") ? text : text + "\n");
+        last = text;
+      }
+      await sleep(2000);
+    }
   }
 
   if (!sessionExists()) {
@@ -105,7 +140,9 @@ Options:
 
   // Prefer heartbeat window, fall back to main window
   const hasHeartbeat = windowExists("heartbeat");
-  const target = hasHeartbeat ? `${SESSION_NAME}:heartbeat` : `${SESSION_NAME}:0`;
+  const target = hasHeartbeat
+    ? `${SESSION_NAME}:heartbeat`
+    : `${SESSION_NAME}:0`;
 
   if (!hasHeartbeat) {
     console.error("heartbeat window not found, falling back to main window\n");

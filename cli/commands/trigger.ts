@@ -44,12 +44,16 @@ function tmuxArgs(args: string[]): string[] {
 }
 
 function tmuxSessionExists(): boolean {
-  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", SESSION_NAME]), { stdio: "ignore" });
+  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", SESSION_NAME]), {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 
 function tmuxLegacySessionExists(): boolean {
-  const r = spawnSync("tmux", ["has-session", "-t", SESSION_NAME], { stdio: "ignore" });
+  const r = spawnSync("tmux", ["has-session", "-t", SESSION_NAME], {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 
@@ -89,12 +93,18 @@ Options:
 
   const active = getActiveTmuxArgs();
   if (!active) {
-    console.error("Failed to trigger check-in (tmux session missing). Try: rho start");
+    console.error(
+      "Failed to trigger check-in (tmux session missing). Try: rho start",
+    );
     process.exit(1);
   }
 
   // Send check-in command
-  const r = spawnSync("tmux", [...active, "send-keys", "-t", SESSION_NAME, "/rho now", "Enter"], { stdio: "ignore" });
+  const r = spawnSync(
+    "tmux",
+    [...active, "send-keys", "-t", SESSION_NAME, "/rho now", "Enter"],
+    { stdio: "ignore" },
+  );
   if (r.status !== 0) {
     console.error("Failed to trigger check-in.");
     process.exit(1);
@@ -103,5 +113,15 @@ Options:
   console.log("Heartbeat check-in triggered.");
 
   // Show tmux display message if possible
-  spawnSync("tmux", [...active, "display-message", "-t", SESSION_NAME, "Rho check-in triggered"], { stdio: "ignore" });
+  spawnSync(
+    "tmux",
+    [
+      ...active,
+      "display-message",
+      "-t",
+      SESSION_NAME,
+      "Rho check-in triggered",
+    ],
+    { stdio: "ignore" },
+  );
 }

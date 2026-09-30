@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
-export type TelegramJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type TelegramJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface TelegramJobRecord {
   id: string;
@@ -44,13 +49,24 @@ function normalizeJob(input: unknown): TelegramJobRecord | null {
   const messageId = Number(raw.messageId);
   const createdAtMs = Number(raw.createdAtMs);
 
-  if (!Number.isInteger(updateId) || !Number.isInteger(chatId) || !Number.isInteger(messageId) || !Number.isFinite(createdAtMs)) {
+  if (
+    !Number.isInteger(updateId) ||
+    !Number.isInteger(chatId) ||
+    !Number.isInteger(messageId) ||
+    !Number.isFinite(createdAtMs)
+  ) {
     return null;
   }
 
-  const statusRaw = String(raw.status || "").trim().toLowerCase();
+  const statusRaw = String(raw.status || "")
+    .trim()
+    .toLowerCase();
   const status: TelegramJobStatus =
-    statusRaw === "queued" || statusRaw === "running" || statusRaw === "completed" || statusRaw === "failed" || statusRaw === "cancelled"
+    statusRaw === "queued" ||
+    statusRaw === "running" ||
+    statusRaw === "completed" ||
+    statusRaw === "failed" ||
+    statusRaw === "cancelled"
       ? (statusRaw as TelegramJobStatus)
       : "queued";
 
@@ -58,7 +74,9 @@ function normalizeJob(input: unknown): TelegramJobRecord | null {
   const userId = Number.isInteger(userRaw) ? Number(userRaw) : null;
 
   const threadRaw = raw.messageThreadId;
-  const messageThreadId = Number.isInteger(threadRaw) ? Number(threadRaw) : undefined;
+  const messageThreadId = Number.isInteger(threadRaw)
+    ? Number(threadRaw)
+    : undefined;
 
   const startedRaw = raw.startedAtMs;
   const finishedRaw = raw.finishedAtMs;
@@ -76,17 +94,27 @@ function normalizeJob(input: unknown): TelegramJobRecord | null {
     sessionFile: String(raw.sessionFile || "").trim(),
     promptText: String(raw.promptText || ""),
     createdAtMs,
-    startedAtMs: Number.isFinite(Number(startedRaw)) ? Number(startedRaw) : null,
-    finishedAtMs: Number.isFinite(Number(finishedRaw)) ? Number(finishedRaw) : null,
+    startedAtMs: Number.isFinite(Number(startedRaw))
+      ? Number(startedRaw)
+      : null,
+    finishedAtMs: Number.isFinite(Number(finishedRaw))
+      ? Number(finishedRaw)
+      : null,
     status,
     resultText: typeof raw.resultText === "string" ? raw.resultText : undefined,
     error: typeof raw.error === "string" ? raw.error : undefined,
-    completionNotifiedAtMs: Number.isFinite(Number(completionNotifiedRaw)) ? Number(completionNotifiedRaw) : null,
-    cancelRequestedAtMs: Number.isFinite(Number(cancelRequestedRaw)) ? Number(cancelRequestedRaw) : null,
+    completionNotifiedAtMs: Number.isFinite(Number(completionNotifiedRaw))
+      ? Number(completionNotifiedRaw)
+      : null,
+    cancelRequestedAtMs: Number.isFinite(Number(cancelRequestedRaw))
+      ? Number(cancelRequestedRaw)
+      : null,
   };
 }
 
-export function loadTelegramJobs(path = getTelegramJobsPath()): TelegramJobRecord[] {
+export function loadTelegramJobs(
+  path = getTelegramJobsPath(),
+): TelegramJobRecord[] {
   if (!existsSync(path)) return [];
 
   try {
@@ -106,7 +134,10 @@ export function loadTelegramJobs(path = getTelegramJobsPath()): TelegramJobRecor
   }
 }
 
-export function saveTelegramJobs(jobs: TelegramJobRecord[], path = getTelegramJobsPath()): void {
+export function saveTelegramJobs(
+  jobs: TelegramJobRecord[],
+  path = getTelegramJobsPath(),
+): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(jobs, null, 2));
 }

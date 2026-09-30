@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 export interface TelegramCheckTriggerRequestV1 {
@@ -21,15 +29,22 @@ function ensureDirForFile(filePath: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
 }
 
-function parseTriggerPayload(raw: string): TelegramCheckTriggerRequestV1 | null {
+function parseTriggerPayload(
+  raw: string,
+): TelegramCheckTriggerRequestV1 | null {
   try {
     const parsed = JSON.parse(raw) as Partial<TelegramCheckTriggerRequestV1>;
     if (!parsed || typeof parsed !== "object") return null;
     if (parsed.version !== 1) return null;
     if (typeof parsed.requestedAt !== "number") return null;
     if (typeof parsed.requesterPid !== "number") return null;
-    if (parsed.requesterRole !== "leader" && parsed.requesterRole !== "follower") return null;
-    if (typeof parsed.source !== "string" || parsed.source.trim().length === 0) return null;
+    if (
+      parsed.requesterRole !== "leader" &&
+      parsed.requesterRole !== "follower"
+    )
+      return null;
+    if (typeof parsed.source !== "string" || parsed.source.trim().length === 0)
+      return null;
     return parsed as TelegramCheckTriggerRequestV1;
   } catch {
     return null;
@@ -69,7 +84,9 @@ export function requestTelegramCheckTrigger(
   return atomicWriteTextFile(triggerPath, JSON.stringify(payload, null, 2));
 }
 
-export function readTelegramCheckTrigger(triggerPath: string): TelegramCheckTriggerRequestV1 | null {
+export function readTelegramCheckTrigger(
+  triggerPath: string,
+): TelegramCheckTriggerRequestV1 | null {
   try {
     if (!existsSync(triggerPath)) return null;
     return parseTriggerPayload(readFileSync(triggerPath, "utf-8"));
@@ -78,7 +95,10 @@ export function readTelegramCheckTrigger(triggerPath: string): TelegramCheckTrig
   }
 }
 
-export function getTelegramCheckTriggerState(triggerPath: string, _lastSeenMtimeMs: number): TelegramCheckTriggerState {
+export function getTelegramCheckTriggerState(
+  triggerPath: string,
+  _lastSeenMtimeMs: number,
+): TelegramCheckTriggerState {
   try {
     if (!existsSync(triggerPath)) {
       return {
@@ -113,14 +133,24 @@ export function getTelegramCheckTriggerState(triggerPath: string, _lastSeenMtime
 export function consumeTelegramCheckTrigger(
   triggerPath: string,
   lastSeenMtimeMs: number,
-): { triggered: boolean; nextSeen: number; request: TelegramCheckTriggerRequestV1 | null } {
+): {
+  triggered: boolean;
+  nextSeen: number;
+  request: TelegramCheckTriggerRequestV1 | null;
+} {
   try {
-    if (!existsSync(triggerPath)) return { triggered: false, nextSeen: lastSeenMtimeMs, request: null };
+    if (!existsSync(triggerPath))
+      return { triggered: false, nextSeen: lastSeenMtimeMs, request: null };
     const st = statSync(triggerPath);
     const mtime = st.mtimeMs || Date.now();
-    if (mtime <= lastSeenMtimeMs) return { triggered: false, nextSeen: lastSeenMtimeMs, request: null };
+    if (mtime <= lastSeenMtimeMs)
+      return { triggered: false, nextSeen: lastSeenMtimeMs, request: null };
     const request = readTelegramCheckTrigger(triggerPath);
-    try { unlinkSync(triggerPath); } catch { /* ignore */ }
+    try {
+      unlinkSync(triggerPath);
+    } catch {
+      /* ignore */
+    }
     return { triggered: true, nextSeen: mtime, request };
   } catch {
     return { triggered: false, nextSeen: lastSeenMtimeMs, request: null };

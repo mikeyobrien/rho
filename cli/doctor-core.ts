@@ -24,7 +24,11 @@ export interface DoctorInput {
   binaries: Record<string, { version: string | null; exists: boolean }>;
   configFiles: Record<string, { exists: boolean; parseError: string | null }>;
   moduleFiles: Map<string, { missing: string[] }>;
-  piIntegration: { settingsExists: boolean; rhoEntryFound: boolean; rhoEntryInSync: boolean | null };
+  piIntegration: {
+    settingsExists: boolean;
+    rhoEntryFound: boolean;
+    rhoEntryInSync: boolean | null;
+  };
   dataDirs: Record<string, boolean>;
   auth: Record<string, boolean>;
   emailModuleEnabled: boolean;
@@ -321,9 +325,9 @@ const STATUS_ICONS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  ok: "\x1b[32m",    // green
-  warn: "\x1b[33m",  // yellow
-  fail: "\x1b[31m",  // red
+  ok: "\x1b[32m", // green
+  warn: "\x1b[33m", // yellow
+  fail: "\x1b[31m", // red
 };
 const RESET = "\x1b[0m";
 

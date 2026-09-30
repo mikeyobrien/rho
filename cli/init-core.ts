@@ -86,10 +86,7 @@ const DATA_DIRS = ["brain", "vault"] as const;
  */
 export function detectPlatform(): Platform {
   // Termux / Android detection
-  if (
-    process.env.ANDROID_ROOT ||
-    process.env.PREFIX?.includes("com.termux")
-  ) {
+  if (process.env.ANDROID_ROOT || process.env.PREFIX?.includes("com.termux")) {
     return "android";
   }
 
@@ -137,16 +134,16 @@ export function planInit(input: PlanInitInput): InitPlan {
   const existingConfigs: string[] = [];
 
   // Generate each config file if not already present
-  if (!existingFiles.has("init.toml")) {
-    filesToCreate.set("init.toml", generateInitToml(name));
-  } else {
+  if (existingFiles.has("init.toml")) {
     existingConfigs.push("init.toml");
+  } else {
+    filesToCreate.set("init.toml", generateInitToml(name));
   }
 
-  if (!existingFiles.has("packages.toml")) {
-    filesToCreate.set("packages.toml", generatePackagesToml());
-  } else {
+  if (existingFiles.has("packages.toml")) {
     existingConfigs.push("packages.toml");
+  } else {
+    filesToCreate.set("packages.toml", generatePackagesToml());
   }
 
   // Data directories are always in the plan (mkdir -p is idempotent)
@@ -171,8 +168,14 @@ export function planInit(input: PlanInitInput): InitPlan {
  */
 export function planBootstrap(input: PlanBootstrapInput): BootstrapPlan {
   const {
-    name, rhoDir, piDir, platform,
-    existingRhoFiles, existingBrainFiles, tmuxConfigExists, force,
+    name,
+    rhoDir,
+    piDir,
+    platform,
+    existingRhoFiles,
+    existingBrainFiles,
+    tmuxConfigExists,
+    force,
   } = input;
 
   const filesToCreate = new Map<string, string>();

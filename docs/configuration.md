@@ -13,11 +13,13 @@ Both are created by `rho init`. Edit either one, then run `rho sync`.
 
 Fresh installs keep Rho's Pi state separate from ordinary Pi:
 
-- `~/.rho/pi-agent` — agent directory, including `settings.json`
-- `~/.rho/pi-agent/auth.json` — credentials created by `rho login`
-- `~/.rho/sessions` — Rho session logs
+- `~/.rho/agent` — agent directory, including `settings.json`. Same shape as `~/.pi/agent`
+- `~/.rho/agent/auth.json` — credentials created by `rho login`
+- `~/.rho/agent/sessions/<encoded-cwd>` — Rho session logs. Rho does not set `PI_CODING_AGENT_SESSION_DIR`, so Pi applies its own cwd buckets
 - `~/.rho/workspace` — Rho workspace
 - `~/.rho/layout.json` — v2 layout marker
+
+An existing v2 install that still has `~/.rho/pi-agent` or a flat `~/.rho/sessions` is moved onto this layout the next time a v2 command runs. Files that already exist at the destination are left in place.
 
 `rho login` does not read or copy `~/.pi/agent/auth.json`. Ordinary `pi` keeps its own login.
 
@@ -75,11 +77,12 @@ visual-explainer = true  # External visual explainer skill package
 
 [modules.ui]
 usage-bars = true     # Token/cost usage display
+tidy-tools = true     # Compact tool output
 ```
 
 **Core modules are always on.** Setting `heartbeat = false` or `memory = false` has no effect — they're forced enabled. You'll get a warning from `rho sync` if you try.
 
-Some modules are backed by external packages (`subagents`, `messenger`, `interactive-shell`, `web-access`, `mcp-adapter`, `interview-tool`, `visual-explainer`). When enabled, `rho sync` installs their package sources automatically; when disabled, `rho sync` removes them. For `visual-explainer`, sync applies a `skills = ["SKILL.md"]` filter so non-skill markdown files (like README/CHANGELOG) are not treated as skills.
+Some modules are backed by external packages (`subagents`, `messenger`, `interactive-shell`, `web-access`, `mcp-adapter`, `interview-tool`, `visual-explainer`, `tidy-tools`). When enabled, `rho sync` installs their package sources automatically; when disabled, `rho sync` removes them. For `visual-explainer`, sync applies a `skills = ["SKILL.md"]` filter so non-skill markdown files (like README/CHANGELOG) are not treated as skills.
 
 Attribution for those default third-party modules:
 Special thanks to **Nico Bailon (@nicobailon)** for building and maintaining these packages.
@@ -90,6 +93,7 @@ Special thanks to **Nico Bailon (@nicobailon)** for building and maintaining the
 - `mcp-adapter` → [`nicobailon/pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter)
 - `interview-tool` (`pi-interview`) → [`nicobailon/pi-interview-tool`](https://github.com/nicobailon/pi-interview-tool)
 - `visual-explainer` → [`nicobailon/visual-explainer`](https://github.com/nicobailon/visual-explainer)
+- `tidy-tools` → [`@mobrienv/pi-tidy-tools`](https://www.npmjs.com/package/@mobrienv/pi-tidy-tools)
 
 **Disabling a module** removes its extensions and skills from what pi loads. Set it to `false` or delete the line:
 

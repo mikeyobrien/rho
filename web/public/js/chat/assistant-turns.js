@@ -201,10 +201,7 @@ function mergeToolResultsIntoSessionMessages(messages) {
 		const resultText = extractToolResultText(message);
 		for (let index = mergedMessages.length - 1; index >= 0; index--) {
 			const candidate = mergedMessages[index];
-			if (
-				candidate?.role !== "assistant" ||
-				!Array.isArray(candidate.content)
-			) {
+			if (candidate?.role !== "assistant" || !Array.isArray(candidate.content)) {
 				continue;
 			}
 			const toolCall =

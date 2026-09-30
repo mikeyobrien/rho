@@ -62,10 +62,7 @@ export function resolveAutoMemoryRange(
 	}
 
 	startIndex = Math.max(0, Math.min(startIndex, safeMessages.length));
-	const contextStartIndex = Math.max(
-		0,
-		startIndex - Math.max(0, contextWindow),
-	);
+	const contextStartIndex = Math.max(0, startIndex - Math.max(0, contextWindow));
 	return {
 		startIndex,
 		contextStartIndex,

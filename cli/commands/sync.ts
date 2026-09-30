@@ -22,7 +22,11 @@ import {
 } from "../config.ts";
 import { PID_FILE } from "../daemon-core.ts";
 import { atomicWrite, refuseLegacy } from "../install-kind.ts";
-import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths } from "../rho-paths.ts";
+import {
+	buildPiChildEnv,
+	piLaunchArgs,
+	resolveRhoPaths,
+} from "../rho-paths.ts";
 import {
 	type SyncLock,
 	collectExternalModulePackages,
@@ -63,7 +67,7 @@ export async function run(args: string[]): Promise<void> {
 Reconcile ~/.rho/init.toml and packages.toml with pi settings.
 
 Reads your Rho config, builds module filters, updates
-~/.rho/pi-agent/settings.json, installs/removes third-party packages
+~/.rho/agent/settings.json, installs/removes third-party packages
 declared in packages.toml, and writes ~/.rho/sync.lock.
 
 Options:
@@ -338,10 +342,7 @@ function getDisabledModuleNames(
 	config: ReturnType<typeof parseInitToml>,
 ): string[] {
 	const names: string[] = [];
-	for (const cat of Object.values(config.modules) as Record<
-		string,
-		boolean
-	>[]) {
+	for (const cat of Object.values(config.modules) as Record<string, boolean>[]) {
 		for (const [name, enabled] of Object.entries(cat)) {
 			if (!enabled) names.push(name);
 		}
@@ -389,11 +390,7 @@ function pickRhoSource(input: {
 		if (idx >= 0) {
 			const entry = packages[idx];
 			if (typeof entry === "string") return entry;
-			if (
-				entry &&
-				typeof entry === "object" &&
-				typeof entry.source === "string"
-			)
+			if (entry && typeof entry === "object" && typeof entry.source === "string")
 				return entry.source;
 		}
 
@@ -469,8 +466,7 @@ function signalDaemonReload(opts: { verbose: boolean }): void {
 
 	try {
 		process.kill(pid, "SIGHUP");
-		if (opts.verbose)
-			console.log("  Signaled daemon to reload config (SIGHUP)");
+		if (opts.verbose) console.log("  Signaled daemon to reload config (SIGHUP)");
 	} catch {
 		// ignore
 	}
@@ -562,9 +558,11 @@ function applyPackagesTomlFilters(
 				source: pkg.source,
 			};
 
-			if (pkg.extensions === undefined) next.extensions = undefined; else next.extensions = pkg.extensions;
+			if (pkg.extensions === undefined) next.extensions = undefined;
+			else next.extensions = pkg.extensions;
 
-			if (pkg.skills === undefined) next.skills = undefined; else next.skills = pkg.skills;
+			if (pkg.skills === undefined) next.skills = undefined;
+			else next.skills = pkg.skills;
 
 			packages[idx] = next;
 		}

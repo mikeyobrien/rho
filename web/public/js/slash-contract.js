@@ -84,7 +84,8 @@ function normalizeCommandsPayload(payload) {
       return {
         name,
         source: typeof command.source === "string" ? command.source : "unknown",
-        description: typeof command.description === "string" ? command.description : "",
+        description:
+          typeof command.description === "string" ? command.description : "",
         path: typeof command.path === "string" ? command.path : "",
         location: typeof command.location === "string" ? command.location : "",
       };
@@ -109,7 +110,10 @@ function classifySlashCommand(message, commandIndex, options = {}) {
     return parsed;
   }
 
-  const commandMap = commandIndex instanceof Map ? commandIndex : buildCommandIndex(commandIndex);
+  const commandMap =
+    commandIndex instanceof Map
+      ? commandIndex
+      : buildCommandIndex(commandIndex);
   const command = commandMap.get(parsed.commandName);
   if (command) {
     return {
@@ -121,9 +125,10 @@ function classifySlashCommand(message, commandIndex, options = {}) {
     };
   }
 
-  const interactiveOnly = options.interactiveOnlyCommands instanceof Set
-    ? options.interactiveOnlyCommands
-    : INTERACTIVE_ONLY_SLASH_COMMANDS;
+  const interactiveOnly =
+    options.interactiveOnlyCommands instanceof Set
+      ? options.interactiveOnlyCommands
+      : INTERACTIVE_ONLY_SLASH_COMMANDS;
 
   if (interactiveOnly.has(parsed.commandName)) {
     return {
@@ -142,7 +147,11 @@ function classifySlashCommand(message, commandIndex, options = {}) {
   };
 }
 
-function resolvePromptOptions(classification, isStreaming, defaultStreamingBehavior = "steer") {
+function resolvePromptOptions(
+  classification,
+  isStreaming,
+  defaultStreamingBehavior = "steer",
+) {
   if (!classification || classification.kind !== "supported" || !isStreaming) {
     return {};
   }
@@ -164,7 +173,9 @@ function shortcutSuggestion(commandName) {
 }
 
 function formatUnsupportedMessage(classification) {
-  const command = classification?.commandName ? `/${classification.commandName}` : "slash command";
+  const command = classification?.commandName
+    ? `/${classification.commandName}`
+    : "slash command";
   if (classification?.kind === "interactive_only") {
     return `Unsupported slash command ${command}. This command only runs in the interactive TUI.`;
   }
@@ -184,16 +195,23 @@ function formatUnsupportedMessage(classification) {
 
 function formatPromptFailure(inputMessage, rawError) {
   const parsed = parseSlashInput(inputMessage);
-  const message = typeof rawError === "string" && rawError.trim() ? rawError.trim() : "RPC prompt failed";
+  const message =
+    typeof rawError === "string" && rawError.trim()
+      ? rawError.trim()
+      : "RPC prompt failed";
 
   if (!parsed.isSlash) {
     return message;
   }
 
-  const command = parsed.commandName ? `/${parsed.commandName}` : "slash command";
+  const command = parsed.commandName
+    ? `/${parsed.commandName}`
+    : "slash command";
 
   if (/unknown command|not found|unrecognized|unsupported/i.test(message)) {
-    const suggestion = parsed.commandName ? shortcutSuggestion(parsed.commandName) : null;
+    const suggestion = parsed.commandName
+      ? shortcutSuggestion(parsed.commandName)
+      : null;
     if (suggestion) {
       return `Unsupported slash command ${command}. ${suggestion}`;
     }

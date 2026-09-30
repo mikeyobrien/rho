@@ -26,7 +26,9 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+    console.error(
+      `  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+    );
     FAIL++;
   }
 }
@@ -45,14 +47,24 @@ try {
 
 if (stateMod) {
   const getBootstrapState = stateMod.getBootstrapState as
-    | ((entries: BrainEntry[]) => { status: string; version?: string; completedAt?: string })
+    | ((entries: BrainEntry[]) => {
+        status: string;
+        version?: string;
+        completedAt?: string;
+      })
     | undefined;
   const markBootstrapCompleted = stateMod.markBootstrapCompleted as
     | ((entries: BrainEntry[], version: string, nowIso: string) => BrainEntry[])
     | undefined;
 
-  assert(typeof getBootstrapState === "function", "BS-001: getBootstrapState exists");
-  assert(typeof markBootstrapCompleted === "function", "BS-002: markBootstrapCompleted exists");
+  assert(
+    typeof getBootstrapState === "function",
+    "BS-001: getBootstrapState exists",
+  );
+  assert(
+    typeof markBootstrapCompleted === "function",
+    "BS-002: markBootstrapCompleted exists",
+  );
 
   if (getBootstrapState) {
     const s0 = getBootstrapState([]);
@@ -72,15 +84,31 @@ if (stateMod) {
     const byKey = new Map(
       updated
         .filter((e) => e.type === "meta")
-        .map((e) => [String(e.key), e.value])
+        .map((e) => [String(e.key), e.value]),
     );
 
-    assertEq(byKey.get("bootstrap.completed"), true, "BS-002: writes bootstrap.completed=true");
-    assertEq(byKey.get("bootstrap.version"), "agentic-v1", "BS-002: writes bootstrap.version");
-    assertEq(byKey.get("bootstrap.completedAt"), nowIso, "BS-002: writes bootstrap.completedAt");
+    assertEq(
+      byKey.get("bootstrap.completed"),
+      true,
+      "BS-002: writes bootstrap.completed=true",
+    );
+    assertEq(
+      byKey.get("bootstrap.version"),
+      "agentic-v1",
+      "BS-002: writes bootstrap.version",
+    );
+    assertEq(
+      byKey.get("bootstrap.completedAt"),
+      nowIso,
+      "BS-002: writes bootstrap.completedAt",
+    );
 
     const s2 = getBootstrapState(updated);
-    assertEq(s2.status, "completed", "BS-002: completed meta => completed state");
+    assertEq(
+      s2.status,
+      "completed",
+      "BS-002: completed meta => completed state",
+    );
   }
 }
 

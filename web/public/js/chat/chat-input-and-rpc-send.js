@@ -60,9 +60,7 @@ export const rhoChatInputMethods = {
 							}
 							if (part.type === "text") {
 								if (part.render === "html") {
-									part.content = renderMarkdown(
-										part.rawContent || part.content,
-									);
+									part.content = renderMarkdown(part.rawContent || part.content);
 									modified = true;
 								}
 								part.isRendered = true;

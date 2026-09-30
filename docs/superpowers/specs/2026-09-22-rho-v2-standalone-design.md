@@ -17,19 +17,19 @@ Rho owns one shared path resolver usable by its CLI, extensions, and web layer, 
 | Resource | Rho v2 default | Ordinary Pi remains |
 | --- | --- | --- |
 | Rho configuration, brain, vault, daemon state | `~/.rho/` existing structure | Unchanged |
-| Pi agent settings, auth, models, extensions, skills | `~/.rho/pi-agent/` | `~/.pi/agent/` |
-| Pi sessions | `~/.rho/sessions/` | Existing Pi session store |
+| Pi agent settings, auth, models, extensions, skills | `~/.rho/agent/` | `~/.pi/agent/` |
+| Pi sessions | `~/.rho/agent/sessions/<encoded-cwd>/` | Existing Pi session store |
 | Interactive/daemon/web working directory | `~/.rho/workspace/` | Caller-selected Pi cwd |
 | Rho-managed package installation | Scoped to Rho's Pi agent directory | No Rho package entry added |
 
-The `rho` process sets `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` only for its Pi children, not globally in the user's shell. It launches Pi with Rho's workspace as cwd unless the user intentionally chooses another project cwd for a Rho session; even then the agent and session directories stay isolated. This is a state boundary, not a filesystem sandbox: tools can still reach paths available to the OS user. Paths are resolved once and passed explicitly across module boundaries rather than independently recomputed as `HOME/.pi/agent`. No symlink or shared settings file is used to emulate isolation.
+The `rho` process sets `PI_CODING_AGENT_DIR` only for its Pi children, not globally in the user's shell. It does not set `PI_CODING_AGENT_SESSION_DIR` or pass `--session-dir`, so Pi keeps its cwd-bucketed session layout under the Rho agent directory. It launches Pi with Rho's workspace as cwd unless the user intentionally chooses another project cwd for a Rho session; even then the agent and session directories stay isolated. This is a state boundary, not a filesystem sandbox: tools can still reach paths available to the OS user. Paths are resolved once and passed explicitly across module boundaries rather than independently recomputed as `HOME/.pi/agent`. No symlink or shared settings file is used to emulate isolation.
 
 ## Install and runtime flow
 
 1. `rho init` seeds the Rho-owned agent directory and workspace without modifying ordinary Pi. `install.sh` must never delete or relink resources in `~/.pi/agent`; the development-link route targets only the Rho-owned directory.
 2. `rho sync` reconciles Rho package and module settings in the isolated `settings.json`. Every `pi install`/`pi remove` subprocess receives the same scoped environment. Existing entries in the ordinary Pi settings file remain byte-for-byte unchanged.
 3. `rho login` opens Pi under the Rho agent directory and displays the isolated auth path. It neither silently copies nor reads existing Pi credentials. The normal `pi` command keeps its existing login.
-4. `rho start`, attach, trigger, daemon recovery, web RPC, and channel sessions launch Pi with the same agent directory, session directory, and workspace. Tmux propagation must be explicit so an existing tmux server's environment cannot silently drop the boundary. Session browsing and Telegram's session map point only at Rho sessions.
+4. `rho start`, attach, trigger, daemon recovery, web RPC, and channel sessions launch Pi with the same agent directory and workspace. Session files stay under that agent directory in Pi's cwd buckets. Tmux propagation must be explicit so an existing tmux server's environment cannot silently drop the boundary. Session browsing and Telegram's session map point only at Rho sessions.
 5. `rho doctor` reports the effective paths and detects wrong-directory settings, missing Pi executable, inaccessible directories, or an already-running legacy daemon. It does not repair or delete foreign files without explicit user action.
 6. Rho's memory, usage display, and skill-provider paths resolve against Rho-owned storage; shared user-level skill locations are not written by default. Any optional external skill provider that cannot be scoped must fail with an explanation rather than install into ordinary Pi.
 

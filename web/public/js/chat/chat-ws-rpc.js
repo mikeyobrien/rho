@@ -156,8 +156,7 @@ export const rhoChatWsRpcMethods = {
 			}
 			if (hasStalePendingRpcCommands(this)) {
 				bumpPendingRpcQueuedAt(this);
-				this.reconnectBannerMessage =
-					"Command response timed out. Reconnecting…";
+				this.reconnectBannerMessage = "Command response timed out. Reconnecting…";
 				this.showReconnectBanner = true;
 				this.connectWebSocket(true);
 				return;
@@ -213,10 +212,10 @@ export const rhoChatWsRpcMethods = {
 			typeof nextPayload.command.id === "string"
 				? nextPayload.command.id.trim()
 				: "";
-		if (!commandId) {
-			nextPayload.command.id = this.nextRpcCommandId();
-		} else {
+		if (commandId) {
 			nextPayload.command.id = commandId;
+		} else {
+			nextPayload.command.id = this.nextRpcCommandId();
 		}
 
 		return nextPayload;

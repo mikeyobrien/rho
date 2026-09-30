@@ -28,7 +28,11 @@ async function main() {
 
   console.log(`sent message_id=${sent.message_id} chat_id=${sent.chat.id}`);
 
-  const updates = await client.getUpdates({ timeout: 1, offset: 0, allowed_updates: ["message"] });
+  const updates = await client.getUpdates({
+    timeout: 1,
+    offset: 0,
+    allowed_updates: ["message"],
+  });
   console.log(`fetched updates=${updates.length}`);
 }
 

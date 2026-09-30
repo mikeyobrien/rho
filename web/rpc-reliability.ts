@@ -271,10 +271,7 @@ export class RpcSessionReliability {
 				nextSeq: 1,
 				events: [],
 				seenCommandIds: new Map<string, number>(),
-				responseByCommandId: new Map<
-					string,
-					{ event: RPCEvent; seq: number }
-				>(),
+				responseByCommandId: new Map<string, { event: RPCEvent; seq: number }>(),
 				orphanTimer: null,
 				orphanStopTimer: null,
 			};

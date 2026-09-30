@@ -47,7 +47,9 @@ function assertIncludes(haystack: string, needle: string, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} -- "${haystack}" does not include "${needle}"`);
+    console.error(
+      `  FAIL: ${label} -- "${haystack}" does not include "${needle}"`,
+    );
     FAIL++;
   }
 }
@@ -87,14 +89,21 @@ function fold(brainPath: string): MaterializedBrain {
 console.log("\n--- 1. add learning ---");
 {
   setup();
-  const res = await handleBrainAction(bp(), { action: "add", type: "learning", text: "Use pnpm" });
+  const res = await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Use pnpm",
+  });
   assertEq(res.ok, true, "add learning ok");
   const brain = fold(bp());
   assertEq(brain.learnings.length, 1, "1 learning in brain");
   assertEq(brain.learnings[0].text, "Use pnpm", "learning text correct");
 
   // list returns it
-  const list = await handleBrainAction(bp(), { action: "list", type: "learning" });
+  const list = await handleBrainAction(bp(), {
+    action: "list",
+    type: "learning",
+  });
   assertEq(list.ok, true, "list ok");
   assertIncludes(list.message, "Use pnpm", "list shows learning text");
   cleanup();
@@ -106,10 +115,22 @@ console.log("\n--- 1. add learning ---");
 console.log("\n--- 2. add learning duplicate ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Use pnpm" });
-  const res = await handleBrainAction(bp(), { action: "add", type: "learning", text: "Use pnpm" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Use pnpm",
+  });
+  const res = await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Use pnpm",
+  });
   assertEq(res.ok, false, "duplicate rejected");
-  assertIncludes(res.message.toLowerCase(), "duplicate", "message says duplicate");
+  assertIncludes(
+    res.message.toLowerCase(),
+    "duplicate",
+    "message says duplicate",
+  );
   const brain = fold(bp());
   assertEq(brain.learnings.length, 1, "still only 1 learning");
   cleanup();
@@ -122,7 +143,10 @@ console.log("\n--- 3. add preference ---");
 {
   setup();
   const res = await handleBrainAction(bp(), {
-    action: "add", type: "preference", category: "Code", text: "Early returns over nested ifs",
+    action: "add",
+    type: "preference",
+    category: "Code",
+    text: "Early returns over nested ifs",
   });
   assertEq(res.ok, true, "add preference ok");
   const brain = fold(bp());
@@ -138,7 +162,10 @@ console.log("\n--- 4. add behavior valid ---");
 {
   setup();
   const res = await handleBrainAction(bp(), {
-    action: "add", type: "behavior", category: "do", text: "Be direct",
+    action: "add",
+    type: "behavior",
+    category: "do",
+    text: "Be direct",
   });
   assertEq(res.ok, true, "add behavior ok");
   const brain = fold(bp());
@@ -154,7 +181,10 @@ console.log("\n--- 5. add behavior invalid category ---");
 {
   setup();
   const res = await handleBrainAction(bp(), {
-    action: "add", type: "behavior", category: "maybe", text: "Be vague",
+    action: "add",
+    type: "behavior",
+    category: "maybe",
+    text: "Be vague",
   });
   assertEq(res.ok, false, "invalid category rejected");
   assertIncludes(res.message, "do", "error mentions valid categories");
@@ -169,11 +199,29 @@ console.log("\n--- 5. add behavior invalid category ---");
 console.log("\n--- 6. add identity auto-upsert ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "identity", key: "name", value: "rho" });
-  await handleBrainAction(bp(), { action: "add", type: "identity", key: "name", value: "rho-v2" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "identity",
+    key: "name",
+    value: "rho",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "identity",
+    key: "name",
+    value: "rho-v2",
+  });
   const brain = fold(bp());
-  assertEq(brain.identity.size, 1, "identity: 1 entry after 2 adds with same key");
-  assertEq(brain.identity.get("name")!.value, "rho-v2", "identity: latest value wins");
+  assertEq(
+    brain.identity.size,
+    1,
+    "identity: 1 entry after 2 adds with same key",
+  );
+  assertEq(
+    brain.identity.get("name")!.value,
+    "rho-v2",
+    "identity: latest value wins",
+  );
   cleanup();
 }
 
@@ -183,8 +231,18 @@ console.log("\n--- 6. add identity auto-upsert ---");
 console.log("\n--- 7. add user auto-upsert ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "user", key: "name", value: "Mikey" });
-  await handleBrainAction(bp(), { action: "add", type: "user", key: "name", value: "Mike" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "user",
+    key: "name",
+    value: "Mikey",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "user",
+    key: "name",
+    value: "Mike",
+  });
   const brain = fold(bp());
   assertEq(brain.user.size, 1, "user: 1 entry after 2 adds");
   assertEq(brain.user.get("name")!.value, "Mike", "user: latest value wins");
@@ -198,14 +256,26 @@ console.log("\n--- 8. add context auto-upsert ---");
 {
   setup();
   await handleBrainAction(bp(), {
-    action: "add", type: "context", project: "rho", path: "/home/rho", content: "old context",
+    action: "add",
+    type: "context",
+    project: "rho",
+    path: "/home/rho",
+    content: "old context",
   });
   await handleBrainAction(bp(), {
-    action: "add", type: "context", project: "rho", path: "/home/rho", content: "new context",
+    action: "add",
+    type: "context",
+    project: "rho",
+    path: "/home/rho",
+    content: "new context",
   });
   const brain = fold(bp());
   assertEq(brain.contexts.length, 1, "context: 1 entry after 2 adds");
-  assertEq(brain.contexts[0].content, "new context", "context: latest content wins");
+  assertEq(
+    brain.contexts[0].content,
+    "new context",
+    "context: latest content wins",
+  );
   cleanup();
 }
 
@@ -216,8 +286,11 @@ console.log("\n--- 9. add reminder ---");
 {
   setup();
   const res = await handleBrainAction(bp(), {
-    action: "add", type: "reminder", text: "Check weather",
-    enabled: true, cadence: { kind: "interval", every: "30m" },
+    action: "add",
+    type: "reminder",
+    text: "Check weather",
+    enabled: true,
+    cadence: { kind: "interval", every: "30m" },
   });
   assertEq(res.ok, true, "add reminder ok");
   const brain = fold(bp());
@@ -234,7 +307,9 @@ console.log("\n--- 10. add task ---");
 {
   setup();
   const res = await handleBrainAction(bp(), {
-    action: "add", type: "task", description: "Deploy app",
+    action: "add",
+    type: "task",
+    description: "Deploy app",
   });
   assertEq(res.ok, true, "add task ok");
   const brain = fold(bp());
@@ -257,7 +332,10 @@ console.log("\n--- 11. add missing required field ---");
 {
   setup();
   // learning without text
-  const res = await handleBrainAction(bp(), { action: "add", type: "learning" });
+  const res = await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+  });
   assertEq(res.ok, false, "missing text rejected");
   assertIncludes(res.message, "text", "error mentions missing field");
   assert(!fs.existsSync(bp()), "no file created");
@@ -270,7 +348,11 @@ console.log("\n--- 11. add missing required field ---");
 console.log("\n--- 12. add unknown type ---");
 {
   setup();
-  const res = await handleBrainAction(bp(), { action: "add", type: "alien", data: "foo" });
+  const res = await handleBrainAction(bp(), {
+    action: "add",
+    type: "alien",
+    data: "foo",
+  });
   assertEq(res.ok, false, "unknown type rejected");
   assertIncludes(res.message, "alien", "error mentions the type");
   cleanup();
@@ -283,13 +365,17 @@ console.log("\n--- 13. update merges fields ---");
 {
   setup();
   const addRes = await handleBrainAction(bp(), {
-    action: "add", type: "task", description: "Deploy app",
+    action: "add",
+    type: "task",
+    description: "Deploy app",
   });
   const brain1 = fold(bp());
   const taskId = brain1.tasks[0].id;
 
   const upd = await handleBrainAction(bp(), {
-    action: "update", id: taskId, priority: "high",
+    action: "update",
+    id: taskId,
+    priority: "high",
   });
   assertEq(upd.ok, true, "update ok");
   const brain2 = fold(bp());
@@ -306,7 +392,9 @@ console.log("\n--- 14. update nonexistent id ---");
 {
   setup();
   const res = await handleBrainAction(bp(), {
-    action: "update", id: "deadbeef", priority: "high",
+    action: "update",
+    id: "deadbeef",
+    priority: "high",
   });
   assertEq(res.ok, false, "update nonexistent fails");
   assertIncludes(res.message, "deadbeef", "error mentions the id");
@@ -319,7 +407,11 @@ console.log("\n--- 14. update nonexistent id ---");
 console.log("\n--- 15. remove by id ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Fact A" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Fact A",
+  });
   const brain1 = fold(bp());
   const id = brain1.learnings[0].id;
 
@@ -337,11 +429,20 @@ console.log("\n--- 15. remove by id ---");
 console.log("\n--- 16. remove by natural key ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "user", key: "name", value: "Mikey" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "user",
+    key: "name",
+    value: "Mikey",
+  });
   const brain1 = fold(bp());
   assertEq(brain1.user.size, 1, "user exists before remove");
 
-  const res = await handleBrainAction(bp(), { action: "remove", type: "user", key: "name" });
+  const res = await handleBrainAction(bp(), {
+    action: "remove",
+    type: "user",
+    key: "name",
+  });
   assertEq(res.ok, true, "remove by natural key ok");
   const brain2 = fold(bp());
   assertEq(brain2.user.size, 0, "user removed");
@@ -354,11 +455,27 @@ console.log("\n--- 16. remove by natural key ---");
 console.log("\n--- 17. list type=learning ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Fact A" });
-  await handleBrainAction(bp(), { action: "add", type: "preference", category: "Code", text: "Tabs" });
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Fact B" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Fact A",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "preference",
+    category: "Code",
+    text: "Tabs",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Fact B",
+  });
 
-  const res = await handleBrainAction(bp(), { action: "list", type: "learning" });
+  const res = await handleBrainAction(bp(), {
+    action: "list",
+    type: "learning",
+  });
   assertEq(res.ok, true, "list ok");
   assertIncludes(res.message, "Fact A", "list shows Fact A");
   assertIncludes(res.message, "Fact B", "list shows Fact B");
@@ -372,11 +489,27 @@ console.log("\n--- 17. list type=learning ---");
 console.log("\n--- 18. list with query ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Use pnpm not npm" });
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "API uses snake_case" });
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Prefer early returns" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Use pnpm not npm",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "API uses snake_case",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Prefer early returns",
+  });
 
-  const res = await handleBrainAction(bp(), { action: "list", type: "learning", query: "pnpm" });
+  const res = await handleBrainAction(bp(), {
+    action: "list",
+    type: "learning",
+    query: "pnpm",
+  });
   assertEq(res.ok, true, "list with query ok");
   assertIncludes(res.message, "pnpm", "query match found");
   assert(!res.message.includes("snake_case"), "non-match excluded");
@@ -390,14 +523,26 @@ console.log("\n--- 18. list with query ---");
 console.log("\n--- 19. list filter=pending ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "task", description: "Task A" });
-  await handleBrainAction(bp(), { action: "add", type: "task", description: "Task B" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "task",
+    description: "Task A",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "task",
+    description: "Task B",
+  });
   // mark Task A done
   const brain1 = fold(bp());
-  const taskAId = brain1.tasks.find(t => t.description === "Task A")!.id;
+  const taskAId = brain1.tasks.find((t) => t.description === "Task A")!.id;
   await handleBrainAction(bp(), { action: "task_done", id: taskAId });
 
-  const res = await handleBrainAction(bp(), { action: "list", type: "task", filter: "pending" });
+  const res = await handleBrainAction(bp(), {
+    action: "list",
+    type: "task",
+    filter: "pending",
+  });
   assertEq(res.ok, true, "list pending ok");
   assertIncludes(res.message, "Task B", "pending task shown");
   assert(!res.message.includes("Task A"), "done task excluded");
@@ -410,8 +555,15 @@ console.log("\n--- 19. list filter=pending ---");
 console.log("\n--- 20. list default compact format ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Use pnpm" });
-  const res = await handleBrainAction(bp(), { action: "list", type: "learning" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Use pnpm",
+  });
+  const res = await handleBrainAction(bp(), {
+    action: "list",
+    type: "learning",
+  });
   assertEq(res.ok, true, "list ok");
   // compact should NOT be raw JSON (no opening brace for an object/array)
   assert(!res.message.trimStart().startsWith("{"), "not raw JSON object");
@@ -427,8 +579,16 @@ console.log("\n--- 20. list default compact format ---");
 console.log("\n--- 21. list verbose ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "learning", text: "Use pnpm" });
-  const res = await handleBrainAction(bp(), { action: "list", type: "learning", verbose: true });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "learning",
+    text: "Use pnpm",
+  });
+  const res = await handleBrainAction(bp(), {
+    action: "list",
+    type: "learning",
+    verbose: true,
+  });
   assertEq(res.ok, true, "list verbose ok");
   // verbose should have JSON structure markers
   assertIncludes(res.message, '"text"', "verbose includes JSON field names");
@@ -450,35 +610,65 @@ console.log("\n--- 22. decay ---");
   const recentDate = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000); // 5 days ago
 
   // Old learning (should be decayed)
-  await handleBrainAction(brainFile, { action: "add", type: "learning", text: "Old fact" });
+  await handleBrainAction(brainFile, {
+    action: "add",
+    type: "learning",
+    text: "Old fact",
+  });
   // Recent learning (should survive)
-  await handleBrainAction(brainFile, { action: "add", type: "learning", text: "Recent fact" });
+  await handleBrainAction(brainFile, {
+    action: "add",
+    type: "learning",
+    text: "Recent fact",
+  });
   // Manual old learning with high score should also survive (source=manual adds boost)
-  await handleBrainAction(brainFile, { action: "add", type: "learning", text: "Manual important fact", source: "manual" });
+  await handleBrainAction(brainFile, {
+    action: "add",
+    type: "learning",
+    text: "Manual important fact",
+    source: "manual",
+  });
 
   // Manually backdate the old entry
   const raw = fs.readFileSync(brainFile, "utf-8");
   const lines = raw.trim().split("\n");
-  const entries = lines.map(l => JSON.parse(l));
+  const entries = lines.map((l) => JSON.parse(l));
   // Backdate the first entry (Old fact)
   entries[0].created = oldDate.toISOString();
   // Backdate the manual entry too
   entries[2].created = oldDate.toISOString();
-  fs.writeFileSync(brainFile, entries.map(e => JSON.stringify(e)).join("\n") + "\n");
+  fs.writeFileSync(
+    brainFile,
+    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
 
-  const res = await handleBrainAction(brainFile, { action: "decay" }, {
-    decayAfterDays: 90, decayMinScore: 3,
-  });
+  const res = await handleBrainAction(
+    brainFile,
+    { action: "decay" },
+    {
+      decayAfterDays: 90,
+      decayMinScore: 3,
+    },
+  );
   assertEq(res.ok, true, "decay ok");
 
   const brain = fold(brainFile);
   // Old fact (score ~0, age 120d) should be decayed
-  assert(!brain.learnings.some(l => l.text === "Old fact"), "old low-score learning decayed");
+  assert(
+    !brain.learnings.some((l) => l.text === "Old fact"),
+    "old low-score learning decayed",
+  );
   // Recent fact (score ~9, age 5d) should survive
-  assert(brain.learnings.some(l => l.text === "Recent fact"), "recent learning survives");
+  assert(
+    brain.learnings.some((l) => l.text === "Recent fact"),
+    "recent learning survives",
+  );
   // Manual old fact (score ~0 recency + 2 manual = 2, still < 3) should be decayed
   // Actually let's check: recency = max(0, 10 - floor(120/7)) = max(0, 10 - 17) = 0. manual = 2. total = 2. < 3 → decayed.
-  assert(!brain.learnings.some(l => l.text === "Manual important fact"), "manual old low-total-score decayed");
+  assert(
+    !brain.learnings.some((l) => l.text === "Manual important fact"),
+    "manual old low-total-score decayed",
+  );
   cleanup();
 }
 
@@ -488,11 +678,18 @@ console.log("\n--- 22. decay ---");
 console.log("\n--- 23. task_done ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "task", description: "Ship it" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "task",
+    description: "Ship it",
+  });
   const brain1 = fold(bp());
   const taskId = brain1.tasks[0].id;
 
-  const res = await handleBrainAction(bp(), { action: "task_done", id: taskId });
+  const res = await handleBrainAction(bp(), {
+    action: "task_done",
+    id: taskId,
+  });
   assertEq(res.ok, true, "task_done ok");
   const brain2 = fold(bp());
   assertEq(brain2.tasks[0].status, "done", "status=done");
@@ -506,17 +703,29 @@ console.log("\n--- 23. task_done ---");
 console.log("\n--- 24. task_clear ---");
 {
   setup();
-  await handleBrainAction(bp(), { action: "add", type: "task", description: "Done task" });
-  await handleBrainAction(bp(), { action: "add", type: "task", description: "Pending task" });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "task",
+    description: "Done task",
+  });
+  await handleBrainAction(bp(), {
+    action: "add",
+    type: "task",
+    description: "Pending task",
+  });
   const brain1 = fold(bp());
-  const doneId = brain1.tasks.find(t => t.description === "Done task")!.id;
+  const doneId = brain1.tasks.find((t) => t.description === "Done task")!.id;
   await handleBrainAction(bp(), { action: "task_done", id: doneId });
 
   const res = await handleBrainAction(bp(), { action: "task_clear" });
   assertEq(res.ok, true, "task_clear ok");
   const brain2 = fold(bp());
   assertEq(brain2.tasks.length, 1, "only pending task remains");
-  assertEq(brain2.tasks[0].description, "Pending task", "pending task is the one that remains");
+  assertEq(
+    brain2.tasks[0].description,
+    "Pending task",
+    "pending task is the one that remains",
+  );
   cleanup();
 }
 
@@ -527,15 +736,20 @@ console.log("\n--- 25. reminder_run ---");
 {
   setup();
   await handleBrainAction(bp(), {
-    action: "add", type: "reminder", text: "Check weather",
-    enabled: true, cadence: { kind: "interval", every: "2h" },
+    action: "add",
+    type: "reminder",
+    text: "Check weather",
+    enabled: true,
+    cadence: { kind: "interval", every: "2h" },
   });
   const brain1 = fold(bp());
   const remId = brain1.reminders[0].id;
 
   const before = Date.now();
   const res = await handleBrainAction(bp(), {
-    action: "reminder_run", id: remId, result: "ok",
+    action: "reminder_run",
+    id: remId,
+    result: "ok",
   });
   const after = Date.now();
   assertEq(res.ok, true, "reminder_run ok");
@@ -550,7 +764,10 @@ console.log("\n--- 25. reminder_run ---");
   const nextDueMs = new Date(rem.next_due!).getTime();
   const expectedMin = before + 2 * 3600 * 1000 - 5000; // 5s tolerance
   const expectedMax = after + 2 * 3600 * 1000 + 5000;
-  assert(nextDueMs >= expectedMin && nextDueMs <= expectedMax, "next_due ~2h from now");
+  assert(
+    nextDueMs >= expectedMin && nextDueMs <= expectedMax,
+    "next_due ~2h from now",
+  );
   cleanup();
 }
 

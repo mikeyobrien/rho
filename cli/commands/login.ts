@@ -14,12 +14,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { refuseLegacy } from "../install-kind.ts";
-import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths } from "../rho-paths.ts";
+import {
+  buildPiChildEnv,
+  piLaunchArgs,
+  resolveRhoPaths,
+} from "../rho-paths.ts";
 
 const HOME = process.env.HOME || os.homedir();
 const PATHS = resolveRhoPaths(HOME);
 const AUTH_FILE = PATHS.authPath;
-const RHO_CLOUD_CREDS = path.join(HOME, ".config", "rho-cloud", "credentials.json");
+const RHO_CLOUD_CREDS = path.join(
+  HOME,
+  ".config",
+  "rho-cloud",
+  "credentials.json",
+);
 
 export async function run(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
@@ -99,13 +108,18 @@ function showStatus(): void {
             status = "expired";
           } else {
             const hours = Math.round((expires - now) / 3600000);
-            status = hours > 24 ? `${Math.round(hours / 24)}d remaining` : `${hours}h remaining`;
+            status =
+              hours > 24
+                ? `${Math.round(hours / 24)}d remaining`
+                : `${hours}h remaining`;
           }
         } else {
           status = "no expiry";
         }
         const refreshable = (cred as any)?.refresh ? ", auto-refresh" : "";
-        console.log(`  ${provider.padEnd(22)}${String(type).padEnd(12)}${status}${refreshable}`);
+        console.log(
+          `  ${provider.padEnd(22)}${String(type).padEnd(12)}${status}${refreshable}`,
+        );
       }
     } catch {
       console.log(`Could not parse ${AUTH_FILE}`);
@@ -118,10 +132,16 @@ function showStatus(): void {
   // rho cloud creds
   console.log("");
   if (fs.existsSync(RHO_CLOUD_CREDS)) {
-    console.log("Rho Cloud credentials: present (~/.config/rho-cloud/credentials.json)");
+    console.log(
+      "Rho Cloud credentials: present (~/.config/rho-cloud/credentials.json)",
+    );
   } else {
-    console.log("Rho Cloud credentials: missing (~/.config/rho-cloud/credentials.json)");
-    console.log("  To set up agent email, run the rho-cloud-onboard skill inside pi.");
+    console.log(
+      "Rho Cloud credentials: missing (~/.config/rho-cloud/credentials.json)",
+    );
+    console.log(
+      "  To set up agent email, run the rho-cloud-onboard skill inside pi.",
+    );
   }
 }
 

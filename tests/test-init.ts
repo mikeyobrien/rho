@@ -23,7 +23,9 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+    console.error(
+      `  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+    );
     FAIL++;
   }
 }
@@ -38,13 +40,17 @@ function assertIncludes(haystack: string, needle: string, label: string): void {
   }
 }
 
-function assertNotIncludes(haystack: string, needle: string, label: string): void {
-  if (!haystack.includes(needle)) {
-    console.log(`  PASS: ${label}`);
-    PASS++;
-  } else {
+function assertNotIncludes(
+  haystack: string,
+  needle: string,
+  label: string,
+): void {
+  if (haystack.includes(needle)) {
     console.error(`  FAIL: ${label} — "${needle}" should not be in output`);
     FAIL++;
+  } else {
+    console.log(`  PASS: ${label}`);
+    PASS++;
   }
 }
 
@@ -67,7 +73,6 @@ import {
   type InitPlan,
 } from "../cli/init-core.ts";
 
-
 // ===== detectPlatform tests =====
 console.log("\n=== detectPlatform ===\n");
 
@@ -86,7 +91,6 @@ console.log("\n=== detectPlatform ===\n");
     assertEq(platform, "android", "detects android in Termux");
   }
 }
-
 
 // ===== generateInitToml tests =====
 console.log("\n=== generateInitToml ===\n");
@@ -135,7 +139,10 @@ console.log("\n=== generateInitToml ===\n");
     ...Object.entries(config.modules.ui),
     ...Object.entries(config.modules.skills),
   ];
-  assert(allModules.length >= 10, `has at least 10 modules (got ${allModules.length})`);
+  assert(
+    allModules.length >= 10,
+    `has at least 10 modules (got ${allModules.length})`,
+  );
 
   const DEFAULT_FALSE = new Set(["email"]);
   for (const [name, enabled] of allModules) {
@@ -144,8 +151,13 @@ console.log("\n=== generateInitToml ===\n");
   }
 
   // Has comments (not just bare TOML)
-  const commentLines = result.split("\n").filter((l) => l.trimStart().startsWith("#"));
-  assert(commentLines.length >= 10, `has plenty of comments (${commentLines.length})`);
+  const commentLines = result
+    .split("\n")
+    .filter((l) => l.trimStart().startsWith("#"));
+  assert(
+    commentLines.length >= 10,
+    `has plenty of comments (${commentLines.length})`,
+  );
 
   // Has settings section
   assert(config.settings.heartbeat !== undefined, "has heartbeat settings");
@@ -155,7 +167,6 @@ console.log("\n=== generateInitToml ===\n");
     "heartbeat interval defaults to 30m",
   );
 }
-
 
 // ===== planInit tests =====
 console.log("\n=== planInit ===\n");
@@ -194,7 +205,10 @@ console.log("\n=== planInit ===\n");
 
   // Should NOT overwrite existing files
   assert(!plan.filesToCreate.has("init.toml"), "does not overwrite init.toml");
-  assert(!plan.filesToCreate.has("packages.toml"), "does not overwrite packages.toml");
+  assert(
+    !plan.filesToCreate.has("packages.toml"),
+    "does not overwrite packages.toml",
+  );
 
   // Should still create data dirs (idempotent)
   assert(plan.dirsToCreate.includes("brain"), "still creates brain dir");
@@ -212,8 +226,14 @@ console.log("\n=== planInit ===\n");
     existingFiles: new Set(["init.toml"]),
   });
 
-  assert(!plan.filesToCreate.has("init.toml"), "does not overwrite existing init.toml");
-  assert(plan.filesToCreate.has("packages.toml"), "creates missing packages.toml");
+  assert(
+    !plan.filesToCreate.has("init.toml"),
+    "does not overwrite existing init.toml",
+  );
+  assert(
+    plan.filesToCreate.has("packages.toml"),
+    "creates missing packages.toml",
+  );
 }
 
 {
@@ -230,7 +250,6 @@ console.log("\n=== planInit ===\n");
   assert(plan.dirsToCreate.includes("vault"), "vault dir always in plan");
 }
 
-
 // ===== Platform-specific behavior =====
 console.log("\n=== Platform detection ===\n");
 
@@ -243,7 +262,6 @@ console.log("\n=== Platform detection ===\n");
   );
 }
 
-
 // ===== Edge cases =====
 console.log("\n=== Edge cases ===\n");
 
@@ -254,7 +272,10 @@ console.log("\n=== Edge cases ===\n");
     rhoDir: "/tmp/test-rho",
     existingFiles: new Set(),
   });
-  assert(plan.filesToCreate.has("init.toml"), "empty name still generates files");
+  assert(
+    plan.filesToCreate.has("init.toml"),
+    "empty name still generates files",
+  );
 
   // Name with spaces
   const result = generateInitToml("my agent");
@@ -265,7 +286,6 @@ console.log("\n=== Edge cases ===\n");
     "name with spaces preserved in TOML",
   );
 }
-
 
 // ===== Integration: CLI smoke test =====
 console.log("\n=== CLI integration ===\n");
@@ -296,15 +316,25 @@ import { join } from "node:path";
     assertIncludes(result, "Next steps", "CLI output has next steps");
 
     // Check files were created
-    assert(existsSync(join(tmpRhoDir, "init.toml")), "init.toml created on disk");
-    assert(existsSync(join(tmpRhoDir, "packages.toml")), "packages.toml created on disk");
+    assert(
+      existsSync(join(tmpRhoDir, "init.toml")),
+      "init.toml created on disk",
+    );
+    assert(
+      existsSync(join(tmpRhoDir, "packages.toml")),
+      "packages.toml created on disk",
+    );
     assert(existsSync(join(tmpRhoDir, "brain")), "brain/ dir created on disk");
     assert(existsSync(join(tmpRhoDir, "vault")), "vault/ dir created on disk");
 
     // Verify init.toml content
     const initOnDisk = readFileSync(join(tmpRhoDir, "init.toml"), "utf-8");
     const parsedConfig = parseInitToml(initOnDisk);
-    assertEq(parsedConfig.agent.name, "testbot", "init.toml on disk has correct name");
+    assertEq(
+      parsedConfig.agent.name,
+      "testbot",
+      "init.toml on disk has correct name",
+    );
     const onDiskValidation = validateConfig(parsedConfig);
     assert(onDiskValidation.valid, "init.toml on disk passes validation");
 
@@ -314,13 +344,23 @@ import { join } from "node:path";
       { env, encoding: "utf-8", stderr: "pipe" },
     );
     assertIncludes(result2, "Preserved existing", "second run preserves files");
-    assertIncludes(result2, "already initialized", "second run reports no changes");
+    assertIncludes(
+      result2,
+      "already initialized",
+      "second run reports no changes",
+    );
 
     // Verify original name is preserved
-    const initStillOriginal = readFileSync(join(tmpRhoDir, "init.toml"), "utf-8");
+    const initStillOriginal = readFileSync(
+      join(tmpRhoDir, "init.toml"),
+      "utf-8",
+    );
     const stillOriginal = parseInitToml(initStillOriginal);
-    assertEq(stillOriginal.agent.name, "testbot", "name not overwritten on re-init");
-
+    assertEq(
+      stillOriginal.agent.name,
+      "testbot",
+      "name not overwritten on re-init",
+    );
   } finally {
     // Cleanup
     rmSync(tmpDir, { recursive: true, force: true });
@@ -346,19 +386,22 @@ import { join } from "node:path";
   try {
     const cliPath = resolve(ROOT, "cli", "index.ts");
     const env = { ...process.env, HOME: tmpDir };
-    execSync(
-      `node --experimental-strip-types ${cliPath} init`,
-      { env, encoding: "utf-8", stderr: "pipe" },
-    );
+    execSync(`node --experimental-strip-types ${cliPath} init`, {
+      env,
+      encoding: "utf-8",
+      stderr: "pipe",
+    });
 
-    const initContent = readFileSync(join(tmpDir, ".rho", "init.toml"), "utf-8");
+    const initContent = readFileSync(
+      join(tmpDir, ".rho", "init.toml"),
+      "utf-8",
+    );
     const config = parseInitToml(initContent);
     assertEq(config.agent.name, "rho", "default name is 'rho'");
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }
 }
-
 
 // ---- Summary ----
 console.log(`\n=== Results: ${PASS} passed, ${FAIL} failed ===\n`);

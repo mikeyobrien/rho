@@ -23,7 +23,9 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+    console.error(
+      `  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+    );
     FAIL++;
   }
 }
@@ -48,14 +50,16 @@ import type { RhoConfig } from "../cli/config.ts";
 
 // ---- Helper: build a config ----
 
-function makeConfig(overrides?: Partial<{
-  name: string;
-  core: Record<string, boolean>;
-  knowledge: Record<string, boolean>;
-  tools: Record<string, boolean>;
-  skills: Record<string, boolean>;
-  ui: Record<string, boolean>;
-}>): RhoConfig {
+function makeConfig(
+  overrides?: Partial<{
+    name: string;
+    core: Record<string, boolean>;
+    knowledge: Record<string, boolean>;
+    tools: Record<string, boolean>;
+    skills: Record<string, boolean>;
+    ui: Record<string, boolean>;
+  }>,
+): RhoConfig {
   return {
     agent: { name: overrides?.name ?? "tau" },
     modules: {
@@ -103,21 +107,28 @@ console.log("\n=== buildNotificationArgs ===\n");
   assertEq(args.content, "Check-ins active (30m)", "default content with 30m");
   assertEq(args.id, "rho-daemon", "notification id");
   assertEq(args.ongoing, true, "is ongoing");
-  assert(args.action.includes("-L rho attach -t rho"), "action attaches to session (rho socket)");
+  assert(
+    args.action.includes("-L rho attach -t rho"),
+    "action attaches to session (rho socket)",
+  );
   assert(args.button1Action.includes("/rho now"), "button triggers check-in");
 }
 
 {
-  const args = buildNotificationArgs("/data/data/com.termux/files/usr/bin/tmux", "15m");
-  assertEq(args.content, "Check-ins active (15m)", "custom interval in content");
+  const args = buildNotificationArgs(
+    "/data/data/com.termux/files/usr/bin/tmux",
+    "15m",
+  );
+  assertEq(
+    args.content,
+    "Check-ins active (15m)",
+    "custom interval in content",
+  );
   assert(
     args.action.startsWith("/data/data/com.termux/files/usr/bin/tmux"),
     "uses full tmux path",
   );
-  assert(
-    args.action.includes("-L rho"),
-    "uses rho socket",
-  );
+  assert(args.action.includes("-L rho"), "uses rho socket");
   assert(
     args.button1Action.startsWith("/data/data/com.termux/files/usr/bin/tmux"),
     "button uses full tmux path",
@@ -181,13 +192,25 @@ console.log("\n=== isRunning ===\n");
 
 {
   // PID alive but no tmux session — not considered running
-  const state = makeState({ tmuxRunning: false, daemonPid: 123, daemonPidAlive: true });
-  assertEq(isRunning(state), false, "not running without tmux even if daemon PID alive");
+  const state = makeState({
+    tmuxRunning: false,
+    daemonPid: 123,
+    daemonPidAlive: true,
+  });
+  assertEq(
+    isRunning(state),
+    false,
+    "not running without tmux even if daemon PID alive",
+  );
 }
 
 {
   // Tmux running, daemon PID dead — still considered running
-  const state = makeState({ tmuxRunning: true, daemonPid: 123, daemonPidAlive: false });
+  const state = makeState({
+    tmuxRunning: true,
+    daemonPid: 123,
+    daemonPidAlive: false,
+  });
   assertEq(isRunning(state), true, "running with tmux even if daemon PID dead");
 }
 
@@ -243,12 +266,30 @@ console.log("\n=== buildModuleDisplay ===\n");
   const config = makeConfig();
   const lines = buildModuleDisplay(config);
   assert(lines.length > 0, "has display lines");
-  assert(lines.some(l => l.includes("core")), "shows core category");
-  assert(lines.some(l => l.includes("knowledge")), "shows knowledge category");
-  assert(lines.some(l => l.includes("tools")), "shows tools category");
-  assert(lines.some(l => l.includes("ui")), "shows ui category");
-  assert(lines.some(l => l.includes("heartbeat ✓")), "heartbeat enabled");
-  assert(lines.some(l => l.includes("vault ✓")), "vault enabled");
+  assert(
+    lines.some((l) => l.includes("core")),
+    "shows core category",
+  );
+  assert(
+    lines.some((l) => l.includes("knowledge")),
+    "shows knowledge category",
+  );
+  assert(
+    lines.some((l) => l.includes("tools")),
+    "shows tools category",
+  );
+  assert(
+    lines.some((l) => l.includes("ui")),
+    "shows ui category",
+  );
+  assert(
+    lines.some((l) => l.includes("heartbeat ✓")),
+    "heartbeat enabled",
+  );
+  assert(
+    lines.some((l) => l.includes("vault ✓")),
+    "vault enabled",
+  );
 }
 
 {
@@ -257,9 +298,18 @@ console.log("\n=== buildModuleDisplay ===\n");
     tools: { "brave-search": true, "x-search": false, email: true },
   });
   const lines = buildModuleDisplay(config);
-  assert(lines.some(l => l.includes("brave-search ✓")), "brave-search enabled");
-  assert(lines.some(l => l.includes("x-search ✗")), "x-search disabled");
-  assert(lines.some(l => l.includes("email ✓")), "email enabled");
+  assert(
+    lines.some((l) => l.includes("brave-search ✓")),
+    "brave-search enabled",
+  );
+  assert(
+    lines.some((l) => l.includes("x-search ✗")),
+    "x-search disabled",
+  );
+  assert(
+    lines.some((l) => l.includes("email ✓")),
+    "email enabled",
+  );
 }
 
 {
@@ -283,7 +333,7 @@ console.log("\n=== buildModuleDisplay ===\n");
 {
   // Indentation format
   const config = makeConfig({ core: { heartbeat: true, memory: true } });
-  const coreLine = buildModuleDisplay(config).find(l => l.includes("core"))!;
+  const coreLine = buildModuleDisplay(config).find((l) => l.includes("core"))!;
   assert(coreLine.startsWith("  "), "lines are indented");
   assert(coreLine.includes("core"), "has category name");
 }
@@ -298,7 +348,12 @@ console.log("\n=== formatStatus ===\n");
     version: "0.2.0",
     agentName: "tau",
     config: makeConfig(),
-    heartbeat: { enabled: true, intervalMs: 30 * 60 * 1000, lastCheckAt: null, nextCheckAt: Date.now() + 12 * 60 * 1000 },
+    heartbeat: {
+      enabled: true,
+      intervalMs: 30 * 60 * 1000,
+      lastCheckAt: null,
+      nextCheckAt: Date.now() + 12 * 60 * 1000,
+    },
     paneOutput: "Last heartbeat: ok",
   };
   const output = formatStatus(info);
@@ -423,10 +478,18 @@ console.log("\n=== planStop ===\n");
 
 {
   // Stop on Linux, running
-  const state = makeState({ tmuxRunning: true, daemonPid: 1234, platform: "linux" });
+  const state = makeState({
+    tmuxRunning: true,
+    daemonPid: 1234,
+    platform: "linux",
+  });
   const plan = planStop(state);
   assertEq(plan.needsWakeUnlock, false, "no wake unlock on linux");
-  assertEq(plan.needsNotificationRemove, false, "no notification remove on linux");
+  assertEq(
+    plan.needsNotificationRemove,
+    false,
+    "no notification remove on linux",
+  );
   assertEq(plan.tmuxRunning, true, "tmux is running");
   assertEq(plan.daemonPid, 1234, "has daemon PID");
   assertEq(plan.sessionName, "rho", "session name");
@@ -434,10 +497,18 @@ console.log("\n=== planStop ===\n");
 
 {
   // Stop on Android, running
-  const state = makeState({ tmuxRunning: true, daemonPid: 5678, platform: "android" });
+  const state = makeState({
+    tmuxRunning: true,
+    daemonPid: 5678,
+    platform: "android",
+  });
   const plan = planStop(state);
   assertEq(plan.needsWakeUnlock, true, "wake unlock on android");
-  assertEq(plan.needsNotificationRemove, true, "notification remove on android");
+  assertEq(
+    plan.needsNotificationRemove,
+    true,
+    "notification remove on android",
+  );
 }
 
 {
@@ -450,7 +521,11 @@ console.log("\n=== planStop ===\n");
 
 {
   // Stop with daemon PID but no tmux (zombie state)
-  const state = makeState({ tmuxRunning: false, daemonPid: 9999, platform: "android" });
+  const state = makeState({
+    tmuxRunning: false,
+    daemonPid: 9999,
+    platform: "android",
+  });
   const plan = planStop(state);
   assertEq(plan.tmuxRunning, false, "tmux not running");
   assertEq(plan.daemonPid, 9999, "daemon PID to kill");

@@ -81,7 +81,10 @@ export function getBootstrapState(entries: BrainLikeEntry[]): BootstrapState {
   const versionRaw = byKey.get(BOOTSTRAP_META_KEYS.version);
   const completedAtRaw = byKey.get(BOOTSTRAP_META_KEYS.completedAt);
 
-  const version = typeof versionRaw === "string" && versionRaw.trim() ? versionRaw.trim() : undefined;
+  const version =
+    typeof versionRaw === "string" && versionRaw.trim()
+      ? versionRaw.trim()
+      : undefined;
   const completedAt =
     typeof completedAtRaw === "string" && isIsoTimestamp(completedAtRaw)
       ? completedAtRaw

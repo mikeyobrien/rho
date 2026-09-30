@@ -36,7 +36,12 @@ interface TaskResult {
   count?: number;
 }
 
-const PRIORITY_ORDER: Record<TaskPriority, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+const PRIORITY_ORDER: Record<TaskPriority, number> = {
+  urgent: 0,
+  high: 1,
+  normal: 2,
+  low: 3,
+};
 const VALID_PRIORITIES: TaskPriority[] = ["urgent", "high", "normal", "low"];
 
 export function generateId(existing: Task[]): string {
@@ -58,7 +63,14 @@ export function loadTasks(filePath: string = TASKS_PATH): Task[] {
       .filter((line) => line.trim())
       .map((line) => {
         const parsed = JSON.parse(line) as Task;
-        parsed.tags = Array.isArray(parsed.tags) ? parsed.tags : typeof parsed.tags === "string" && parsed.tags ? parsed.tags.split(",").map((t: string) => t.trim().toLowerCase()).filter(Boolean) : [];
+        parsed.tags = Array.isArray(parsed.tags)
+          ? parsed.tags
+          : typeof parsed.tags === "string" && parsed.tags
+            ? parsed.tags
+                .split(",")
+                .map((t: string) => t.trim().toLowerCase())
+                .filter(Boolean)
+            : [];
         if (!parsed.due) parsed.due = null;
         if (!parsed.completedAt) parsed.completedAt = null;
         if (!parsed.priority) parsed.priority = "normal";
@@ -76,22 +88,34 @@ export function saveTasks(tasks: Task[], filePath: string = TASKS_PATH): void {
   fs.writeFileSync(filePath, lines.join("\n") + "\n", "utf-8");
 }
 
-export function addTask(params: TaskAddParams, filePath: string = TASKS_PATH): TaskResult {
+export function addTask(
+  params: TaskAddParams,
+  filePath: string = TASKS_PATH,
+): TaskResult {
   const desc = params.description?.trim();
   if (!desc) return { ok: false, message: "Error: description is required" };
 
   const priority = params.priority || "normal";
   if (!VALID_PRIORITIES.includes(priority)) {
-    return { ok: false, message: `Error: invalid priority '${priority}'. Must be: ${VALID_PRIORITIES.join(", ")}` };
+    return {
+      ok: false,
+      message: `Error: invalid priority '${priority}'. Must be: ${VALID_PRIORITIES.join(", ")}`,
+    };
   }
 
   const tags = params.tags
-    ? params.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean)
+    ? params.tags
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean)
     : [];
 
   const due = params.due?.trim() || null;
   if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) {
-    return { ok: false, message: `Error: invalid due date '${due}'. Use YYYY-MM-DD format.` };
+    return {
+      ok: false,
+      message: `Error: invalid due date '${due}'. Use YYYY-MM-DD format.`,
+    };
   }
 
   const tasks = loadTasks(filePath);
@@ -111,7 +135,10 @@ export function addTask(params: TaskAddParams, filePath: string = TASKS_PATH): T
   return { ok: true, message: `Task added: [${task.id}] ${desc}`, task };
 }
 
-export function listTasks(filter?: string, filePath: string = TASKS_PATH): TaskResult {
+export function listTasks(
+  filter?: string,
+  filePath: string = TASKS_PATH,
+): TaskResult {
   const tasks = loadTasks(filePath);
 
   let filtered: Task[];
@@ -123,7 +150,9 @@ export function listTasks(filter?: string, filePath: string = TASKS_PATH): TaskR
     filtered = tasks.filter((t) => t.status === "done");
   } else {
     const tag = filter.toLowerCase();
-    filtered = tasks.filter((t) => t.status === "pending" && t.tags.includes(tag));
+    filtered = tasks.filter(
+      (t) => t.status === "pending" && t.tags.includes(tag),
+    );
   }
 
   filtered.sort((a, b) => {
@@ -134,7 +163,12 @@ export function listTasks(filter?: string, filePath: string = TASKS_PATH): TaskR
   });
 
   if (filtered.length === 0) {
-    const label = filter === "all" ? "tasks" : filter === "done" ? "completed tasks" : "pending tasks";
+    const label =
+      filter === "all"
+        ? "tasks"
+        : filter === "done"
+          ? "completed tasks"
+          : "pending tasks";
     return { ok: true, message: `No ${label}.`, tasks: [], count: 0 };
   }
 
@@ -146,16 +180,25 @@ export function listTasks(filter?: string, filePath: string = TASKS_PATH): TaskR
         ? `${filtered.length} completed task(s):`
         : `${filtered.length} pending task(s):`;
 
-  return { ok: true, message: `${header}\n${lines.join("\n")}`, tasks: filtered, count: filtered.length };
+  return {
+    ok: true,
+    message: `${header}\n${lines.join("\n")}`,
+    tasks: filtered,
+    count: filtered.length,
+  };
 }
 
-export function completeTask(id: string, filePath: string = TASKS_PATH): TaskResult {
+export function completeTask(
+  id: string,
+  filePath: string = TASKS_PATH,
+): TaskResult {
   if (!id?.trim()) return { ok: false, message: "Error: task ID is required" };
 
   const tasks = loadTasks(filePath);
   const task = findTaskById(tasks, id.trim());
   if (!task) return { ok: false, message: `Error: task '${id}' not found` };
-  if (task.status === "done") return { ok: true, message: `Task [${task.id}] is already done.`, task };
+  if (task.status === "done")
+    return { ok: true, message: `Task [${task.id}] is already done.`, task };
 
   task.status = "done";
   task.completedAt = new Date().toISOString();
@@ -163,7 +206,10 @@ export function completeTask(id: string, filePath: string = TASKS_PATH): TaskRes
   return { ok: true, message: `Done: [${task.id}] ${task.description}`, task };
 }
 
-export function removeTask(id: string, filePath: string = TASKS_PATH): TaskResult {
+export function removeTask(
+  id: string,
+  filePath: string = TASKS_PATH,
+): TaskResult {
   if (!id?.trim()) return { ok: false, message: "Error: task ID is required" };
 
   const tasks = loadTasks(filePath);
@@ -172,7 +218,11 @@ export function removeTask(id: string, filePath: string = TASKS_PATH): TaskResul
 
   const remaining = tasks.filter((t) => t.id !== task.id);
   saveTasks(remaining, filePath);
-  return { ok: true, message: `Removed: [${task.id}] ${task.description}`, task };
+  return {
+    ok: true,
+    message: `Removed: [${task.id}] ${task.description}`,
+    task,
+  };
 }
 
 export function clearDone(filePath: string = TASKS_PATH): TaskResult {
@@ -180,10 +230,15 @@ export function clearDone(filePath: string = TASKS_PATH): TaskResult {
   const done = tasks.filter((t) => t.status === "done");
   const remaining = tasks.filter((t) => t.status !== "done");
 
-  if (done.length === 0) return { ok: true, message: "No completed tasks to clear.", count: 0 };
+  if (done.length === 0)
+    return { ok: true, message: "No completed tasks to clear.", count: 0 };
 
   saveTasks(remaining, filePath);
-  return { ok: true, message: `Cleared ${done.length} completed task(s).`, count: done.length };
+  return {
+    ok: true,
+    message: `Cleared ${done.length} completed task(s).`,
+    count: done.length,
+  };
 }
 
 export function findTaskById(tasks: Task[], idPrefix: string): Task | null {
@@ -206,7 +261,9 @@ export function formatTask(task: Task): string {
   return line;
 }
 
-export function buildHeartbeatSection(filePath: string = TASKS_PATH): string | null {
+export function buildHeartbeatSection(
+  filePath: string = TASKS_PATH,
+): string | null {
   const tasks = loadTasks(filePath);
   const pending = tasks.filter((t) => t.status === "pending");
   if (pending.length === 0) return null;

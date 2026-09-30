@@ -183,8 +183,7 @@ app.get("/api/vault", (c) => {
 		let orphanCount = 0;
 		for (const note of graph.values()) {
 			byType[note.type] = (byType[note.type] || 0) + 1;
-			if (note.backlinks.size === 0 && !note.slug.startsWith("_"))
-				orphanCount++;
+			if (note.backlinks.size === 0 && !note.slug.startsWith("_")) orphanCount++;
 		}
 
 		return c.json({

@@ -43,14 +43,12 @@ function assertNotIncludes(
 	needle: string,
 	label: string,
 ): void {
-	if (!haystack.includes(needle)) {
+	if (haystack.includes(needle)) {
+		console.error(`  FAIL: ${label} -- "${needle}" should not appear in output`);
+		FAIL++;
+	} else {
 		console.log(`  PASS: ${label}`);
 		PASS++;
-	} else {
-		console.error(
-			`  FAIL: ${label} -- "${needle}" should not appear in output`,
-		);
-		FAIL++;
 	}
 }
 
@@ -113,6 +111,7 @@ console.log("-- --help --");
 		"upgrade",
 		"start",
 		"stop",
+		"restart",
 		"status",
 		"trigger",
 		"logs",
@@ -125,14 +124,14 @@ console.log("-- --help --");
 	}
 }
 
-// -- no args routes to start without executing real daemon state --
+// -- no args routes to the agent without executing real daemon state --
 console.log("\n-- no args --");
 {
 	const cliSource = fs.readFileSync(CLI_PATH, "utf-8");
 	assertIncludes(
 		cliSource,
-		'await cmd.run(["--foreground"]);',
-		"no args dispatches to start (not help)",
+		'COMMANDS["agent"].load()',
+		"no args dispatches to the agent (not help, not the daemon)",
 	);
 }
 
@@ -168,6 +167,7 @@ for (const cmd of [
 	"upgrade",
 	"start",
 	"stop",
+	"restart",
 	"status",
 	"trigger",
 	"logs",

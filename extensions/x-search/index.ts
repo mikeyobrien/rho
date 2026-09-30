@@ -19,7 +19,8 @@ import { Type } from "@sinclair/typebox";
 
 const API_KEY = process.env.XAI_API_KEY;
 const BASE_URL = process.env.XAI_API_BASE_URL || "https://api.x.ai/v1";
-const DEFAULT_MODEL = process.env.XAI_X_SEARCH_MODEL || "grok-4-1-fast-reasoning";
+const DEFAULT_MODEL =
+  process.env.XAI_X_SEARCH_MODEL || "grok-4-1-fast-reasoning";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -36,7 +37,8 @@ interface XSearchJson {
 
 function extractOutputText(response: any): string {
   // xAI Responses API is OpenAI-compatible: response.output[*].content[*]
-  if (typeof response?.output_text === "string" && response.output_text.trim()) return response.output_text;
+  if (typeof response?.output_text === "string" && response.output_text.trim())
+    return response.output_text;
 
   const chunks: string[] = [];
   const output = response?.output;
@@ -45,7 +47,8 @@ function extractOutputText(response: any): string {
       const content = item?.content;
       if (!Array.isArray(content)) continue;
       for (const part of content) {
-        if (part?.type === "output_text" && typeof part?.text === "string") chunks.push(part.text);
+        if (part?.type === "output_text" && typeof part?.text === "string")
+          chunks.push(part.text);
       }
     }
   }
@@ -83,7 +86,11 @@ function tryParseJson<T>(text: string): T | null {
   }
 }
 
-async function xSearch(query: string, count = 5, model = DEFAULT_MODEL): Promise<{ results: XSearchResult[]; citations: string[]; rawText: string }> {
+async function xSearch(
+  query: string,
+  count = 5,
+  model = DEFAULT_MODEL,
+): Promise<{ results: XSearchResult[]; citations: string[]; rawText: string }> {
   if (!API_KEY) throw new Error("XAI_API_KEY not set");
 
   const schema: JsonSchema = {
@@ -101,8 +108,14 @@ async function xSearch(query: string, count = 5, model = DEFAULT_MODEL): Promise
           properties: {
             url: { type: "string", description: "Full X status URL" },
             text: { type: "string", description: "Post text (truncated)" },
-            author: { type: "string", description: "Author handle or display name" },
-            created_at: { type: "string", description: "ISO timestamp if available" },
+            author: {
+              type: "string",
+              description: "Author handle or display name",
+            },
+            created_at: {
+              type: "string",
+              description: "ISO timestamp if available",
+            },
           },
         },
       },
@@ -147,11 +160,13 @@ async function xSearch(query: string, count = 5, model = DEFAULT_MODEL): Promise
     // Common failure: using Grok 3 with server-side tools.
     if (res.status === 400 && msg.includes("only the grok-4 family")) {
       throw new Error(
-        `xAI API error: ${res.status} ${res.statusText}\n${msg.slice(0, 1000)}\n\nFix: set XAI_X_SEARCH_MODEL=grok-4-1-fast-reasoning (or pass {model: \"grok-4-1-fast-reasoning\"}).`,
+        `xAI API error: ${res.status} ${res.statusText}\n${msg.slice(0, 1000)}\n\nFix: set XAI_X_SEARCH_MODEL=grok-4-1-fast-reasoning (or pass {model: "grok-4-1-fast-reasoning"}).`,
       );
     }
 
-    throw new Error(`xAI API error: ${res.status} ${res.statusText}${msg ? `\n${msg.slice(0, 1000)}` : ""}`);
+    throw new Error(
+      `xAI API error: ${res.status} ${res.statusText}${msg ? `\n${msg.slice(0, 1000)}` : ""}`,
+    );
   }
 
   const json = (await res.json()) as any;
@@ -162,7 +177,9 @@ async function xSearch(query: string, count = 5, model = DEFAULT_MODEL): Promise
   const results = parsed?.results;
 
   if (!Array.isArray(results)) {
-    throw new Error(`Failed to parse JSON results from xAI response. Raw output:\n${rawText.slice(0, 2000)}`);
+    throw new Error(
+      `Failed to parse JSON results from xAI response. Raw output:\n${rawText.slice(0, 2000)}`,
+    );
   }
 
   return { results, citations, rawText };
@@ -190,8 +207,15 @@ export default function (pi: ExtensionAPI) {
     description: "Search X (Twitter) using xAI Grok's built-in x_search tool.",
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
-      count: Type.Optional(Type.Number({ description: "Number of results (default: 5, max: 20)" })),
-      model: Type.Optional(Type.String({ description: "xAI model (default: env XAI_X_SEARCH_MODEL or grok-4-1-fast-reasoning). Must be Grok 4 family for server-side tools." })),
+      count: Type.Optional(
+        Type.Number({ description: "Number of results (default: 5, max: 20)" }),
+      ),
+      model: Type.Optional(
+        Type.String({
+          description:
+            "xAI model (default: env XAI_X_SEARCH_MODEL or grok-4-1-fast-reasoning). Must be Grok 4 family for server-side tools.",
+        }),
+      ),
     }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
@@ -210,11 +234,24 @@ export default function (pi: ExtensionAPI) {
       try {
         const count = Math.max(1, Math.min(params.count || 5, 20));
         const model = params.model || DEFAULT_MODEL;
-        const { results, citations, rawText } = await xSearch(params.query, count, model);
+        const { results, citations, rawText } = await xSearch(
+          params.query,
+          count,
+          model,
+        );
 
         return {
-          content: [{ type: "text", text: formatResults(results, params.query) }],
-          details: { query: params.query, count: results.length, model, citations, results, rawText },
+          content: [
+            { type: "text", text: formatResults(results, params.query) },
+          ],
+          details: {
+            query: params.query,
+            count: results.length,
+            model,
+            citations,
+            results,
+            rawText,
+          },
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -250,7 +287,10 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(`Found ${results.length} results`, "success");
         ctx.ui.setEditorText(results.map((r) => `- ${r.url}`).join("\n"));
       } catch (err) {
-        ctx.ui.notify(`Error: ${err instanceof Error ? err.message : err}`, "error");
+        ctx.ui.notify(
+          `Error: ${err instanceof Error ? err.message : err}`,
+          "error",
+        );
       }
     },
   });

@@ -82,9 +82,7 @@ function readInitRawMemorySettings(initPath: string): Record<string, unknown> {
 		if (!fs.existsSync(initPath)) return {};
 		const raw = fs.readFileSync(initPath, "utf-8");
 		const config = parseInitToml(raw);
-		return (
-			(config.settings.memory as Record<string, unknown> | undefined) ?? {}
-		);
+		return (config.settings.memory as Record<string, unknown> | undefined) ?? {};
 	} catch {
 		return {};
 	}
@@ -179,8 +177,7 @@ export function readMemorySettings(
 		autoMemoryDebounceMs:
 			configured.autoMemoryDebounceMs ??
 			DEFAULT_MEMORY_SETTINGS.autoMemoryDebounceMs,
-		promptBudget:
-			configured.promptBudget ?? DEFAULT_MEMORY_SETTINGS.promptBudget,
+		promptBudget: configured.promptBudget ?? DEFAULT_MEMORY_SETTINGS.promptBudget,
 		decayAfterDays:
 			configured.decayAfterDays ?? DEFAULT_MEMORY_SETTINGS.decayAfterDays,
 		decayMinScore:

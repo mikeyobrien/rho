@@ -52,20 +52,12 @@ export const rhoChatStreamingMethods = {
 						part.output = resultOutput;
 						part.outputPreview = generateOutputPreview(resultOutput);
 						part.status = rawMessage.isError ? "error" : "done";
-						const semantic = parseToolSemantic(
-							part.name,
-							part.args,
-							resultOutput,
-						);
+						const semantic = parseToolSemantic(part.name, part.args, resultOutput);
 						if (semantic) {
 							part.semantic = semantic;
 							const hs = semanticHeaderSummary(part.name, semantic);
 							if (hs) part.argsSummary = hs;
-							const os = semanticOutputSummary(
-								part.name,
-								semantic,
-								resultOutput,
-							);
+							const os = semanticOutputSummary(part.name, semantic, resultOutput);
 							if (os) part.outputPreview = os;
 						}
 					}
@@ -99,9 +91,7 @@ export const rhoChatStreamingMethods = {
 			return;
 		}
 
-		const idx = this.renderedMessages.findIndex(
-			(item) => item.id === messageId,
-		);
+		const idx = this.renderedMessages.findIndex((item) => item.id === messageId);
 		if (idx >= 0) {
 			this.renderedMessages[idx] = normalized;
 		} else {
@@ -230,9 +220,7 @@ export const rhoChatStreamingMethods = {
 		this.markdownFrame = null;
 
 		for (const [messageId, indexes] of this.markdownRenderQueue.entries()) {
-			const message = this.renderedMessages.find(
-				(item) => item.id === messageId,
-			);
+			const message = this.renderedMessages.find((item) => item.id === messageId);
 			if (!message?.stream) {
 				continue;
 			}

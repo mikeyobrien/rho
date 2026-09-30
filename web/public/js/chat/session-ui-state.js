@@ -53,8 +53,7 @@ function createSessionUiState(sessionId, meta = {}) {
 
 	return {
 		sessionId: normalizedId,
-		sessionFile:
-			typeof source.sessionFile === "string" ? source.sessionFile : "",
+		sessionFile: typeof source.sessionFile === "string" ? source.sessionFile : "",
 		rpcSessionId:
 			typeof source.rpcSessionId === "string" ? source.rpcSessionId : "",
 		lastEventSeq: finiteOr(source.lastEventSeq, 0),
@@ -94,10 +93,7 @@ function createSessionUiState(sessionId, meta = {}) {
 
 		pendingSlashClassification: source.pendingSlashClassification ?? null,
 		slashCommands: cloneCollection(source.slashCommands, () => []),
-		slashCommandIndex: cloneCollection(
-			source.slashCommandIndex,
-			() => new Map(),
-		),
+		slashCommandIndex: cloneCollection(source.slashCommandIndex, () => new Map()),
 		slashCommandsLoading: Boolean(source.slashCommandsLoading),
 		slashCommandsLoaded: Boolean(source.slashCommandsLoaded),
 		slashAcVisible: Boolean(source.slashAcVisible),

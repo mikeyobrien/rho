@@ -39,7 +39,10 @@ function assertEq<T>(actual: T, expected: T, label: string): void {
 let testDir: string;
 
 function setup(): string {
-  testDir = path.join(os.tmpdir(), `filelock-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testDir = path.join(
+    os.tmpdir(),
+    `filelock-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   fs.mkdirSync(testDir, { recursive: true });
   return path.join(testDir, "test.lock");
 }
@@ -59,18 +62,25 @@ console.log("\n--- acquire and release ---");
   const lockPath = setup();
 
   try {
-    const result = await withFileLock(lockPath, { purpose: "test" }, async () => {
-      // Lock file should exist while held
-      assert(fs.existsSync(lockPath), "lock file exists during fn()");
-      const data = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
-      assertEq(data.pid, process.pid, "lock contains our PID");
-      assert(typeof data.nonce === "string" && data.nonce.length > 0, "lock has nonce");
-      assert(typeof data.acquiredAt === "number", "lock has acquiredAt");
-      assert(typeof data.refreshedAt === "number", "lock has refreshedAt");
-      assert(typeof data.hostname === "string", "lock has hostname");
-      assertEq(data.purpose, "test", "lock has purpose");
-      return 42;
-    });
+    const result = await withFileLock(
+      lockPath,
+      { purpose: "test" },
+      async () => {
+        // Lock file should exist while held
+        assert(fs.existsSync(lockPath), "lock file exists during fn()");
+        const data = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+        assertEq(data.pid, process.pid, "lock contains our PID");
+        assert(
+          typeof data.nonce === "string" && data.nonce.length > 0,
+          "lock has nonce",
+        );
+        assert(typeof data.acquiredAt === "number", "lock has acquiredAt");
+        assert(typeof data.refreshedAt === "number", "lock has refreshedAt");
+        assert(typeof data.hostname === "string", "lock has hostname");
+        assertEq(data.purpose, "test", "lock has purpose");
+        return 42;
+      },
+    );
 
     assertEq(result, 42, "fn() return value passed through");
     assert(!fs.existsSync(lockPath), "lock file removed after release");
@@ -102,16 +112,23 @@ console.log("\n--- stale lock: dead PID ---");
   fs.writeFileSync(lockPath, JSON.stringify(staleLock), "utf-8");
 
   try {
-    const result = await withFileLock(lockPath, { timeoutMs: 3000 }, async () => {
-      return "acquired-over-dead-pid";
-    });
+    const result = await withFileLock(
+      lockPath,
+      { timeoutMs: 3000 },
+      async () => {
+        return "acquired-over-dead-pid";
+      },
+    );
     assertEq(result, "acquired-over-dead-pid", "acquired lock over dead PID");
   } catch (err) {
     console.error(`  FAIL: should have acquired over dead PID: ${err}`);
     FAIL++;
   }
 
-  assert(!fs.existsSync(lockPath), "lock cleaned up after dead-PID acquisition");
+  assert(
+    !fs.existsSync(lockPath),
+    "lock cleaned up after dead-PID acquisition",
+  );
   cleanup();
 }
 
@@ -135,10 +152,18 @@ console.log("\n--- stale lock: expired refreshedAt ---");
   fs.writeFileSync(lockPath, JSON.stringify(staleLock), "utf-8");
 
   try {
-    const result = await withFileLock(lockPath, { staleMs: 30_000, timeoutMs: 3000 }, async () => {
-      return "acquired-over-expired";
-    });
-    assertEq(result, "acquired-over-expired", "acquired lock over expired refreshedAt");
+    const result = await withFileLock(
+      lockPath,
+      { staleMs: 30_000, timeoutMs: 3000 },
+      async () => {
+        return "acquired-over-expired";
+      },
+    );
+    assertEq(
+      result,
+      "acquired-over-expired",
+      "acquired lock over expired refreshedAt",
+    );
   } catch (err) {
     console.error(`  FAIL: should have acquired over expired lock: ${err}`);
     FAIL++;
@@ -167,9 +192,13 @@ console.log("\n--- timeout: lock held by live process ---");
   fs.writeFileSync(lockPath, JSON.stringify(liveLock), "utf-8");
 
   try {
-    await withFileLock(lockPath, { timeoutMs: 500, staleMs: 60_000 }, async () => {
-      return "should-not-reach";
-    });
+    await withFileLock(
+      lockPath,
+      { timeoutMs: 500, staleMs: 60_000 },
+      async () => {
+        return "should-not-reach";
+      },
+    );
     console.error("  FAIL: should have thrown LOCK_TIMEOUT");
     FAIL++;
   } catch (err: any) {
@@ -195,12 +224,16 @@ console.log("\n--- concurrent acquisition ---");
 
   const attempt = async (id: string): Promise<string> => {
     try {
-      return await withFileLock(lockPath, { timeoutMs: 2000, staleMs: 60_000 }, async () => {
-        wins++;
-        // Hold the lock for a bit so the other attempt has to wait/fail
-        await new Promise((r) => setTimeout(r, 500));
-        return `won-${id}`;
-      });
+      return await withFileLock(
+        lockPath,
+        { timeoutMs: 2000, staleMs: 60_000 },
+        async () => {
+          wins++;
+          // Hold the lock for a bit so the other attempt has to wait/fail
+          await new Promise((r) => setTimeout(r, 500));
+          return `won-${id}`;
+        },
+      );
     } catch {
       losses++;
       return `lost-${id}`;
@@ -212,7 +245,10 @@ console.log("\n--- concurrent acquisition ---");
   // At least one should win. With 2s timeout and 500ms hold, both might win sequentially,
   // or one might timeout. The key constraint: they never both hold it simultaneously.
   assert(wins >= 1, `at least one acquired (wins=${wins})`);
-  assert(wins + losses === 2, `all attempts accounted for (wins=${wins}, losses=${losses})`);
+  assert(
+    wins + losses === 2,
+    `all attempts accounted for (wins=${wins}, losses=${losses})`,
+  );
 
   // Verify results match
   const wonCount = results.filter((r) => r.startsWith("won-")).length;
@@ -237,10 +273,18 @@ console.log("\n--- unparseable lock: mtime fallback ---");
   fs.utimesSync(lockPath, oldTime, oldTime);
 
   try {
-    const result = await withFileLock(lockPath, { timeoutMs: 3000 }, async () => {
-      return "acquired-over-garbage";
-    });
-    assertEq(result, "acquired-over-garbage", "acquired lock over garbage file with old mtime");
+    const result = await withFileLock(
+      lockPath,
+      { timeoutMs: 3000 },
+      async () => {
+        return "acquired-over-garbage";
+      },
+    );
+    assertEq(
+      result,
+      "acquired-over-garbage",
+      "acquired lock over garbage file with old mtime",
+    );
   } catch (err) {
     console.error(`  FAIL: should have acquired over garbage lock: ${err}`);
     FAIL++;
@@ -261,14 +305,23 @@ console.log("\n--- unparseable lock: recent mtime blocks ---");
   fs.writeFileSync(lockPath, "GARBAGE BUT FRESH", "utf-8");
 
   try {
-    await withFileLock(lockPath, { timeoutMs: 500, staleMs: 60_000 }, async () => {
-      return "should-not-reach";
-    });
-    console.error("  FAIL: should have thrown LOCK_TIMEOUT for fresh garbage lock");
+    await withFileLock(
+      lockPath,
+      { timeoutMs: 500, staleMs: 60_000 },
+      async () => {
+        return "should-not-reach";
+      },
+    );
+    console.error(
+      "  FAIL: should have thrown LOCK_TIMEOUT for fresh garbage lock",
+    );
     FAIL++;
   } catch (err: any) {
     const msg = err?.message ?? String(err);
-    assert(msg.includes("LOCK_TIMEOUT"), `fresh garbage lock causes timeout (got: ${msg})`);
+    assert(
+      msg.includes("LOCK_TIMEOUT"),
+      `fresh garbage lock causes timeout (got: ${msg})`,
+    );
   }
 
   cleanup();
@@ -291,7 +344,10 @@ console.log("\n--- lock released on fn() throw ---");
     FAIL++;
   } catch (err: any) {
     const msg = err?.message ?? String(err);
-    assert(msg.includes("intentional explosion"), `original error re-thrown (got: ${msg})`);
+    assert(
+      msg.includes("intentional explosion"),
+      `original error re-thrown (got: ${msg})`,
+    );
   }
 
   assert(!fs.existsSync(lockPath), "lock file removed despite fn() throwing");

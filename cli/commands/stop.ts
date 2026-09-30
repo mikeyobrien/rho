@@ -18,6 +18,7 @@ import {
   planStop,
   type DaemonState,
 } from "../daemon-core.ts";
+import { herdrServerRunning, stopHerdrSession } from "../herdr-client.ts";
 
 const HOME = process.env.HOME || os.homedir();
 const RHO_DIR = path.join(HOME, ".rho");
@@ -49,12 +50,16 @@ function tmuxArgs(args: string[]): string[] {
 }
 
 function tmuxSessionExists(): boolean {
-  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", SESSION_NAME]), { stdio: "ignore" });
+  const r = spawnSync("tmux", tmuxArgs(["has-session", "-t", SESSION_NAME]), {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 
 function tmuxLegacySessionExists(): boolean {
-  const r = spawnSync("tmux", ["has-session", "-t", SESSION_NAME], { stdio: "ignore" });
+  const r = spawnSync("tmux", ["has-session", "-t", SESSION_NAME], {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 
@@ -74,7 +79,7 @@ export async function run(args: string[]): Promise<void> {
 
 Stop the Rho heartbeat daemon.
 
-Stops the background monitor process and kills the tmux session.
+Stops the background monitor process and the dedicated rho Herdr or tmux session.
 
 Options:
   -h, --help   Show this help`);
@@ -82,11 +87,12 @@ Options:
   }
 
   const platform = detectPlatform();
+  const herdrRunning = herdrServerRunning();
   const rhoSocketRunning = tmuxSessionExists();
   const legacyRunning = tmuxLegacySessionExists();
 
   const state: DaemonState = {
-    tmuxRunning: rhoSocketRunning || legacyRunning,
+    tmuxRunning: herdrRunning || rhoSocketRunning || legacyRunning,
     daemonPid: readDaemonPid(),
     daemonPidAlive: false,
     platform,
@@ -101,23 +107,42 @@ Options:
 
   console.log("Stopping rho daemon...");
 
-  // Stop monitor first so it doesn't restart tmux.
+  // Stop monitor first so it doesn't restart tmux. Wait until it exits so a
+  // following start cannot have its pid file unlinked by the old cleanup.
   if (plan.daemonPid !== null) {
     try {
       process.kill(plan.daemonPid, "SIGTERM");
     } catch {
       // stale pid
     }
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      try {
+        process.kill(plan.daemonPid, 0);
+      } catch {
+        break;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
   }
+
+  // Stop only the dedicated rho Herdr session. Never the default session.
+  if (herdrRunning) stopHerdrSession();
 
   // Kill tmux session (new socket + legacy socket)
   if (plan.tmuxRunning) {
-    spawnSync("tmux", tmuxArgs(["kill-session", "-t", plan.sessionName]), { stdio: "ignore" });
-    spawnSync("tmux", ["kill-session", "-t", plan.sessionName], { stdio: "ignore" });
+    spawnSync("tmux", tmuxArgs(["kill-session", "-t", plan.sessionName]), {
+      stdio: "ignore",
+    });
+    spawnSync("tmux", ["kill-session", "-t", plan.sessionName], {
+      stdio: "ignore",
+    });
   }
 
   // Clean up PID file
-  try { unlinkSync(PID_PATH); } catch {}
+  try {
+    unlinkSync(PID_PATH);
+  } catch {}
 
   // Android cleanup (defense in depth)
   if (plan.needsWakeUnlock) {
@@ -125,7 +150,9 @@ Options:
   }
 
   if (plan.needsNotificationRemove) {
-    spawnSync("termux-notification-remove", ["rho-daemon"], { stdio: "ignore" });
+    spawnSync("termux-notification-remove", ["rho-daemon"], {
+      stdio: "ignore",
+    });
   }
 
   console.log("Rho daemon stopped.");

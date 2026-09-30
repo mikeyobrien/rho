@@ -48,7 +48,9 @@ export function runTelegramWorker(options: TelegramWorkerOptions = {}): void {
     return;
   }
 
-  const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "").trim();
+  const botUsername = (process.env.TELEGRAM_BOT_USERNAME || "")
+    .replace(/^@/, "")
+    .trim();
   const client = new Api(token);
   client.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
@@ -60,18 +62,35 @@ export function runTelegramWorker(options: TelegramWorkerOptions = {}): void {
   });
 
   const lockPath = options.lockPath ?? TELEGRAM_WORKER_LOCK_PATH;
-  const refreshMs = options.refreshMs
-    ?? parsePositiveIntEnv("RHO_TELEGRAM_WORKER_LOCK_REFRESH_MS", DEFAULT_WORKER_LOCK_REFRESH_MS);
-  const staleMs = options.staleMs ?? parsePositiveIntEnv("RHO_TELEGRAM_WORKER_LOCK_STALE_MS", DEFAULT_WORKER_LOCK_STALE_MS);
+  const refreshMs =
+    options.refreshMs ??
+    parsePositiveIntEnv(
+      "RHO_TELEGRAM_WORKER_LOCK_REFRESH_MS",
+      DEFAULT_WORKER_LOCK_REFRESH_MS,
+    );
+  const staleMs =
+    options.staleMs ??
+    parsePositiveIntEnv(
+      "RHO_TELEGRAM_WORKER_LOCK_STALE_MS",
+      DEFAULT_WORKER_LOCK_STALE_MS,
+    );
 
   const lockState = createTelegramWorkerLockState();
   const nonce = `${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
 
-  const step = () => stepTelegramWorkerLock(lockState, { lockPath, nonce, now: Date.now(), staleMs });
+  const step = () =>
+    stepTelegramWorkerLock(lockState, {
+      lockPath,
+      nonce,
+      now: Date.now(),
+      staleMs,
+    });
   const initial = step();
 
   if (!initial.isOwner) {
-    const owner = initial.ownerPid ? `pid ${initial.ownerPid}` : "unknown owner";
+    const owner = initial.ownerPid
+      ? `pid ${initial.ownerPid}`
+      : "unknown owner";
     log(`Telegram worker already running (${owner}).`);
     process.exitCode = 1;
     return;
@@ -116,7 +135,9 @@ export function runTelegramWorker(options: TelegramWorkerOptions = {}): void {
   const refreshTimer = setInterval(() => {
     const result = step();
     if (!result.isOwner) {
-      const owner = result.ownerPid ? `pid ${result.ownerPid}` : "unknown owner";
+      const owner = result.ownerPid
+        ? `pid ${result.ownerPid}`
+        : "unknown owner";
       log(`Telegram worker lock lost (${owner}). Exiting.`);
       clearInterval(refreshTimer);
       stopPolling();

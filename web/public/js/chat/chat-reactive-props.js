@@ -31,10 +31,7 @@ export const rhoChatReactiveProps = {
 		return this.readSessionField("renderedMessages", () => []);
 	},
 	set renderedMessages(value) {
-		this.writeSessionField(
-			"renderedMessages",
-			Array.isArray(value) ? value : [],
-		);
+		this.writeSessionField("renderedMessages", Array.isArray(value) ? value : []);
 	},
 
 	get isLoadingSession() {
@@ -85,20 +82,14 @@ export const rhoChatReactiveProps = {
 		return this.readSessionField("sessionFile", "");
 	},
 	set activeRpcSessionFile(value) {
-		this.writeSessionField(
-			"sessionFile",
-			typeof value === "string" ? value : "",
-		);
+		this.writeSessionField("sessionFile", typeof value === "string" ? value : "");
 	},
 
 	get promptText() {
 		return this.readSessionField("promptText", "");
 	},
 	set promptText(value) {
-		this.writeSessionField(
-			"promptText",
-			typeof value === "string" ? value : "",
-		);
+		this.writeSessionField("promptText", typeof value === "string" ? value : "");
 		this.schedulePersistSessionRestoreSnapshot();
 	},
 
@@ -224,10 +215,7 @@ export const rhoChatReactiveProps = {
 		return this.readSessionField("availableModels", () => []);
 	},
 	set availableModels(value) {
-		this.writeSessionField(
-			"availableModels",
-			Array.isArray(value) ? value : [],
-		);
+		this.writeSessionField("availableModels", Array.isArray(value) ? value : []);
 	},
 
 	get currentModel() {

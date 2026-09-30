@@ -43,7 +43,11 @@ Options:
   const dryRun = args.includes("--dry-run");
   const verbose = args.includes("--verbose");
 
-  const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const pkgRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+  );
   const pkgJsonPath = path.join(pkgRoot, "package.json");
   const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
   const pkgName: string = pkgJson.name ?? "@rhobot-dev/rho";
@@ -78,7 +82,8 @@ Options:
   // Load new registry from disk (cache-busted import) so we can diff.
   let newRegistry: Record<string, ModuleEntry> | null = null;
   try {
-    const registryUrl = new URL("../registry.ts", import.meta.url).href + `?t=${Date.now()}`;
+    const registryUrl =
+      new URL("../registry.ts", import.meta.url).href + `?t=${Date.now()}`;
     const mod = (await import(registryUrl)) as any;
     newRegistry = mod.REGISTRY as Record<string, ModuleEntry>;
   } catch {
@@ -93,7 +98,11 @@ Options:
     if (added.length > 0) {
       console.log(`New module(s) available: ${added.join(", ")}`);
       if (fs.existsSync(INIT_TOML_PATH)) {
-        if (!dryRun) {
+        if (dryRun) {
+          console.log(
+            `(dry-run) Would add ${added.length} commented module(s) to ${INIT_TOML_PATH}.`,
+          );
+        } else {
           const updated = appendNewModulesToInitToml({
             initTomlPath: INIT_TOML_PATH,
             newRegistry,
@@ -101,15 +110,17 @@ Options:
             versionLabel: afterVersion,
           });
           if (updated.changed) {
-            console.log(`Updated ${INIT_TOML_PATH}: added ${updated.addedCount} commented module(s).`);
+            console.log(
+              `Updated ${INIT_TOML_PATH}: added ${updated.addedCount} commented module(s).`,
+            );
           } else {
             console.log(`No changes needed in ${INIT_TOML_PATH}.`);
           }
-        } else {
-          console.log(`(dry-run) Would add ${added.length} commented module(s) to ${INIT_TOML_PATH}.`);
         }
       } else {
-        console.log(`init.toml not found. Run \`rho init\` to create it, then re-run \`rho upgrade\`.`);
+        console.log(
+          `init.toml not found. Run \`rho init\` to create it, then re-run \`rho upgrade\`.`,
+        );
       }
     }
 
@@ -124,8 +135,12 @@ Options:
         const removed = [...configured].filter((k) => !newKeys.has(k));
         if (removed.length > 0) {
           console.log("");
-          console.log(`Warning: init.toml references unknown module(s): ${removed.join(", ")}`);
-          console.log("  Fix by removing/renaming them in init.toml (upgrade does not auto-edit for breaking changes).");
+          console.log(
+            `Warning: init.toml references unknown module(s): ${removed.join(", ")}`,
+          );
+          console.log(
+            "  Fix by removing/renaming them in init.toml (upgrade does not auto-edit for breaking changes).",
+          );
         }
       } catch {
         // ignore
@@ -147,9 +162,10 @@ Options:
     const shimPath = path.join(pkgRoot, "cli", "rho.mjs");
     const insideNodeModules = pkgRoot.includes("node_modules");
     const nodeMajor = parseInt(process.version.slice(1), 10);
-    const syncArgs = (nodeMajor >= 22 && !insideNodeModules)
-      ? ["--experimental-strip-types", "--no-warnings", indexPath, "sync"]
-      : [shimPath, "sync"];
+    const syncArgs =
+      nodeMajor >= 22 && !insideNodeModules
+        ? ["--experimental-strip-types", "--no-warnings", indexPath, "sync"]
+        : [shimPath, "sync"];
     const r = spawnSync(process.execPath, syncArgs, {
       stdio: "inherit",
       env: { ...process.env },
@@ -173,7 +189,10 @@ function appendNewModulesToInitToml(input: {
   let changed = false;
   let addedCount = 0;
 
-  const byCategory = new Map<string, Array<{ name: string; entry: ModuleEntry }>>();
+  const byCategory = new Map<
+    string,
+    Array<{ name: string; entry: ModuleEntry }>
+  >();
   for (const name of input.addedModules) {
     const entry = input.newRegistry[name];
     if (!entry) continue;
@@ -189,9 +208,17 @@ function appendNewModulesToInitToml(input: {
     const start = lines.findIndex((l) => l.trim() === header);
     if (start === -1) {
       // Fallback: append at end if section missing
-      lines.push("", `# New modules (added by rho upgrade ${input.versionLabel})`, header);
+      lines.push(
+        "",
+        `# New modules (added by rho upgrade ${input.versionLabel})`,
+        header,
+      );
       for (const m of mods) {
-        const line = commentedModuleLine(m.name, m.entry.description, input.versionLabel);
+        const line = commentedModuleLine(
+          m.name,
+          m.entry.description,
+          input.versionLabel,
+        );
         if (!hasModuleLine(lines, m.name)) {
           lines.push(line);
           changed = true;
@@ -214,11 +241,16 @@ function appendNewModulesToInitToml(input: {
     const insertAt = end;
 
     const insertLines: string[] = [];
-    insertLines.push("", `# New modules (added by rho upgrade ${input.versionLabel})`);
+    insertLines.push(
+      "",
+      `# New modules (added by rho upgrade ${input.versionLabel})`,
+    );
 
     for (const m of mods) {
       if (hasModuleLine(lines, m.name)) continue;
-      insertLines.push(commentedModuleLine(m.name, m.entry.description, input.versionLabel));
+      insertLines.push(
+        commentedModuleLine(m.name, m.entry.description, input.versionLabel),
+      );
       changed = true;
       addedCount++;
     }
@@ -240,9 +272,16 @@ function hasModuleLine(lines: string[], moduleName: string): boolean {
   return lines.some((l) => re.test(l));
 }
 
-function commentedModuleLine(name: string, description: string, versionLabel: string): string {
+function commentedModuleLine(
+  name: string,
+  description: string,
+  versionLabel: string,
+): string {
   const desc = description ? `# ${description}` : "";
-  const suffix = versionLabel && versionLabel !== "unknown" ? ` (new in ${versionLabel})` : "";
+  const suffix =
+    versionLabel && versionLabel !== "unknown"
+      ? ` (new in ${versionLabel})`
+      : "";
   return `# ${name} = true  ${desc}${suffix}`.trimEnd();
 }
 

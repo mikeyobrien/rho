@@ -227,9 +227,7 @@ app.get("/api/memory", async (c) => {
 
 		let filtered = baseEntries;
 		if (categoryFilter)
-			filtered = filtered.filter(
-				(e) => field(e, "category") === categoryFilter,
-			);
+			filtered = filtered.filter((e) => field(e, "category") === categoryFilter);
 		if (q)
 			filtered = filtered.filter((e) => {
 				const searchable = [

@@ -25,10 +25,10 @@ CLI=(node --experimental-strip-types "$ROOT/cli/index.ts")
 
 TMP="$(mktemp -d)"
 export HOME="$TMP/home"
-mkdir -p "$HOME/.rho/pi-agent"
+mkdir -p "$HOME/.rho/agent"
 
 # Seed isolated auth so --status output is deterministic.
-cat > "$HOME/.rho/pi-agent/auth.json" <<'JSON'
+cat > "$HOME/.rho/agent/auth.json" <<'JSON'
 {
   "anthropic": { "type": "api_key" }
 }

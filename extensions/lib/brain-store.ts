@@ -117,22 +117,27 @@ export const SCHEMA_REGISTRY: Record<
   string,
   { required: string[]; enums?: Record<string, string[]> }
 > = {
-  behavior:   { required: ["category", "text"], enums: { category: ["do", "dont", "value"] } },
-  identity:   { required: ["key", "value"] },
-  user:       { required: ["key", "value"] },
-  learning:   { required: ["text"] },
+  behavior: {
+    required: ["category", "text"],
+    enums: { category: ["do", "dont", "value"] },
+  },
+  identity: { required: ["key", "value"] },
+  user: { required: ["key", "value"] },
+  learning: { required: ["text"] },
   preference: { required: ["text", "category"] },
-  context:    { required: ["project", "path", "content"] },
-  task:       { required: ["description"] },
-  reminder:   { required: ["text", "cadence", "enabled"] },
-  tombstone:  { required: ["target_id", "target_type", "reason"] },
-  meta:       { required: ["key", "value"] },
+  context: { required: ["project", "path", "content"] },
+  task: { required: ["description"] },
+  reminder: { required: ["text", "cadence", "enabled"] },
+  tombstone: { required: ["target_id", "target_type", "reason"] },
+  meta: { required: ["key", "value"] },
 };
 
 // ── Constants ─────────────────────────────────────────────────────
 
-const BRAIN_DIR = process.env.RHO_BRAIN_DIR ?? path.join(os.homedir(), ".rho", "brain");
-const BRAIN_PATH = process.env.RHO_BRAIN_PATH ?? path.join(BRAIN_DIR, "brain.jsonl");
+const BRAIN_DIR =
+  process.env.RHO_BRAIN_DIR ?? path.join(os.homedir(), ".rho", "brain");
+const BRAIN_PATH =
+  process.env.RHO_BRAIN_PATH ?? path.join(BRAIN_DIR, "brain.jsonl");
 
 export { BRAIN_DIR, BRAIN_PATH };
 
@@ -207,13 +212,19 @@ export function readBrain(filePath: string): {
     raw = fs.readFileSync(filePath, "utf-8");
   } catch (err: any) {
     if (err?.code === "ENOENT") {
-      return { entries: [], stats: { total: 0, badLines: 0, truncatedTail: false } };
+      return {
+        entries: [],
+        stats: { total: 0, badLines: 0, truncatedTail: false },
+      };
     }
     throw err;
   }
 
   if (!raw || !raw.trim()) {
-    return { entries: [], stats: { total: 0, badLines: 0, truncatedTail: false } };
+    return {
+      entries: [],
+      stats: { total: 0, badLines: 0, truncatedTail: false },
+    };
   }
 
   const endsWithNewline = raw.endsWith("\n");
@@ -279,7 +290,10 @@ export function foldBrain(entries: BrainEntry[]): MaterializedBrain {
         upsertArray(brain.behaviors, entry as BehaviorEntry);
         break;
       case "identity":
-        brain.identity.set((entry as IdentityEntry).key, entry as IdentityEntry);
+        brain.identity.set(
+          (entry as IdentityEntry).key,
+          entry as IdentityEntry,
+        );
         break;
       case "user":
         brain.user.set((entry as UserEntry).key, entry as UserEntry);
@@ -320,19 +334,29 @@ function upsertArray<T extends BrainEntry>(arr: T[], entry: T): void {
 }
 
 /** Remove an entry by id from the correct collection based on target_type. */
-function removeById(brain: MaterializedBrain, id: string, targetType: string): void {
+function removeById(
+  brain: MaterializedBrain,
+  id: string,
+  targetType: string,
+): void {
   switch (targetType) {
     case "behavior":
       brain.behaviors = brain.behaviors.filter((e) => e.id !== id);
       break;
     case "identity":
       for (const [k, v] of brain.identity) {
-        if (v.id === id) { brain.identity.delete(k); break; }
+        if (v.id === id) {
+          brain.identity.delete(k);
+          break;
+        }
       }
       break;
     case "user":
       for (const [k, v] of brain.user) {
-        if (v.id === id) { brain.user.delete(k); break; }
+        if (v.id === id) {
+          brain.user.delete(k);
+          break;
+        }
       }
       break;
     case "learning":
@@ -352,7 +376,10 @@ function removeById(brain: MaterializedBrain, id: string, targetType: string): v
       break;
     case "meta":
       for (const [k, v] of brain.meta) {
-        if (v.id === id) { brain.meta.delete(k); break; }
+        if (v.id === id) {
+          brain.meta.delete(k);
+          break;
+        }
       }
       break;
   }
@@ -448,9 +475,9 @@ const DEFAULT_BUDGET = 2000;
 
 const SECTION_WEIGHTS = {
   behavior: 0.15,
-  preferences: 0.20,
+  preferences: 0.2,
   context: 0.25,
-  learnings: 0.40,
+  learnings: 0.4,
 };
 
 function approxTokens(s: string): number {
@@ -465,12 +492,18 @@ export function daysSince(isoDate: string): number {
 
 export function scoreLearning(l: LearningEntry, cwd: string): number {
   const recency = Math.max(0, 10 - Math.floor(daysSince(l.created) / 7));
-  const scopeBoost = l.scope === "project" && l.projectPath && cwd.startsWith(l.projectPath) ? 5 : 0;
+  const scopeBoost =
+    l.scope === "project" && l.projectPath && cwd.startsWith(l.projectPath)
+      ? 5
+      : 0;
   const manualBoost = l.source === "manual" ? 2 : 0;
   return recency + scopeBoost + manualBoost;
 }
 
-function takeLinesUntilBudget(lines: string[], budgetTokens: number): { taken: string[]; omitted: number } {
+function takeLinesUntilBudget(
+  lines: string[],
+  budgetTokens: number,
+): { taken: string[]; omitted: number } {
   const taken: string[] = [];
   let used = 0;
   for (const line of lines) {
@@ -529,23 +562,32 @@ export function buildBrainPrompt(
   }
 
   // Compute weighted section budgets from remaining space
-  let behaviorBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.behavior);
-  let prefsBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.preferences);
-  let contextBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.context);
+  const behaviorBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.behavior);
+  const prefsBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.preferences);
+  const contextBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.context);
   let learningsBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.learnings);
 
   // ── Behavior ──
   const behaviorLines: string[] = [];
-  const dos = brain.behaviors.filter((b) => b.category === "do").map((b) => b.text);
-  const donts = brain.behaviors.filter((b) => b.category === "dont").map((b) => b.text);
-  const values = brain.behaviors.filter((b) => b.category === "value").map((b) => b.text);
+  const dos = brain.behaviors
+    .filter((b) => b.category === "do")
+    .map((b) => b.text);
+  const donts = brain.behaviors
+    .filter((b) => b.category === "dont")
+    .map((b) => b.text);
+  const values = brain.behaviors
+    .filter((b) => b.category === "value")
+    .map((b) => b.text);
   if (dos.length > 0) behaviorLines.push(`**Do:** ${dos.join(". ")}`);
   if (donts.length > 0) behaviorLines.push(`**Don't:** ${donts.join(". ")}`);
   if (values.length > 0) behaviorLines.push(`**Values:** ${values.join(". ")}`);
 
   if (behaviorLines.length > 0) {
     const header = "## Behavior";
-    const { taken, omitted } = takeLinesUntilBudget(behaviorLines, behaviorBudget - approxTokens(header + "\n"));
+    const { taken, omitted } = takeLinesUntilBudget(
+      behaviorLines,
+      behaviorBudget - approxTokens(header + "\n"),
+    );
     const lines = [header, ...taken];
     if (omitted > 0) lines.push(`(…${omitted} more omitted)`);
     const rendered = lines.join("\n");
@@ -564,13 +606,18 @@ export function buildBrainPrompt(
     arr.push(p.text);
     prefsByCategory.set(p.category, arr);
   }
-  for (const [cat, items] of [...prefsByCategory.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  for (const [cat, items] of [...prefsByCategory.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
     prefLines.push(`**${cat}:** ${items.join(". ")}`);
   }
 
   if (prefLines.length > 0) {
     const header = "## Preferences";
-    const { taken, omitted } = takeLinesUntilBudget(prefLines, prefsBudget - approxTokens(header + "\n"));
+    const { taken, omitted } = takeLinesUntilBudget(
+      prefLines,
+      prefsBudget - approxTokens(header + "\n"),
+    );
     const lines = [header, ...taken];
     if (omitted > 0) lines.push(`(…${omitted} more omitted)`);
     const rendered = lines.join("\n");
@@ -590,7 +637,10 @@ export function buildBrainPrompt(
   if (bestContext) {
     const header = `## Project: ${bestContext.project}`;
     const contentLines = bestContext.content.split("\n");
-    const { taken, omitted } = takeLinesUntilBudget(contentLines, contextBudget - approxTokens(header + "\n"));
+    const { taken, omitted } = takeLinesUntilBudget(
+      contentLines,
+      contextBudget - approxTokens(header + "\n"),
+    );
     const lines = [header, ...taken];
     if (omitted > 0) lines.push(`(…${omitted} more omitted)`);
     const rendered = lines.join("\n");
@@ -613,7 +663,10 @@ export function buildBrainPrompt(
 
     const learningLines = scored.map((s) => `- ${s.entry.text}`);
     const header = "## Learnings";
-    const { taken, omitted } = takeLinesUntilBudget(learningLines, learningsBudget - approxTokens(header + "\n"));
+    const { taken, omitted } = takeLinesUntilBudget(
+      learningLines,
+      learningsBudget - approxTokens(header + "\n"),
+    );
     const lines = [header, ...taken];
     if (omitted > 0) lines.push(`(…${omitted} more omitted)`);
     sections.push(lines.join("\n"));
@@ -651,13 +704,16 @@ export function getInjectedIds(
   }
   if (brain.user.size > 0) remainingBudget -= approxTokens("## User\n");
 
-  let behaviorBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.behavior);
-  let prefsBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.preferences);
-  let contextBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.context);
+  const behaviorBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.behavior);
+  const prefsBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.preferences);
+  const contextBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.context);
   let learningsBudget = Math.floor(remainingBudget * SECTION_WEIGHTS.learnings);
 
   // ── Behaviors ──
-  const behaviorLines = brain.behaviors.map((b) => ({ id: b.id, text: b.text }));
+  const behaviorLines = brain.behaviors.map((b) => ({
+    id: b.id,
+    text: b.text,
+  }));
   if (behaviorLines.length > 0) {
     const header = "## Behavior";
     let used = approxTokens(header + "\n");
@@ -683,7 +739,9 @@ export function getInjectedIds(
     const header = "## Preferences";
     let used = approxTokens(header + "\n");
     // Add preferences one by one, like buildBrainPrompt renders them
-    for (const [cat, prefs] of [...prefByCat.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    for (const [cat, prefs] of [...prefByCat.entries()].sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    )) {
       const line = `**${cat}:** ${prefs.map((p) => p.text).join(". ")}`;
       const t = approxTokens(line + "\n");
       if (used + t > prefsBudget && used > approxTokens(header + "\n")) break;

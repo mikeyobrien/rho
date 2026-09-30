@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { encodeSessionBucket, resolveRhoPaths } from "../../cli/rho-paths.ts";
 import type { TelegramInboundEnvelope } from "./router.ts";
 
 function getHome(): string {
@@ -14,12 +15,20 @@ function defaultMapPath(): string {
 
 export type SessionMap = Record<string, string>;
 
-export function sessionKeyForEnvelope(envelope: TelegramInboundEnvelope): string {
-	const base = envelope.chatType === "private" ? `dm:${envelope.chatId}` : `group:${envelope.chatId}`;
-	if (typeof envelope.messageThreadId === "number" && envelope.messageThreadId > 0) {
-		return `${base}:topic:${envelope.messageThreadId}`;
-	}
-	return base;
+export function sessionKeyForEnvelope(
+  envelope: TelegramInboundEnvelope,
+): string {
+  const base =
+    envelope.chatType === "private"
+      ? `dm:${envelope.chatId}`
+      : `group:${envelope.chatId}`;
+  if (
+    typeof envelope.messageThreadId === "number" &&
+    envelope.messageThreadId > 0
+  ) {
+    return `${base}:topic:${envelope.messageThreadId}`;
+  }
+  return base;
 }
 
 export function loadSessionMap(mapPath: string = defaultMapPath()): SessionMap {
@@ -34,7 +43,10 @@ export function loadSessionMap(mapPath: string = defaultMapPath()): SessionMap {
   }
 }
 
-export function saveSessionMap(map: SessionMap, mapPath: string = defaultMapPath()): void {
+export function saveSessionMap(
+  map: SessionMap,
+  mapPath: string = defaultMapPath(),
+): void {
   mkdirSync(dirname(mapPath), { recursive: true });
   writeFileSync(mapPath, JSON.stringify(map, null, 2));
 }
@@ -44,11 +56,18 @@ function createSessionFile(baseDir?: string): string {
   const timestamp = new Date().toISOString();
   const safeTimestamp = timestamp.replace(/[:.]/g, "-");
   const cwd = process.env.HOME ?? process.cwd();
-  const safeCwd = cwd.replace(/\//g, "-");
-  const sessionDir = baseDir || join(getHome(), ".rho", "sessions");
+  const sessionDir =
+    baseDir ||
+    join(resolveRhoPaths(getHome()).sessionDir, encodeSessionBucket(cwd));
   mkdirSync(sessionDir, { recursive: true });
   const sessionFile = join(sessionDir, `${safeTimestamp}_${sessionId}.jsonl`);
-  const header = JSON.stringify({ type: "session", version: 1, id: sessionId, cwd, timestamp });
+  const header = JSON.stringify({
+    type: "session",
+    version: 1,
+    id: sessionId,
+    cwd,
+    timestamp,
+  });
   writeFileSync(sessionFile, header + "\n", "utf-8");
   return sessionFile;
 }
@@ -87,6 +106,7 @@ export function resetSessionFile(
   return {
     sessionKey: key,
     sessionFile,
-    previousSessionFile: typeof previousSessionFile === "string" ? previousSessionFile : undefined,
+    previousSessionFile:
+      typeof previousSessionFile === "string" ? previousSessionFile : undefined,
   };
 }

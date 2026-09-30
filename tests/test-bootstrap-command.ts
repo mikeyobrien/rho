@@ -37,12 +37,15 @@ const CLI_PATH = path.resolve(import.meta.dirname!, "../cli/index.ts");
 
 function run(args: string): { stdout: string; stderr: string; code: number } {
   try {
-    const stdout = execSync(`node --experimental-strip-types ${CLI_PATH} ${args}`, {
-      encoding: "utf-8",
-      env: { ...process.env, NODE_NO_WARNINGS: "1" },
-      timeout: 10_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const stdout = execSync(
+      `node --experimental-strip-types ${CLI_PATH} ${args}`,
+      {
+        encoding: "utf-8",
+        env: { ...process.env, NODE_NO_WARNINGS: "1" },
+        timeout: 10_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     return { stdout, stderr: "", code: 0 };
   } catch (e: any) {
     return {
@@ -59,7 +62,11 @@ console.log("-- bootstrap --help --");
 {
   const r = run("bootstrap --help");
   assert(r.code === 0, "BS-011: bootstrap --help exits 0");
-  assertIncludes(r.stdout, "bootstrap", "BS-011: help mentions bootstrap command");
+  assertIncludes(
+    r.stdout,
+    "bootstrap",
+    "BS-011: help mentions bootstrap command",
+  );
   for (const sub of ["status", "run", "reapply", "upgrade", "diff", "reset"]) {
     assertIncludes(r.stdout, sub, `BS-011: help lists ${sub}`);
   }
@@ -76,16 +83,29 @@ console.log("\n-- bootstrap status --json --");
     parsed = null;
   }
   assert(parsed !== null, "BS-011: status --json outputs valid JSON");
-  assert(typeof parsed?.status === "string", "BS-011: status JSON includes status");
-  assert(typeof parsed?.version === "string" || parsed?.version == null, "BS-011: status JSON includes version or null");
-  assert(Array.isArray(parsed?.managedEntries), "BS-011: status JSON includes managedEntries array");
+  assert(
+    typeof parsed?.status === "string",
+    "BS-011: status JSON includes status",
+  );
+  assert(
+    typeof parsed?.version === "string" || parsed?.version == null,
+    "BS-011: status JSON includes version or null",
+  );
+  assert(
+    Array.isArray(parsed?.managedEntries),
+    "BS-011: status JSON includes managedEntries array",
+  );
 }
 
 console.log("\n-- bootstrap reset safety --");
 {
   const r = run("bootstrap reset");
   assert(r.code !== 0, "BS-009: reset without confirm fails");
-  assertIncludes((r.stderr || r.stdout).toLowerCase(), "confirm", "BS-009: reset failure mentions confirmation");
+  assertIncludes(
+    (r.stderr || r.stdout).toLowerCase(),
+    "confirm",
+    "BS-009: reset failure mentions confirmation",
+  );
 }
 
 console.log("\n-- bootstrap audit --");
@@ -99,7 +119,10 @@ console.log("\n-- bootstrap audit --");
     parsed = null;
   }
   assert(parsed !== null, "BS-010: audit --json outputs valid JSON");
-  assert(Array.isArray(parsed?.events), "BS-010: audit JSON includes events array");
+  assert(
+    Array.isArray(parsed?.events),
+    "BS-010: audit JSON includes events array",
+  );
 }
 
 console.log(`\n=== Results: ${PASS} passed, ${FAIL} failed ===\n`);

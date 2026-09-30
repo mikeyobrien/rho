@@ -2,10 +2,19 @@
  * Rho Telegram Extension (control-plane)
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
-import { Api, isTelegramParseModeError, isRetryableAfterAutoRetry, queueRetryDelayMs, replyParams } from "./api.ts";
+import {
+  Api,
+  isTelegramParseModeError,
+  isRetryableAfterAutoRetry,
+  queueRetryDelayMs,
+  replyParams,
+} from "./api.ts";
 import { autoRetry } from "@grammyjs/auto-retry";
 import {
   loadRuntimeState,
@@ -17,7 +26,10 @@ import { appendTelegramLog } from "./log.ts";
 import { loadSessionMap } from "./session-map.ts";
 import { renderTelegramOutboundChunks } from "./outbound.ts";
 import { loadOperatorConfig, saveOperatorConfig } from "./operator-config.ts";
-import { getTelegramCheckTriggerState, requestTelegramCheckTrigger } from "./check-trigger.ts";
+import {
+  getTelegramCheckTriggerState,
+  requestTelegramCheckTrigger,
+} from "./check-trigger.ts";
 import { loadTelegramJobs, summarizeTelegramJobs } from "./jobs.ts";
 import { renderTelegramStatusText, renderTelegramUiStatus } from "./status.ts";
 import { readTelegramWorkerLockOwner } from "./worker-lock.ts";
@@ -33,10 +45,15 @@ function parsePositiveIntEnv(name: string, fallback: number): number {
   return Math.floor(n);
 }
 
-function setStatus(ctx: ExtensionContext, text: string, level: "dim" | "warning" | "error" = "dim"): void {
+function setStatus(
+  ctx: ExtensionContext,
+  text: string,
+  level: "dim" | "warning" | "error" = "dim",
+): void {
   if (!ctx.hasUI) return;
   const theme = ctx.ui.theme;
-  const color = level === "error" ? "error" : level === "warning" ? "warning" : "dim";
+  const color =
+    level === "error" ? "error" : level === "warning" ? "warning" : "dim";
   ctx.ui.setStatus("telegram", theme.fg(color, text));
 }
 
@@ -69,17 +86,28 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal) {
       const tgSettings = readTelegramSettings();
       if (!tgSettings.enabled) {
-        return { content: [{ type: "text", text: "Telegram is disabled in init.toml" }] };
+        return {
+          content: [
+            { type: "text", text: "Telegram is disabled in init.toml" },
+          ],
+        };
       }
       const tgToken = (process.env[tgSettings.botTokenEnv] || "").trim();
       if (!tgToken) {
         return {
-          content: [{ type: "text", text: `Missing token env: ${tgSettings.botTokenEnv}` }],
+          content: [
+            {
+              type: "text",
+              text: `Missing token env: ${tgSettings.botTokenEnv}`,
+            },
+          ],
         };
       }
 
       if (!Number.isInteger(params.chat_id)) {
-        return { content: [{ type: "text", text: "chat_id must be a valid integer" }] };
+        return {
+          content: [{ type: "text", text: "chat_id must be a valid integer" }],
+        };
       }
 
       const text = (params.text ?? "").trim();
@@ -88,17 +116,26 @@ export default function (pi: ExtensionAPI) {
       }
 
       const opConfig = loadOperatorConfig();
-      const allowedChatIds = opConfig?.allowedChatIds ?? tgSettings.allowedChatIds;
-      if (allowedChatIds.length > 0 && !allowedChatIds.includes(params.chat_id)) {
+      const allowedChatIds =
+        opConfig?.allowedChatIds ?? tgSettings.allowedChatIds;
+      if (
+        allowedChatIds.length > 0 &&
+        !allowedChatIds.includes(params.chat_id)
+      ) {
         return {
           content: [
-            { type: "text", text: `chat_id ${params.chat_id} is not in the allowed list` },
+            {
+              type: "text",
+              text: `chat_id ${params.chat_id} is not in the allowed list`,
+            },
           ],
         };
       }
 
       const client = new Api(tgToken);
-      client.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
+      client.config.use(
+        autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }),
+      );
 
       const chunks = renderTelegramOutboundChunks(text);
       const errors: string[] = [];
@@ -118,21 +155,27 @@ export default function (pi: ExtensionAPI) {
               await client.sendMessage(params.chat_id, chunk.fallbackText, {
                 link_preview_options: { is_disabled: true },
                 message_thread_id: params.message_thread_id,
-                ...replyParams(i === 0 ? params.reply_to_message_id : undefined),
+                ...replyParams(
+                  i === 0 ? params.reply_to_message_id : undefined,
+                ),
               });
             } else {
               throw error;
             }
           }
         } catch (error) {
-          errors.push(`chunk ${i}: ${(error as Error)?.message || String(error)}`);
+          errors.push(
+            `chunk ${i}: ${(error as Error)?.message || String(error)}`,
+          );
           break;
         }
       }
 
       if (errors.length > 0) {
         return {
-          content: [{ type: "text", text: `send failed: ${errors.join("; ")}` }],
+          content: [
+            { type: "text", text: `send failed: ${errors.join("; ")}` },
+          ],
         };
       }
       return {
@@ -155,8 +198,12 @@ export default function (pi: ExtensionAPI) {
   const token = process.env[settings.botTokenEnv] || "";
   const operatorConfig = loadOperatorConfig();
 
-  let runtimeAllowedChatIds = [...(operatorConfig?.allowedChatIds ?? settings.allowedChatIds)];
-  let runtimeAllowedUserIds = [...(operatorConfig?.allowedUserIds ?? settings.allowedUserIds)];
+  let runtimeAllowedChatIds = [
+    ...(operatorConfig?.allowedChatIds ?? settings.allowedChatIds),
+  ];
+  let runtimeAllowedUserIds = [
+    ...(operatorConfig?.allowedUserIds ?? settings.allowedUserIds),
+  ];
 
   let pendingOutbound: Array<{
     chatId: number;
@@ -170,7 +217,8 @@ export default function (pi: ExtensionAPI) {
   let lastCheckRequestAtMs: number | null = null;
 
   const client = token.trim() ? new Api(token.trim()) : null;
-  if (client) client.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
+  if (client)
+    client.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
   const persistOperator = () => {
     saveOperatorConfig({
@@ -179,7 +227,11 @@ export default function (pi: ExtensionAPI) {
     });
   };
 
-  const logEvent = (event: string, context: TelegramLogContext = {}, extra: Record<string, unknown> = {}) => {
+  const logEvent = (
+    event: string,
+    context: TelegramLogContext = {},
+    extra: Record<string, unknown> = {},
+  ) => {
     appendTelegramLog({
       event,
       update_id: context.updateId,
@@ -195,12 +247,21 @@ export default function (pi: ExtensionAPI) {
   const getWorkerStatus = () => {
     const meta = readLeaseMeta(TELEGRAM_WORKER_LOCK_PATH);
     if (!meta.payload) return { owner: null, stale: false };
-    const staleMs = parsePositiveIntEnv("RHO_TELEGRAM_WORKER_LOCK_STALE_MS", DEFAULT_WORKER_LOCK_STALE_MS);
+    const staleMs = parsePositiveIntEnv(
+      "RHO_TELEGRAM_WORKER_LOCK_STALE_MS",
+      DEFAULT_WORKER_LOCK_STALE_MS,
+    );
     const stale = isLeaseStale(meta, staleMs, Date.now());
-    return { owner: readTelegramWorkerLockOwner(TELEGRAM_WORKER_LOCK_PATH), stale };
+    return {
+      owner: readTelegramWorkerLockOwner(TELEGRAM_WORKER_LOCK_PATH),
+      stale,
+    };
   };
 
-  const formatOwner = (owner: ReturnType<typeof readTelegramWorkerLockOwner> | null, stale: boolean) => {
+  const formatOwner = (
+    owner: ReturnType<typeof readTelegramWorkerLockOwner> | null,
+    stale: boolean,
+  ) => {
     if (!owner) {
       return { leadership: "stopped", ownerText: "none", ownerPid: null };
     }
@@ -226,7 +287,11 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     if (runtimeState.consecutive_failures >= 3) {
-      setStatus(ctx, `tg poll-err(${runtimeState.consecutive_failures})`, "error");
+      setStatus(
+        ctx,
+        `tg poll-err(${runtimeState.consecutive_failures})`,
+        "error",
+      );
       return;
     }
     if (consecutiveSendFailures >= 3) {
@@ -236,7 +301,10 @@ export default function (pi: ExtensionAPI) {
 
     const { owner, stale } = getWorkerStatus();
     const formatted = formatOwner(owner, stale);
-    const triggerState = getTelegramCheckTriggerState(TELEGRAM_CHECK_TRIGGER_PATH, 0);
+    const triggerState = getTelegramCheckTriggerState(
+      TELEGRAM_CHECK_TRIGGER_PATH,
+      0,
+    );
     setStatus(
       ctx,
       renderTelegramUiStatus({
@@ -256,7 +324,10 @@ export default function (pi: ExtensionAPI) {
 
   const statusText = () => {
     const runtimeState = loadRuntimeState();
-    const triggerState = getTelegramCheckTriggerState(TELEGRAM_CHECK_TRIGGER_PATH, 0);
+    const triggerState = getTelegramCheckTriggerState(
+      TELEGRAM_CHECK_TRIGGER_PATH,
+      0,
+    );
     const { owner, stale } = getWorkerStatus();
     const formatted = formatOwner(owner, stale);
     const jobs = summarizeTelegramJobs(loadTelegramJobs());
@@ -270,7 +341,8 @@ export default function (pi: ExtensionAPI) {
       triggerPending: triggerState.pending,
       triggerRequesterPid: triggerState.requesterPid,
       triggerRequestedAt: triggerState.requestedAt,
-      lastCheckRequestAt: runtimeState.last_check_request_at ?? lastCheckRequestAtMs,
+      lastCheckRequestAt:
+        runtimeState.last_check_request_at ?? lastCheckRequestAtMs,
       lastCheckConsumeAt: runtimeState.last_check_consume_at,
       lastCheckOutcome: runtimeState.last_check_outcome,
       lastCheckRequesterPid: runtimeState.last_check_requester_pid,
@@ -283,13 +355,24 @@ export default function (pi: ExtensionAPI) {
       pendingOutbound: pendingOutbound.length,
       pendingJobs: jobs.queued,
       runningJobs: jobs.running,
-      allowedChatsText: runtimeAllowedChatIds.length === 0 ? "all" : runtimeAllowedChatIds.join(","),
-      allowedUsersText: runtimeAllowedUserIds.length === 0 ? "all" : runtimeAllowedUserIds.join(","),
+      allowedChatsText:
+        runtimeAllowedChatIds.length === 0
+          ? "all"
+          : runtimeAllowedChatIds.join(","),
+      allowedUsersText:
+        runtimeAllowedUserIds.length === 0
+          ? "all"
+          : runtimeAllowedUserIds.join(","),
     });
   };
 
-  const applyAllowlistMutation = (target: "chat" | "user", action: "allow" | "revoke", id: number) => {
-    const current = target === "chat" ? runtimeAllowedChatIds : runtimeAllowedUserIds;
+  const applyAllowlistMutation = (
+    target: "chat" | "user",
+    action: "allow" | "revoke",
+    id: number,
+  ) => {
+    const current =
+      target === "chat" ? runtimeAllowedChatIds : runtimeAllowedUserIds;
     const next = new Set(current);
     if (action === "allow") next.add(id);
     else next.delete(id);
@@ -298,13 +381,17 @@ export default function (pi: ExtensionAPI) {
     else runtimeAllowedUserIds = [...next];
 
     persistOperator();
-    logEvent("operator_allowlist_changed", {}, {
-      target,
-      action,
-      id,
-      allowed_chats: runtimeAllowedChatIds,
-      allowed_users: runtimeAllowedUserIds,
-    });
+    logEvent(
+      "operator_allowlist_changed",
+      {},
+      {
+        target,
+        action,
+        id,
+        allowed_chats: runtimeAllowedChatIds,
+        allowed_users: runtimeAllowedUserIds,
+      },
+    );
   };
 
   const requestWorkerCheck = (source: "tool" | "command"): boolean => {
@@ -318,13 +405,17 @@ export default function (pi: ExtensionAPI) {
 
     if (requested) {
       lastCheckRequestAtMs = requestedAt;
-      logEvent("operator_check_requested", {}, {
-        route: "follower_trigger",
-        requested_at: requestedAt,
-        requester_pid: process.pid,
-        check_source: source,
-        owner_pid: getWorkerStatus().owner?.pid ?? null,
-      });
+      logEvent(
+        "operator_check_requested",
+        {},
+        {
+          route: "follower_trigger",
+          requested_at: requestedAt,
+          requester_pid: process.pid,
+          check_source: source,
+          owner_pid: getWorkerStatus().owner?.pid ?? null,
+        },
+      );
     }
 
     return requested;
@@ -456,9 +547,17 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "telegram",
     label: "Telegram",
-    description: "Operate Telegram channel bridge. Actions: status, check, send, allow, revoke, list_chats",
+    description:
+      "Operate Telegram channel bridge. Actions: status, check, send, allow, revoke, list_chats",
     parameters: Type.Object({
-      action: StringEnum(["status", "check", "send", "allow", "revoke", "list_chats"] as const),
+      action: StringEnum([
+        "status",
+        "check",
+        "send",
+        "allow",
+        "revoke",
+        "list_chats",
+      ] as const),
       target: Type.Optional(StringEnum(["chat", "user"] as const)),
       id: Type.Optional(Type.Integer()),
       chat_id: Type.Optional(Type.Integer()),
@@ -475,18 +574,30 @@ export default function (pi: ExtensionAPI) {
       if (params.action === "list_chats") {
         const map = loadSessionMap();
         const entries = Object.entries(map);
-        const text = entries.length === 0
-          ? "No mapped chats yet."
-          : entries.map(([k, v]) => `${k} -> ${v}`).join("\n");
+        const text =
+          entries.length === 0
+            ? "No mapped chats yet."
+            : entries.map(([k, v]) => `${k} -> ${v}`).join("\n");
         return { content: [{ type: "text", text }] };
       }
 
       if (!settings.enabled) {
-        return { content: [{ type: "text", text: "Telegram is disabled in init.toml" }] };
+        return {
+          content: [
+            { type: "text", text: "Telegram is disabled in init.toml" },
+          ],
+        };
       }
 
       if (!client) {
-        return { content: [{ type: "text", text: `Missing token env: ${settings.botTokenEnv}` }] };
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Missing token env: ${settings.botTokenEnv}`,
+            },
+          ],
+        };
       }
 
       if (params.action === "check") {
@@ -500,7 +611,14 @@ export default function (pi: ExtensionAPI) {
       if (params.action === "send") {
         const text = typeof params.text === "string" ? params.text : "";
         if (!Number.isInteger(params.chat_id) || text.trim().length === 0) {
-          return { content: [{ type: "text", text: "send requires chat_id and non-empty text" }] };
+          return {
+            content: [
+              {
+                type: "text",
+                text: "send requires chat_id and non-empty text",
+              },
+            ],
+          };
         }
         pendingOutbound.push({
           chatId: params.chat_id,
@@ -511,12 +629,21 @@ export default function (pi: ExtensionAPI) {
           notBeforeMs: 0,
         });
         await flushOutboundQueue(ctx);
-        return { content: [{ type: "text", text: `queued send to ${params.chat_id}` }] };
+        return {
+          content: [{ type: "text", text: `queued send to ${params.chat_id}` }],
+        };
       }
 
       if (params.action === "allow" || params.action === "revoke") {
         if (!params.target || !Number.isInteger(params.id)) {
-          return { content: [{ type: "text", text: `${params.action} requires target=(chat|user) and integer id` }] };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `${params.action} requires target=(chat|user) and integer id`,
+              },
+            ],
+          };
         }
 
         applyAllowlistMutation(params.target, params.action, params.id);
@@ -543,16 +670,26 @@ export default function (pi: ExtensionAPI) {
       if (sub === "check") {
         const requested = requestWorkerCheck("command");
         ctx.ui.notify(
-          requested ? "Requested Telegram check via worker" : "Failed to request Telegram check",
+          requested
+            ? "Requested Telegram check via worker"
+            : "Failed to request Telegram check",
           requested ? "info" : "warning",
         );
         return;
       }
 
-      if (sub === "allow-chat" || sub === "revoke-chat" || sub === "allow-user" || sub === "revoke-user") {
+      if (
+        sub === "allow-chat" ||
+        sub === "revoke-chat" ||
+        sub === "allow-user" ||
+        sub === "revoke-user"
+      ) {
         const id = Number(parts[1]);
         if (!Number.isInteger(id)) {
-          ctx.ui.notify("Usage: /telegram allow-chat|revoke-chat|allow-user|revoke-user <id>", "warning");
+          ctx.ui.notify(
+            "Usage: /telegram allow-chat|revoke-chat|allow-user|revoke-user <id>",
+            "warning",
+          );
           return;
         }
 
@@ -565,7 +702,10 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("Usage: /telegram [status|check|allow-chat|revoke-chat|allow-user|revoke-user]", "warning");
+      ctx.ui.notify(
+        "Usage: /telegram [status|check|allow-chat|revoke-chat|allow-user|revoke-user]",
+        "warning",
+      );
     },
   });
 }

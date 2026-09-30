@@ -24,9 +24,7 @@ export const rhoChatSessionActionMethods = {
 		}
 		this.activeSession = session;
 
-		const groupedMessages = groupSessionMessagesIntoTurns(
-			session.messages ?? [],
-		);
+		const groupedMessages = groupSessionMessagesIntoTurns(session.messages ?? []);
 
 		this.syncSessionStatsFromSession(session, groupedMessages);
 		this.seedUsageAccumulator(groupedMessages);
@@ -45,11 +43,7 @@ export const rhoChatSessionActionMethods = {
 					if (p.type === "tool_result") return Boolean(p.output);
 					if (p.type === "bash") return Boolean(p.command || p.output);
 					if (p.type === "error") return Boolean(p.text);
-					if (
-						p.type === "compaction" ||
-						p.type === "summary" ||
-						p.type === "retry"
-					)
+					if (p.type === "compaction" || p.type === "summary" || p.type === "retry")
 						return Boolean(p.summary);
 					return true;
 				});
@@ -84,9 +78,7 @@ export const rhoChatSessionActionMethods = {
 		if (!sessionId || !Array.isArray(this.sessions)) {
 			return null;
 		}
-		return (
-			this.sessions.find((candidate) => candidate.id === sessionId) ?? null
-		);
+		return this.sessions.find((candidate) => candidate.id === sessionId) ?? null;
 	},
 
 	sessionLabel(session) {
@@ -113,10 +105,7 @@ export const rhoChatSessionActionMethods = {
 		}
 		const summary = this.sessionSummary(session);
 		return formatTimestamp(
-			session.header?.timestamp ??
-				session.timestamp ??
-				summary?.timestamp ??
-				"",
+			session.header?.timestamp ?? session.timestamp ?? summary?.timestamp ?? "",
 		);
 	},
 
@@ -157,10 +146,7 @@ export const rhoChatSessionActionMethods = {
 
 	loadEarlierMessages() {
 		// Load earlier messages from the stored full message list
-		if (
-			!this.allNormalizedMessages ||
-			this.allNormalizedMessages.length === 0
-		) {
+		if (!this.allNormalizedMessages || this.allNormalizedMessages.length === 0) {
 			this.showToast("No earlier messages available.", "info", 2500);
 			return;
 		}
@@ -187,10 +173,7 @@ export const rhoChatSessionActionMethods = {
 		// Load up to 100 earlier messages
 		const LOAD_COUNT = 100;
 		const start = Math.max(0, currentIndex - LOAD_COUNT);
-		const earlierMessages = this.allNormalizedMessages.slice(
-			start,
-			currentIndex,
-		);
+		const earlierMessages = this.allNormalizedMessages.slice(start, currentIndex);
 
 		// Prepend to renderedMessages
 		this.renderedMessages = [...earlierMessages, ...this.renderedMessages];
@@ -444,13 +427,13 @@ export const rhoChatSessionActionMethods = {
 
 		const sent = this.sendWs(rpcPayload);
 
-		if (!sent) {
-			this.isSendingPrompt = false;
-			this.isForking = false;
-		} else {
+		if (sent) {
 			this.$nextTick(() => {
 				this.scrollThreadToBottom();
 			});
+		} else {
+			this.isSendingPrompt = false;
+			this.isForking = false;
 		}
 
 		if (this.shouldDismissKeyboardAfterSend()) {

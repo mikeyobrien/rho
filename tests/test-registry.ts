@@ -24,7 +24,13 @@ function assert(condition: boolean, label: string): void {
 // Resolve package root (tests/ -> ..)
 const PKG_ROOT = path.resolve(import.meta.dirname!, "..");
 
-const VALID_CATEGORIES = new Set(["core", "knowledge", "tools", "ui", "skills"]);
+const VALID_CATEGORIES = new Set([
+  "core",
+  "knowledge",
+  "tools",
+  "ui",
+  "skills",
+]);
 
 // ================================================================
 // Registry structure
@@ -36,8 +42,14 @@ console.log("\n-- registry structure --");
 
   for (const [name, entry] of entries) {
     assert(typeof name === "string" && name.length > 0, `${name}: has a name`);
-    assert(VALID_CATEGORIES.has(entry.category), `${name}: valid category "${entry.category}"`);
-    assert(typeof entry.description === "string" && entry.description.length > 0, `${name}: has description`);
+    assert(
+      VALID_CATEGORIES.has(entry.category),
+      `${name}: valid category "${entry.category}"`,
+    );
+    assert(
+      typeof entry.description === "string" && entry.description.length > 0,
+      `${name}: has description`,
+    );
     assert(Array.isArray(entry.extensions), `${name}: extensions is array`);
     assert(Array.isArray(entry.skills), `${name}: skills is array`);
   }
@@ -82,7 +94,10 @@ console.log("\n-- no duplicate extension paths --");
     allPaths.push(...entry.extensions);
   }
   const unique = new Set(allPaths);
-  assert(unique.size === allPaths.length, `no duplicate extension paths (${unique.size} unique / ${allPaths.length} total)`);
+  assert(
+    unique.size === allPaths.length,
+    `no duplicate extension paths (${unique.size} unique / ${allPaths.length} total)`,
+  );
 }
 
 console.log("\n-- no duplicate skill paths --");
@@ -92,7 +107,10 @@ console.log("\n-- no duplicate skill paths --");
     allPaths.push(...entry.skills);
   }
   const unique = new Set(allPaths);
-  assert(unique.size === allPaths.length, `no duplicate skill paths (${unique.size} unique / ${allPaths.length} total)`);
+  assert(
+    unique.size === allPaths.length,
+    `no duplicate skill paths (${unique.size} unique / ${allPaths.length} total)`,
+  );
 }
 
 // ================================================================
@@ -125,8 +143,12 @@ console.log("\n-- coverage: all extensions mapped --");
   // review is loaded by the rho extension, not registered separately.
   const EXT_SKIP = new Set(["lib", "review"]);
   const extDir = path.join(PKG_ROOT, "extensions");
-  const actualExtensions = fs.readdirSync(extDir)
-    .filter((d) => !EXT_SKIP.has(d) && fs.statSync(path.join(extDir, d)).isDirectory())
+  const actualExtensions = fs
+    .readdirSync(extDir)
+    .filter(
+      (d) =>
+        !EXT_SKIP.has(d) && fs.statSync(path.join(extDir, d)).isDirectory(),
+    )
     .map((d) => `extensions/${d}`);
 
   const registeredExtensions = new Set<string>();
@@ -146,8 +168,13 @@ console.log("\n-- coverage: all skills mapped --");
   // memory-migration is a transitional skill, not a permanent registry entry.
   const SKILL_SKIP = new Set(["memory-migration"]);
   const skillsDir = path.join(PKG_ROOT, "skills");
-  const actualSkills = fs.readdirSync(skillsDir)
-    .filter((d) => !SKILL_SKIP.has(d) && fs.statSync(path.join(skillsDir, d)).isDirectory())
+  const actualSkills = fs
+    .readdirSync(skillsDir)
+    .filter(
+      (d) =>
+        !SKILL_SKIP.has(d) &&
+        fs.statSync(path.join(skillsDir, d)).isDirectory(),
+    )
     .map((d) => `skills/${d}`);
 
   const registeredSkills = new Set<string>();

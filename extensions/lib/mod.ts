@@ -8,7 +8,12 @@
  */
 
 export type { Frontmatter } from "./vault-lib.ts";
-export { parseFrontmatter, stripFrontmatter, extractWikilinks, extractTitle } from "./vault-lib.ts";
+export {
+  parseFrontmatter,
+  stripFrontmatter,
+  extractWikilinks,
+  extractTitle,
+} from "./vault-lib.ts";
 
 export type {
   VaultNoteType,
@@ -74,8 +79,23 @@ export {
   buildManagedKey,
 } from "./brain-bootstrap-schema.ts";
 
-export type { BrainLikeEntry, BootstrapState } from "./brain-bootstrap-state.ts";
-export { getBootstrapState, markBootstrapCompleted } from "./brain-bootstrap-state.ts";
+export type {
+  BrainLikeEntry,
+  BootstrapState,
+} from "./brain-bootstrap-state.ts";
+export {
+  getBootstrapState,
+  markBootstrapCompleted,
+} from "./brain-bootstrap-state.ts";
 
-export type { MigrationPaths, MigrationStatus, MigrationStats } from "./brain-migration.ts";
-export { detectMigration, detectMigrationWithPaths, runMigration, runMigrationWithPaths } from "./brain-migration.ts";
+export type {
+  MigrationPaths,
+  MigrationStatus,
+  MigrationStats,
+} from "./brain-migration.ts";
+export {
+  detectMigration,
+  detectMigrationWithPaths,
+  runMigration,
+  runMigrationWithPaths,
+} from "./brain-migration.ts";

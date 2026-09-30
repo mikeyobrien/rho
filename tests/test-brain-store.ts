@@ -61,7 +61,9 @@ function assertIncludes(haystack: string, needle: string, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} -- "${haystack}" does not include "${needle}"`);
+    console.error(
+      `  FAIL: ${label} -- "${haystack}" does not include "${needle}"`,
+    );
     FAIL++;
   }
 }
@@ -91,7 +93,11 @@ function brainPath(): string {
 
 const TS = "2026-02-10T00:00:00Z";
 
-function mkBehavior(id: string, cat: "do" | "dont" | "value", text: string): BehaviorEntry {
+function mkBehavior(
+  id: string,
+  cat: "do" | "dont" | "value",
+  text: string,
+): BehaviorEntry {
   return { id, type: "behavior", category: cat, text, created: TS };
 }
 
@@ -100,11 +106,23 @@ function mkLearning(id: string, text: string): LearningEntry {
 }
 
 function mkIdentity(key: string, value: string): IdentityEntry {
-  return { id: deterministicId("identity", key), type: "identity", key, value, created: TS };
+  return {
+    id: deterministicId("identity", key),
+    type: "identity",
+    key,
+    value,
+    created: TS,
+  };
 }
 
 function mkUser(key: string, value: string): UserEntry {
-  return { id: deterministicId("user", key), type: "user", key, value, created: TS };
+  return {
+    id: deterministicId("user", key),
+    type: "user",
+    key,
+    value,
+    created: TS,
+  };
 }
 
 function mkPreference(id: string, cat: string, text: string): PreferenceEntry {
@@ -112,35 +130,77 @@ function mkPreference(id: string, cat: string, text: string): PreferenceEntry {
 }
 
 function mkContext(project: string, p: string, content: string): ContextEntry {
-  return { id: deterministicId("context", p), type: "context", project, path: p, content, created: TS };
+  return {
+    id: deterministicId("context", p),
+    type: "context",
+    project,
+    path: p,
+    content,
+    created: TS,
+  };
 }
 
 function mkTask(id: string, desc: string): TaskEntry {
   return {
-    id, type: "task", description: desc, status: "pending",
-    priority: "normal", tags: [], due: null, completedAt: null, created: TS,
+    id,
+    type: "task",
+    description: desc,
+    status: "pending",
+    priority: "normal",
+    tags: [],
+    due: null,
+    completedAt: null,
+    created: TS,
   };
 }
 
 function mkReminder(id: string, text: string): ReminderEntry {
   return {
-    id, type: "reminder", text, enabled: true,
+    id,
+    type: "reminder",
+    text,
+    enabled: true,
     cadence: { kind: "interval", every: "30m" },
-    priority: "normal", tags: [],
-    last_run: null, next_due: null,
-    last_result: null, last_error: null, created: TS,
+    priority: "normal",
+    tags: [],
+    last_run: null,
+    next_due: null,
+    last_result: null,
+    last_error: null,
+    created: TS,
   };
 }
 
-function mkTombstone(id: string, targetId: string, targetType: string): TombstoneEntry {
-  return { id, type: "tombstone", target_id: targetId, target_type: targetType, reason: "manual", created: TS };
+function mkTombstone(
+  id: string,
+  targetId: string,
+  targetType: string,
+): TombstoneEntry {
+  return {
+    id,
+    type: "tombstone",
+    target_id: targetId,
+    target_type: targetType,
+    reason: "manual",
+    created: TS,
+  };
 }
 
 function mkMeta(key: string, value: string): MetaEntry {
-  return { id: deterministicId("meta", key), type: "meta", key, value, created: TS };
+  return {
+    id: deterministicId("meta", key),
+    type: "meta",
+    key,
+    value,
+    created: TS,
+  };
 }
 
-function writeLines(fp: string, entries: BrainEntry[], trailingNewline = true): void {
+function writeLines(
+  fp: string,
+  entries: BrainEntry[],
+  trailingNewline = true,
+): void {
   const lines = entries.map((e) => JSON.stringify(e)).join("\n");
   fs.writeFileSync(fp, lines + (trailingNewline ? "\n" : ""), "utf-8");
 }
@@ -173,9 +233,21 @@ console.log("\n--- readBrain ---");
   assertEq(entries.length, 3, "3 valid lines → 3 entries");
   assertEq(stats.total, 3, "stats.total=3");
   assertEq(stats.badLines, 0, "no bad lines");
-  assertEq((entries[0] as BehaviorEntry).text, "Be direct", "first entry parsed correctly");
-  assertEq((entries[1] as LearningEntry).text, "Use pnpm", "second entry parsed correctly");
-  assertEq((entries[2] as MetaEntry).key, "schema_version", "third entry parsed correctly");
+  assertEq(
+    (entries[0] as BehaviorEntry).text,
+    "Be direct",
+    "first entry parsed correctly",
+  );
+  assertEq(
+    (entries[1] as LearningEntry).text,
+    "Use pnpm",
+    "second entry parsed correctly",
+  );
+  assertEq(
+    (entries[2] as MetaEntry).key,
+    "schema_version",
+    "third entry parsed correctly",
+  );
   cleanup();
 }
 
@@ -185,9 +257,7 @@ console.log("\n--- readBrain ---");
   const b = mkBehavior("b1", "do", "Be direct");
   const l = mkLearning("l1", "Use pnpm");
   const content =
-    JSON.stringify(b) + "\n" +
-    "NOT VALID JSON\n" +
-    JSON.stringify(l) + "\n";
+    JSON.stringify(b) + "\n" + "NOT VALID JSON\n" + JSON.stringify(l) + "\n";
   fs.writeFileSync(brainPath(), content, "utf-8");
   const { entries, stats } = readBrain(brainPath());
   assertEq(entries.length, 2, "malformed middle line → 2 entries");
@@ -297,7 +367,11 @@ console.log("\n--- foldBrain ---");
   const brain = foldBrain(entries);
   assertEq(brain.behaviors.length, 2, "2 behaviors");
   assertEq(brain.identity.size, 1, "1 identity");
-  assertEq(brain.identity.get("role")!.value, "assistant", "identity value correct");
+  assertEq(
+    brain.identity.get("role")!.value,
+    "assistant",
+    "identity value correct",
+  );
   assertEq(brain.user.size, 1, "1 user");
   assertEq(brain.user.get("name")!.value, "Mikey", "user value correct");
   assertEq(brain.learnings.length, 2, "2 learnings");
@@ -323,7 +397,12 @@ console.log("\n--- validateEntry ---");
 
 // 12. behavior missing category → error mentions "category"
 {
-  const entry = { id: "b1", type: "behavior", text: "Be direct", created: TS } as any;
+  const entry = {
+    id: "b1",
+    type: "behavior",
+    text: "Be direct",
+    created: TS,
+  } as any;
   const result = validateEntry(entry);
   assertEq(result.ok, false, "missing category fails");
   assertIncludes((result as any).error, "category", "error mentions category");
@@ -331,11 +410,20 @@ console.log("\n--- validateEntry ---");
 
 // 13. behavior with invalid category value → mentions valid values
 {
-  const entry = { id: "b1", type: "behavior", category: "maybe", text: "Be direct", created: TS } as any;
+  const entry = {
+    id: "b1",
+    type: "behavior",
+    category: "maybe",
+    text: "Be direct",
+    created: TS,
+  } as any;
   const result = validateEntry(entry);
   assertEq(result.ok, false, "invalid category fails");
   const err = (result as any).error as string;
-  assert(err.includes("do") && err.includes("dont") && err.includes("value"), "error mentions valid category values");
+  assert(
+    err.includes("do") && err.includes("dont") && err.includes("value"),
+    "error mentions valid category values",
+  );
 }
 
 // 14. each type in registry validates with required fields
@@ -369,7 +457,12 @@ console.log("\n--- validateEntry ---");
 
 // 16. missing id → error
 {
-  const entry = { type: "behavior", category: "do", text: "test", created: TS } as any;
+  const entry = {
+    type: "behavior",
+    category: "do",
+    text: "test",
+    created: TS,
+  } as any;
   const result = validateEntry(entry);
   assertEq(result.ok, false, "missing id fails");
   assertIncludes((result as any).error, "id", "error mentions id");
@@ -385,7 +478,12 @@ console.log("\n--- validateEntry ---");
 
 // 18. missing created → error
 {
-  const entry = { id: "b1", type: "behavior", category: "do", text: "test" } as any;
+  const entry = {
+    id: "b1",
+    type: "behavior",
+    category: "do",
+    text: "test",
+  } as any;
   const result = validateEntry(entry);
   assertEq(result.ok, false, "missing created fails");
   assertIncludes((result as any).error, "created", "error mentions created");
@@ -422,7 +520,10 @@ console.log("\n--- deterministicId ---");
   assert(/^[0-9a-f]{8}$/.test(metaKey), "meta id is 8-char hex");
   assert(/^[0-9a-f]{8}$/.test(ctxKey), "context id is 8-char hex");
   // Different types with same key should produce different ids
-  assert(idKey !== userKey, "identity and user with same key produce different ids");
+  assert(
+    idKey !== userKey,
+    "identity and user with same key produce different ids",
+  );
 }
 
 // ==================================================================
@@ -481,7 +582,12 @@ console.log("\n--- appendBrainEntry ---");
   const fp = brainPath();
   const promises: Promise<void>[] = [];
   for (let i = 0; i < 20; i++) {
-    promises.push(appendBrainEntry(fp, mkLearning(`c${i.toString().padStart(2, "0")}`, `Concurrent ${i}`)));
+    promises.push(
+      appendBrainEntry(
+        fp,
+        mkLearning(`c${i.toString().padStart(2, "0")}`, `Concurrent ${i}`),
+      ),
+    );
   }
   await Promise.all(promises);
   const content = fs.readFileSync(fp, "utf-8");
@@ -489,7 +595,11 @@ console.log("\n--- appendBrainEntry ---");
   assertEq(lines.length, 20, "20 concurrent appends → 20 lines");
   let allValid = true;
   for (const line of lines) {
-    try { JSON.parse(line); } catch { allValid = false; }
+    try {
+      JSON.parse(line);
+    } catch {
+      allValid = false;
+    }
   }
   assert(allValid, "all 20 lines are valid JSON");
   // All unique ids
@@ -512,9 +622,15 @@ console.log("\n--- appendBrainEntryWithDedup ---");
   const before = fs.readFileSync(fp, "utf-8");
 
   const isDup = (existing: BrainEntry[], candidate: BrainEntry) =>
-    existing.some((e) => (e as LearningEntry).text === (candidate as LearningEntry).text);
+    existing.some(
+      (e) => (e as LearningEntry).text === (candidate as LearningEntry).text,
+    );
 
-  const result = await appendBrainEntryWithDedup(fp, mkLearning("l2", "Use pnpm"), isDup);
+  const result = await appendBrainEntryWithDedup(
+    fp,
+    mkLearning("l2", "Use pnpm"),
+    isDup,
+  );
   assertEq(result, false, "duplicate returns false");
 
   const after = fs.readFileSync(fp, "utf-8");
@@ -530,9 +646,15 @@ console.log("\n--- appendBrainEntryWithDedup ---");
   await appendBrainEntry(fp, entry);
 
   const isDup = (existing: BrainEntry[], candidate: BrainEntry) =>
-    existing.some((e) => (e as LearningEntry).text === (candidate as LearningEntry).text);
+    existing.some(
+      (e) => (e as LearningEntry).text === (candidate as LearningEntry).text,
+    );
 
-  const result = await appendBrainEntryWithDedup(fp, mkLearning("l2", "Use npm"), isDup);
+  const result = await appendBrainEntryWithDedup(
+    fp,
+    mkLearning("l2", "Use npm"),
+    isDup,
+  );
   assertEq(result, true, "non-duplicate returns true");
 
   const lines = fs.readFileSync(fp, "utf-8").trim().split("\n");
@@ -554,7 +676,7 @@ console.log("\n--- brain.jsonl.default validation ---");
   );
 
   let lines: string[] = [];
-  let entries: any[] = [];
+  const entries: any[] = [];
 
   // 28. every line parses as valid JSON
   {

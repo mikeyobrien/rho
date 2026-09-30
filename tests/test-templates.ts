@@ -75,9 +75,7 @@ try {
 	console.log("  PASS: init.toml parses as valid TOML");
 	PASS++;
 } catch (error: unknown) {
-	console.error(
-		`  FAIL: init.toml TOML parse error — ${toErrorMessage(error)}`,
-	);
+	console.error(`  FAIL: init.toml TOML parse error — ${toErrorMessage(error)}`);
 	FAIL++;
 	process.exit(1);
 }
@@ -156,10 +154,7 @@ for (const category of Object.values(initConfig.modules)) {
 	allConfigModules.push(...Object.keys(category));
 }
 for (const mod of allConfigModules) {
-	assert(
-		allRegistryNames.has(mod),
-		`config module '${mod}' exists in registry`,
-	);
+	assert(allRegistryNames.has(mod), `config module '${mod}' exists in registry`);
 }
 assertEq(
 	allConfigModules.length,

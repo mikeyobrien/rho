@@ -57,10 +57,14 @@ function parseInterval(s: string): number {
   if (!m) throw new Error(`Invalid interval: ${s}`);
   const n = parseInt(m[1], 10);
   switch (m[2]) {
-    case "m": return n * 60 * 1000;
-    case "h": return n * 3600 * 1000;
-    case "d": return n * 24 * 3600 * 1000;
-    default: throw new Error(`Invalid interval unit: ${m[2]}`);
+    case "m":
+      return n * 60 * 1000;
+    case "h":
+      return n * 3600 * 1000;
+    case "d":
+      return n * 24 * 3600 * 1000;
+    default:
+      throw new Error(`Invalid interval unit: ${m[2]}`);
   }
 }
 
@@ -89,15 +93,23 @@ function computeNextDue(
 // ── Tag normalization ─────────────────────────────────────────────
 
 function normalizeTags(raw: unknown): string[] {
-  if (Array.isArray(raw)) return raw.map((t) => String(t).trim().toLowerCase()).filter(Boolean);
-  if (typeof raw === "string" && raw.trim()) return raw.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+  if (Array.isArray(raw))
+    return raw.map((t) => String(t).trim().toLowerCase()).filter(Boolean);
+  if (typeof raw === "string" && raw.trim())
+    return raw
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
   return [];
 }
 
 // ── Text normalization for dedup ──────────────────────────────────
 
 function normalizeText(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function isDuplicateText(
@@ -177,7 +189,7 @@ function entryOneLiner(e: BrainEntry): string {
       return `${(e as any).project} (${(e as any).path})`;
     case "task": {
       const t = e as TaskEntry;
-      const pri = t.priority !== "normal" ? ` [${t.priority}]` : "";
+      const pri = t.priority === "normal" ? "" : ` [${t.priority}]`;
       const status = t.status === "done" ? " ✓" : "";
       return `${t.description}${pri}${status}`;
     }
@@ -195,16 +207,26 @@ function entryOneLiner(e: BrainEntry): string {
 
 function getCollection(brain: MaterializedBrain, type: string): BrainEntry[] {
   switch (type) {
-    case "behavior":   return brain.behaviors;
-    case "identity":   return [...brain.identity.values()];
-    case "user":       return [...brain.user.values()];
-    case "learning":   return brain.learnings;
-    case "preference": return brain.preferences;
-    case "context":    return brain.contexts;
-    case "task":       return brain.tasks;
-    case "reminder":   return brain.reminders;
-    case "meta":       return [...brain.meta.values()];
-    default:           return [];
+    case "behavior":
+      return brain.behaviors;
+    case "identity":
+      return [...brain.identity.values()];
+    case "user":
+      return [...brain.user.values()];
+    case "learning":
+      return brain.learnings;
+    case "preference":
+      return brain.preferences;
+    case "context":
+      return brain.contexts;
+    case "task":
+      return brain.tasks;
+    case "reminder":
+      return brain.reminders;
+    case "meta":
+      return [...brain.meta.values()];
+    default:
+      return [];
   }
 }
 
@@ -222,7 +244,10 @@ function getAllEntries(brain: MaterializedBrain): BrainEntry[] {
   ];
 }
 
-function findEntryById(brain: MaterializedBrain, id: string): BrainEntry | undefined {
+function findEntryById(
+  brain: MaterializedBrain,
+  id: string,
+): BrainEntry | undefined {
   return getAllEntries(brain).find((e) => e.id === id);
 }
 
@@ -275,7 +300,11 @@ async function handleAdd(
 
   // Parse cadence if passed as JSON string
   if (typeof entry.cadence === "string") {
-    try { entry.cadence = JSON.parse(entry.cadence); } catch { /* leave as-is */ }
+    try {
+      entry.cadence = JSON.parse(entry.cadence);
+    } catch {
+      /* leave as-is */
+    }
   }
 
   // Generate id
@@ -325,13 +354,21 @@ async function handleAdd(
     if (!written) {
       return { ok: false, message: `Duplicate ${type}: already stored` };
     }
-    return { ok: true, message: `Added ${type}: ${entryOneLiner(entry as BrainEntry)}`, data: { id: entry.id } };
+    return {
+      ok: true,
+      message: `Added ${type}: ${entryOneLiner(entry as BrainEntry)}`,
+      data: { id: entry.id },
+    };
   }
 
   // For keyed types, just append (fold handles upsert via same id)
   // For other types, just append
   await appendBrainEntry(brainPath, entry as BrainEntry);
-  return { ok: true, message: `Added ${type}: ${entryOneLiner(entry as BrainEntry)}`, data: { id: entry.id } };
+  return {
+    ok: true,
+    message: `Added ${type}: ${entryOneLiner(entry as BrainEntry)}`,
+    data: { id: entry.id },
+  };
 }
 
 // ── Update ────────────────────────────────────────────────────────
@@ -358,7 +395,11 @@ async function handleUpdate(
   }
   // Parse cadence if passed as JSON string
   if (typeof merged.cadence === "string") {
-    try { merged.cadence = JSON.parse(merged.cadence); } catch { /* leave as-is */ }
+    try {
+      merged.cadence = JSON.parse(merged.cadence);
+    } catch {
+      /* leave as-is */
+    }
   }
   if ("tags" in merged) merged.tags = normalizeTags(merged.tags);
   // Preserve original created date - only update it for new entries
@@ -399,7 +440,10 @@ async function handleRemove(
     const keyField = KEYED_TYPES[params.type];
     const keyValue = params[keyField];
     if (!keyValue) {
-      return { ok: false, message: `remove by natural key requires ${keyField} for type ${params.type}` };
+      return {
+        ok: false,
+        message: `remove by natural key requires ${keyField} for type ${params.type}`,
+      };
     }
     targetId = deterministicId(params.type, keyValue);
     targetType = params.type;
@@ -446,8 +490,15 @@ async function handleList(
   } else {
     // Show all non-empty types
     const types = [
-      "behavior", "identity", "user", "learning",
-      "preference", "context", "task", "reminder", "meta",
+      "behavior",
+      "identity",
+      "user",
+      "learning",
+      "preference",
+      "context",
+      "task",
+      "reminder",
+      "meta",
     ];
     collections = types
       .map((t) => ({ name: t, entries: getCollection(brain, t) }))
@@ -481,15 +532,28 @@ async function handleList(
     collections = collections.map((c) => {
       if (c.name === "task") {
         if (filter === "pending") {
-          return { ...c, entries: c.entries.filter((e) => (e as TaskEntry).status === "pending") };
+          return {
+            ...c,
+            entries: c.entries.filter(
+              (e) => (e as TaskEntry).status === "pending",
+            ),
+          };
         }
         if (filter === "done") {
-          return { ...c, entries: c.entries.filter((e) => (e as TaskEntry).status === "done") };
+          return {
+            ...c,
+            entries: c.entries.filter(
+              (e) => (e as TaskEntry).status === "done",
+            ),
+          };
         }
       }
       if (c.name === "reminder") {
         if (filter === "active" || filter === "enabled") {
-          return { ...c, entries: c.entries.filter((e) => (e as ReminderEntry).enabled) };
+          return {
+            ...c,
+            entries: c.entries.filter((e) => (e as ReminderEntry).enabled),
+          };
         }
       }
       return c;
@@ -500,8 +564,10 @@ async function handleList(
   if (verbose) {
     const parts = collections.map((c) => {
       if (c.entries.length === 0) return `[${c.name}] (0)`;
-      return `[${c.name}] (${c.entries.length})\n` +
-        c.entries.map((e) => JSON.stringify(e, null, 2)).join("\n");
+      return (
+        `[${c.name}] (${c.entries.length})\n` +
+        c.entries.map((e) => JSON.stringify(e, null, 2)).join("\n")
+      );
     });
     return { ok: true, message: parts.join("\n\n") };
   }
@@ -594,9 +660,7 @@ async function handleTaskDone(
 
 // ── Task Clear ────────────────────────────────────────────────────
 
-async function handleTaskClear(
-  brainPath: string,
-): Promise<BrainActionResult> {
+async function handleTaskClear(brainPath: string): Promise<BrainActionResult> {
   const { entries } = readBrain(brainPath);
   const brain = foldBrain(entries);
   const doneTasks = brain.tasks.filter((t) => t.status === "done");
@@ -633,7 +697,11 @@ async function handleReminderRun(
 ): Promise<BrainActionResult> {
   const { id, result, error } = params;
   if (!id) return { ok: false, message: "reminder_run requires id" };
-  if (!result) return { ok: false, message: "reminder_run requires result (ok|error|skipped)" };
+  if (!result)
+    return {
+      ok: false,
+      message: "reminder_run requires result (ok|error|skipped)",
+    };
 
   const { entries } = readBrain(brainPath);
   const brain = foldBrain(entries);

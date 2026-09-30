@@ -59,7 +59,8 @@ function extractAssistantText(message: any): string {
   const chunks: string[] = [];
   for (const part of content) {
     if (!part || typeof part !== "object") continue;
-    if (part.type === "text" && typeof part.text === "string") chunks.push(part.text);
+    if (part.type === "text" && typeof part.text === "string")
+      chunks.push(part.text);
   }
   return chunks.join("\n").trim();
 }
@@ -68,9 +69,9 @@ function isIgnorableRpcStderr(message: string): boolean {
   const line = message.trim();
   if (!line) return true;
   return (
-    /ExperimentalWarning: SQLite is an experimental feature/i.test(line)
-    || /\(Use `node --trace-warnings .+\)/i.test(line)
-    || /ExperimentalWarning/i.test(line)
+    /ExperimentalWarning: SQLite is an experimental feature/i.test(line) ||
+    /\(Use `node --trace-warnings .+\)/i.test(line) ||
+    /ExperimentalWarning/i.test(line)
   );
 }
 
@@ -80,7 +81,8 @@ function normalizeSlashPromptForRpc(message: string): string {
 
   const token = parsed.trimmed.split(/\s+/, 1)[0] ?? "";
   const rest = parsed.trimmed.slice(token.length);
-  const aliasedCommand = SLASH_RPC_ALIASES.get(parsed.commandName) ?? parsed.commandName;
+  const aliasedCommand =
+    SLASH_RPC_ALIASES.get(parsed.commandName) ?? parsed.commandName;
 
   if (!token.includes("@") && aliasedCommand === parsed.commandName) {
     return message;
@@ -92,24 +94,30 @@ function normalizeSlashPromptForRpc(message: string): string {
 function extractExtensionNotifyText(event: any): string | null {
   if (!event || typeof event !== "object") return null;
 
-  const req = typeof event.request === "object" && event.request !== null ? event.request : event;
-  const method = typeof req?.method === "string"
-    ? req.method
-    : typeof event.method === "string" ? event.method : "";
+  const req =
+    typeof event.request === "object" && event.request !== null
+      ? event.request
+      : event;
+  const method =
+    typeof req?.method === "string"
+      ? req.method
+      : typeof event.method === "string"
+        ? event.method
+        : "";
 
   const isNotificationEvent =
-    method === "notify"
-    || req?.type === "notify"
-    || event.type === "extension_notify"
-    || event.type === "notify";
+    method === "notify" ||
+    req?.type === "notify" ||
+    event.type === "extension_notify" ||
+    event.type === "notify";
 
   if (!isNotificationEvent) return null;
 
   const text = String(
-    (typeof req?.message === "string" && req.message)
-    || (typeof req?.text === "string" && req.text)
-    || (typeof event.message === "string" && event.message)
-    || "",
+    (typeof req?.message === "string" && req.message) ||
+      (typeof req?.text === "string" && req.text) ||
+      (typeof event.message === "string" && event.message) ||
+      "",
   ).trim();
 
   return text.length > 0 ? text : null;
@@ -123,7 +131,9 @@ function formatStderrSuffix(lines: string[]): string {
 
 function isSessionBusyPromptError(message: string): boolean {
   const text = String(message || "");
-  return /agent is already processing|already streaming|session busy|streamingbehavior/i.test(text);
+  return /agent is already processing|already streaming|session busy|streamingbehavior/i.test(
+    text,
+  );
 }
 
 export class TelegramRpcRunner {
@@ -136,14 +146,23 @@ export class TelegramRpcRunner {
     this.spawnProcess = spawnProcess;
   }
 
-  async runPrompt(sessionFile: string, message: string, timeoutMs = 120_000, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<string> {
+  async runPrompt(
+    sessionFile: string,
+    message: string,
+    timeoutMs = 120_000,
+    images?: Array<{ type: "image"; data: string; mimeType: string }>,
+  ): Promise<string> {
     const session = this.ensureSession(sessionFile);
     if (session.pending) {
       throw new Error(`RPC session busy for ${sessionFile}`);
     }
 
     const normalizedMessage = normalizeSlashPromptForRpc(message);
-    const slashClassification = await this.classifySlashPrompt(session, normalizedMessage, timeoutMs > 0 ? timeoutMs : 5_000);
+    const slashClassification = await this.classifySlashPrompt(
+      session,
+      normalizedMessage,
+      timeoutMs > 0 ? timeoutMs : 5_000,
+    );
     if (slashClassification && slashClassification.kind !== "supported") {
       throw new Error(formatUnsupportedMessage(slashClassification));
     }
@@ -151,14 +170,18 @@ export class TelegramRpcRunner {
     const requestId = `prompt-${++this.promptRequestCounter}`;
 
     return await new Promise<string>((resolve, reject) => {
-      const timer = timeoutMs > 0
-        ? setTimeout(() => {
-          const pending = session.pending;
-          if (!pending || pending.requestId !== requestId) return;
+      const timer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              const pending = session.pending;
+              if (!pending || pending.requestId !== requestId) return;
 
-          this.rejectPending(session, `RPC prompt timed out after ${Math.floor(timeoutMs / 1000)}s`);
-        }, timeoutMs)
-        : null;
+              this.rejectPending(
+                session,
+                `RPC prompt timed out after ${Math.floor(timeoutMs / 1000)}s`,
+              );
+            }, timeoutMs)
+          : null;
 
       session.pending = {
         resolve,
@@ -183,7 +206,9 @@ export class TelegramRpcRunner {
 
   dispose(): void {
     for (const session of this.sessions.values()) {
-      try { session.process.kill("SIGTERM"); } catch {}
+      try {
+        session.process.kill("SIGTERM");
+      } catch {}
       if (session.pending) {
         this.rejectPending(session, "RPC session disposed");
       }
@@ -192,7 +217,10 @@ export class TelegramRpcRunner {
     this.sessions.clear();
   }
 
-  cancelSession(sessionFile: string, reason = "RPC session cancelled"): boolean {
+  cancelSession(
+    sessionFile: string,
+    reason = "RPC session cancelled",
+  ): boolean {
     const session = this.sessions.get(sessionFile);
     if (!session) return false;
 
@@ -273,7 +301,10 @@ export class TelegramRpcRunner {
     child.once("exit", (code, signal) => {
       state.exited = true;
       if (state.pending) {
-        this.rejectPending(state, `RPC exited (code=${code ?? "null"}, signal=${signal ?? "null"})`);
+        this.rejectPending(
+          state,
+          `RPC exited (code=${code ?? "null"}, signal=${signal ?? "null"})`,
+        );
       }
       this.resolveCommandsRequest(state, null);
       this.sessions.delete(sessionFile);
@@ -292,7 +323,10 @@ export class TelegramRpcRunner {
     return state;
   }
 
-  private sendCommand(session: RpcSessionState, command: Record<string, unknown>): void {
+  private sendCommand(
+    session: RpcSessionState,
+    command: Record<string, unknown>,
+  ): void {
     if (session.process.stdin.destroyed || !session.process.stdin.writable) {
       throw new Error(`RPC stdin is not writable for ${session.sessionFile}`);
     }
@@ -347,10 +381,15 @@ export class TelegramRpcRunner {
 
     session.pending = null;
     this.clearPendingTimers(pending);
-    pending.reject(new Error(`${message}${formatStderrSuffix(pending.stderrLines)}`));
+    pending.reject(
+      new Error(`${message}${formatStderrSuffix(pending.stderrLines)}`),
+    );
   }
 
-  private resolveCommandsRequest(session: RpcSessionState, commands: Map<string, SlashCommandEntry> | null): void {
+  private resolveCommandsRequest(
+    session: RpcSessionState,
+    commands: Map<string, SlashCommandEntry> | null,
+  ): void {
     const pendingRequest = session.pendingCommandsRequest;
     if (!pendingRequest) {
       return;
@@ -367,7 +406,10 @@ export class TelegramRpcRunner {
     pendingRequest.resolve(commands);
   }
 
-  private async loadCommandIndex(session: RpcSessionState, timeoutMs: number): Promise<Map<string, SlashCommandEntry> | null> {
+  private async loadCommandIndex(
+    session: RpcSessionState,
+    timeoutMs: number,
+  ): Promise<Map<string, SlashCommandEntry> | null> {
     if (session.commandsLoaded) {
       return session.commandIndex;
     }
@@ -396,26 +438,31 @@ export class TelegramRpcRunner {
     }
 
     const requestId = `commands-${++this.commandsRequestCounter}`;
-    const safeTimeoutMs = Math.max(100, Math.min(timeoutMs, SLASH_COMMAND_DISCOVERY_TIMEOUT_MS));
+    const safeTimeoutMs = Math.max(
+      100,
+      Math.min(timeoutMs, SLASH_COMMAND_DISCOVERY_TIMEOUT_MS),
+    );
 
-    return await new Promise<Map<string, SlashCommandEntry> | null>((resolve) => {
-      const timer = setTimeout(() => {
-        if (session.pendingCommandsRequest?.requestId !== requestId) return;
-        this.resolveCommandsRequest(session, null);
-      }, safeTimeoutMs);
+    return await new Promise<Map<string, SlashCommandEntry> | null>(
+      (resolve) => {
+        const timer = setTimeout(() => {
+          if (session.pendingCommandsRequest?.requestId !== requestId) return;
+          this.resolveCommandsRequest(session, null);
+        }, safeTimeoutMs);
 
-      session.pendingCommandsRequest = {
-        requestId,
-        timer,
-        resolve,
-      };
+        session.pendingCommandsRequest = {
+          requestId,
+          timer,
+          resolve,
+        };
 
-      try {
-        this.sendCommand(session, { id: requestId, type: "get_commands" });
-      } catch {
-        this.resolveCommandsRequest(session, null);
-      }
-    });
+        try {
+          this.sendCommand(session, { id: requestId, type: "get_commands" });
+        } catch {
+          this.resolveCommandsRequest(session, null);
+        }
+      },
+    );
   }
 
   private async classifySlashPrompt(
@@ -430,7 +477,9 @@ export class TelegramRpcRunner {
 
     const commandIndex = await this.loadCommandIndex(session, timeoutMs);
     if (!commandIndex) {
-      throw new Error("Slash command inventory unavailable. Retry in a moment.");
+      throw new Error(
+        "Slash command inventory unavailable. Retry in a moment.",
+      );
     }
 
     return classifySlashCommand(message, commandIndex, {
@@ -517,9 +566,15 @@ export class TelegramRpcRunner {
     if (extensionNotifyText) {
       const pending = session.pending;
       if (pending) {
-        const separator = pending.lastAssistantText && pending.lastAssistantText.length > 0 ? "\n" : "";
+        const separator =
+          pending.lastAssistantText && pending.lastAssistantText.length > 0
+            ? "\n"
+            : "";
         pending.lastAssistantText = `${pending.lastAssistantText}${separator}${extensionNotifyText}`;
-        if (pending.isSlashCommand && (pending.sawPromptResponse || pending.sawAgentEnd)) {
+        if (
+          pending.isSlashCommand &&
+          (pending.sawPromptResponse || pending.sawAgentEnd)
+        ) {
           this.resolvePending(session, pending.lastAssistantText);
         }
       }

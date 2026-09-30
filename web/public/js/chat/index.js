@@ -43,14 +43,9 @@ export function registerRhoChat() {
 					if (!(this.sessionStateById instanceof Map)) {
 						this.sessionStateById = new Map();
 					}
-					return ensureSessionStateById(
-						this.sessionStateById,
-						sessionId,
-						meta,
-						{
-							makeReactive: (state) => this.makeSessionStateReactive(state),
-						},
-					);
+					return ensureSessionStateById(this.sessionStateById, sessionId, meta, {
+						makeReactive: (state) => this.makeSessionStateReactive(state),
+					});
 				},
 				getFocusedSessionState() {
 					return getFocusedSessionStateById(

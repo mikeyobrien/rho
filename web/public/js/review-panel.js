@@ -74,10 +74,7 @@ function rhoReviewDashboard() {
 				this._refreshTimer = null;
 			}
 			if (this._onVisibilityChange) {
-				document.removeEventListener(
-					"visibilitychange",
-					this._onVisibilityChange,
-				);
+				document.removeEventListener("visibilitychange", this._onVisibilityChange);
 				this._onVisibilityChange = null;
 			}
 			if (this._onUiEvent) {
@@ -178,7 +175,7 @@ function rhoReviewDashboard() {
 				}),
 				{ add: 0, del: 0 },
 			);
-			let s = `${n} file${n !== 1 ? "s" : ""}`;
+			let s = `${n} file${n === 1 ? "" : "s"}`;
 			if (totals.add) s += ` +${totals.add}`;
 			if (totals.del) s += ` −${totals.del}`;
 			return s;
@@ -274,10 +271,8 @@ function rhoReviewDashboard() {
 		},
 
 		submissionMeta(entry) {
-			const claimed = entry?.claimedBy
-				? ` · claimed by ${entry.claimedBy}`
-				: "";
-			return `${entry.commentCount} comment${entry.commentCount !== 1 ? "s" : ""}${claimed}`;
+			const claimed = entry?.claimedBy ? ` · claimed by ${entry.claimedBy}` : "";
+			return `${entry.commentCount} comment${entry.commentCount === 1 ? "" : "s"}${claimed}`;
 		},
 
 		renderDiff(diffText) {

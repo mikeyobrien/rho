@@ -256,10 +256,7 @@ app.get("/api/git/status", async (c) => {
 			const parsed = parseStatusLine(line);
 			if (!parsed) continue;
 
-			const { status, statusLabel } = classifyFile(
-				parsed.index,
-				parsed.worktree,
-			);
+			const { status, statusLabel } = classifyFile(parsed.index, parsed.worktree);
 			const stats = numstat.get(parsed.path) ??
 				cachedNumstat.get(parsed.path) ?? { add: 0, del: 0 };
 

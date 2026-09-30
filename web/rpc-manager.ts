@@ -1,6 +1,11 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { buildPiChildEnv, piLaunchArgs, resolveRhoPaths, type RhoPaths } from "../cli/rho-paths.ts";
+import {
+	buildPiChildEnv,
+	piLaunchArgs,
+	resolveRhoPaths,
+	type RhoPaths,
+} from "../cli/rho-paths.ts";
 
 export function buildRpcLaunch(paths: RhoPaths = resolveRhoPaths()): {
 	command: string;

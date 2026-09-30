@@ -26,7 +26,7 @@ export function getPendingApprovalsPath(homeDir = getHome()): string {
 }
 
 function normalize(input: unknown): PendingState {
-  const raw = (input && typeof input === "object") ? (input as any) : {};
+  const raw = input && typeof input === "object" ? (input as any) : {};
   const list = Array.isArray(raw.requests) ? raw.requests : [];
   const requests: TelegramPendingApproval[] = [];
   for (const item of list) {
@@ -45,8 +45,14 @@ function normalize(input: unknown): PendingState {
       userId,
       firstSeenAt: Number((item as any).firstSeenAt) || Date.now(),
       lastSeenAt: Number((item as any).lastSeenAt) || Date.now(),
-      fromName: typeof (item as any).fromName === "string" ? (item as any).fromName : undefined,
-      textPreview: typeof (item as any).textPreview === "string" ? (item as any).textPreview : undefined,
+      fromName:
+        typeof (item as any).fromName === "string"
+          ? (item as any).fromName
+          : undefined,
+      textPreview:
+        typeof (item as any).textPreview === "string"
+          ? (item as any).textPreview
+          : undefined,
     });
   }
   return { requests };
@@ -62,7 +68,10 @@ function loadState(path = getPendingApprovalsPath()): PendingState {
   }
 }
 
-function saveState(state: PendingState, path = getPendingApprovalsPath()): void {
+function saveState(
+  state: PendingState,
+  path = getPendingApprovalsPath(),
+): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(state, null, 2));
 }
@@ -79,12 +88,19 @@ function nextPin(existing: Set<string>): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-export function listPendingApprovals(path = getPendingApprovalsPath()): TelegramPendingApproval[] {
+export function listPendingApprovals(
+  path = getPendingApprovalsPath(),
+): TelegramPendingApproval[] {
   return loadState(path).requests.sort((a, b) => a.firstSeenAt - b.firstSeenAt);
 }
 
 export function upsertPendingApproval(
-  params: { chatId: number; userId: number | null; fromName?: string; textPreview?: string },
+  params: {
+    chatId: number;
+    userId: number | null;
+    fromName?: string;
+    textPreview?: string;
+  },
   path = getPendingApprovalsPath(),
 ): { request: TelegramPendingApproval; created: boolean } {
   const state = loadState(path);
@@ -117,7 +133,10 @@ export function upsertPendingApproval(
   return { request, created: true };
 }
 
-export function approvePendingByPin(pin: string, path = getPendingApprovalsPath()): TelegramPendingApproval | null {
+export function approvePendingByPin(
+  pin: string,
+  path = getPendingApprovalsPath(),
+): TelegramPendingApproval | null {
   const state = loadState(path);
   const normalizedPin = String(pin || "").trim();
   const idx = state.requests.findIndex((r) => r.pin === normalizedPin);
@@ -127,7 +146,10 @@ export function approvePendingByPin(pin: string, path = getPendingApprovalsPath(
   return request;
 }
 
-export function approvePendingByChatId(chatId: number, path = getPendingApprovalsPath()): TelegramPendingApproval | null {
+export function approvePendingByChatId(
+  chatId: number,
+  path = getPendingApprovalsPath(),
+): TelegramPendingApproval | null {
   const state = loadState(path);
   const idx = state.requests.findIndex((r) => r.chatId === chatId);
   if (idx < 0) return null;
@@ -136,7 +158,10 @@ export function approvePendingByChatId(chatId: number, path = getPendingApproval
   return request;
 }
 
-export function rejectPendingByPin(pin: string, path = getPendingApprovalsPath()): TelegramPendingApproval | null {
+export function rejectPendingByPin(
+  pin: string,
+  path = getPendingApprovalsPath(),
+): TelegramPendingApproval | null {
   const state = loadState(path);
   const normalizedPin = String(pin || "").trim();
   const idx = state.requests.findIndex((r) => r.pin === normalizedPin);
@@ -146,7 +171,10 @@ export function rejectPendingByPin(pin: string, path = getPendingApprovalsPath()
   return request;
 }
 
-export function rejectPendingByChatId(chatId: number, path = getPendingApprovalsPath()): TelegramPendingApproval | null {
+export function rejectPendingByChatId(
+  chatId: number,
+  path = getPendingApprovalsPath(),
+): TelegramPendingApproval | null {
   const state = loadState(path);
   const idx = state.requests.findIndex((r) => r.chatId === chatId);
   if (idx < 0) return null;

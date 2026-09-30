@@ -1,4 +1,10 @@
-import { LeaseHandle, isLeaseStale, readLeaseMeta, readLeasePayload, tryAcquireLeaseLock } from "../lib/lease-lock.ts";
+import {
+  LeaseHandle,
+  isLeaseStale,
+  readLeaseMeta,
+  readLeasePayload,
+  tryAcquireLeaseLock,
+} from "../lib/lease-lock.ts";
 
 export const TELEGRAM_WORKER_LEASE_PURPOSE = "rho-telegram-worker";
 
@@ -40,14 +46,18 @@ export function createTelegramWorkerLockState(): TelegramWorkerLockState {
   };
 }
 
-export function releaseTelegramWorkerLock(state: TelegramWorkerLockState): void {
+export function releaseTelegramWorkerLock(
+  state: TelegramWorkerLockState,
+): void {
   state.isOwner = false;
   state.ownerPid = null;
   state.lease?.release();
   state.lease = null;
 }
 
-export function readTelegramWorkerLockOwner(lockPath: string): TelegramWorkerLockOwnerInfo | null {
+export function readTelegramWorkerLockOwner(
+  lockPath: string,
+): TelegramWorkerLockOwnerInfo | null {
   const payload = readLeasePayload(lockPath);
   if (!payload) return null;
   return {
@@ -94,10 +104,15 @@ export function stepTelegramWorkerLock(
   state.ownerPid = meta.payload?.pid ?? null;
 
   if (!meta.payload || isLeaseStale(meta, params.staleMs, params.now)) {
-    const acquired = tryAcquireLeaseLock(params.lockPath, params.nonce, params.now, {
-      staleMs: params.staleMs,
-      purpose,
-    });
+    const acquired = tryAcquireLeaseLock(
+      params.lockPath,
+      params.nonce,
+      params.now,
+      {
+        staleMs: params.staleMs,
+        purpose,
+      },
+    );
     state.ownerPid = acquired.ownerPid;
     if (acquired.ok) {
       state.isOwner = true;

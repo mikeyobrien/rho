@@ -48,12 +48,18 @@ function formatTsMs(ts: number | null): string {
 
 export function renderTelegramUiStatus(input: TelegramUiStatusInput): string {
   const mode = input.mode === "webhook" ? "wh" : "poll";
-  const role = input.isLeader ? "L" : input.ownerPid ? `F${input.ownerPid}` : "F";
+  const role = input.isLeader
+    ? "L"
+    : input.ownerPid
+      ? `F${input.ownerPid}`
+      : "F";
   const trigger = input.triggerPending ? " tr!" : "";
   return `tg ${mode}${role}#${input.lastUpdateId} in${input.pendingInbound} out${input.pendingOutbound} pf${input.pollFailures} sf${input.sendFailures}${trigger}`;
 }
 
-export function renderTelegramStatusText(snapshot: TelegramStatusSnapshot): string {
+export function renderTelegramStatusText(
+  snapshot: TelegramStatusSnapshot,
+): string {
   return [
     `Telegram: ${snapshot.enabled ? "enabled" : "disabled"} (${snapshot.mode})`,
     `Leadership: ${snapshot.leadershipText}`,

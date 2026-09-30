@@ -243,10 +243,7 @@ app.get(
 						terminalManager.close(sessionId);
 						break;
 					default:
-						sendTerminalError(
-							ws,
-							`Unknown terminal websocket type: ${payload.type}`,
-						);
+						sendTerminalError(ws, `Unknown terminal websocket type: ${payload.type}`);
 				}
 			} catch (error) {
 				sendTerminalError(

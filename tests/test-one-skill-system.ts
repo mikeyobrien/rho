@@ -25,7 +25,11 @@ function walkFiles(dir: string, acc: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir)) {
     const full = path.join(dir, entry);
     const rel = path.relative(ROOT, full);
-    if (rel.startsWith("node_modules") || rel.startsWith(".git") || rel.startsWith(".worktrees")) {
+    if (
+      rel.startsWith("node_modules") ||
+      rel.startsWith(".git") ||
+      rel.startsWith(".worktrees")
+    ) {
       continue;
     }
     const stat = fs.statSync(full);
@@ -54,13 +58,23 @@ console.log("\n-- no legacy sop artifacts --");
 
 console.log("\n-- no legacy references in runtime/docs/tests --");
 {
-  const scanRoots = ["README.md", "docs", "cli", "extensions", "skills", "templates", "tests"];
-  const files = scanRoots.flatMap((p) => {
-    const full = path.join(ROOT, p);
-    if (!fs.existsSync(full)) return [] as string[];
-    const stat = fs.statSync(full);
-    return stat.isDirectory() ? walkFiles(full) : [full];
-  }).filter((f) => !f.endsWith("test-one-skill-system.ts"));
+  const scanRoots = [
+    "README.md",
+    "docs",
+    "cli",
+    "extensions",
+    "skills",
+    "templates",
+    "tests",
+  ];
+  const files = scanRoots
+    .flatMap((p) => {
+      const full = path.join(ROOT, p);
+      if (!fs.existsSync(full)) return [] as string[];
+      const stat = fs.statSync(full);
+      return stat.isDirectory() ? walkFiles(full) : [full];
+    })
+    .filter((f) => !f.endsWith("test-one-skill-system.ts"));
 
   const forbidden = [
     { label: "legacy /sop command", pattern: /(^|\s)\/sop(\s|$)/ },
@@ -76,7 +90,10 @@ console.log("\n-- no legacy references in runtime/docs/tests --");
       const text = fs.readFileSync(file, "utf-8");
       if (pattern.test(text)) offenders.push(path.relative(ROOT, file));
     }
-    assert(offenders.length === 0, `${label} removed (${offenders.join(", ") || "none"})`);
+    assert(
+      offenders.length === 0,
+      `${label} removed (${offenders.join(", ") || "none"})`,
+    );
   }
 }
 
@@ -97,12 +114,21 @@ console.log("\n-- sop skills are first-class skills --");
 
   for (const skillName of expectedSopSkills) {
     const skillPath = path.join(ROOT, "skills", skillName, "SKILL.md");
-    assert(fs.existsSync(skillPath), `${skillName}: skills/<name>/SKILL.md exists`);
+    assert(
+      fs.existsSync(skillPath),
+      `${skillName}: skills/<name>/SKILL.md exists`,
+    );
     if (!fs.existsSync(skillPath)) continue;
 
     const content = fs.readFileSync(skillPath, "utf-8");
-    assert(/\nkind:\s*sop\n/.test(content), `${skillName}: frontmatter has kind: sop`);
-    assert(content.includes("## Parameters"), `${skillName}: has ## Parameters section`);
+    assert(
+      /\nkind:\s*sop\n/.test(content),
+      `${skillName}: frontmatter has kind: sop`,
+    );
+    assert(
+      content.includes("## Parameters"),
+      `${skillName}: has ## Parameters section`,
+    );
     assert(content.includes("## Steps"), `${skillName}: has ## Steps section`);
   }
 }
@@ -113,13 +139,28 @@ console.log("\n-- registry follows one-skill-system model --");
   assert("workflows" in REGISTRY, "registry includes workflows skill module");
 
   const workflows = REGISTRY.workflows;
-  assert(workflows.category === "skills", "workflows module is in skills category");
-  assert(workflows.skills.includes("skills/pdd"), "workflows module includes pdd skill");
-  assert(workflows.skills.includes("skills/code-assist"), "workflows module includes code-assist skill");
+  assert(
+    workflows.category === "skills",
+    "workflows module is in skills category",
+  );
+  assert(
+    workflows.skills.includes("skills/pdd"),
+    "workflows module includes pdd skill",
+  );
+  assert(
+    workflows.skills.includes("skills/code-assist"),
+    "workflows module includes code-assist skill",
+  );
 
   const heartbeat = REGISTRY.heartbeat;
-  assert(heartbeat.skills.includes("skills/memory-consolidate"), "heartbeat includes memory-consolidate skill");
-  assert(heartbeat.skills.includes("skills/auto-memory"), "heartbeat includes auto-memory skill");
+  assert(
+    heartbeat.skills.includes("skills/memory-consolidate"),
+    "heartbeat includes memory-consolidate skill",
+  );
+  assert(
+    heartbeat.skills.includes("skills/auto-memory"),
+    "heartbeat includes auto-memory skill",
+  );
 }
 
 console.log(`\n=== Results: ${PASS} passed, ${FAIL} failed ===\n`);

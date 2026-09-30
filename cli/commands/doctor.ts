@@ -28,7 +28,12 @@ const PATHS = resolveRhoPaths(HOME);
 const RHO_DIR = PATHS.rhoDir;
 const SETTINGS_PATH = PATHS.settingsPath;
 const PI_AUTH_PATH = PATHS.authPath;
-const RHO_CLOUD_CREDS = path.join(HOME, ".config", "rho-cloud", "credentials.json");
+const RHO_CLOUD_CREDS = path.join(
+  HOME,
+  ".config",
+  "rho-cloud",
+  "credentials.json",
+);
 
 export async function run(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
@@ -65,8 +70,14 @@ Options:
   const RESET = "\x1b[0m";
   const parts: string[] = [];
   if (counts.ok > 0) parts.push(`\x1b[32m${counts.ok} ok${RESET}`);
-  if (counts.warn > 0) parts.push(`\x1b[33m${counts.warn} warning${counts.warn > 1 ? "s" : ""}${RESET}`);
-  if (counts.fail > 0) parts.push(`\x1b[31m${counts.fail} error${counts.fail > 1 ? "s" : ""}${RESET}`);
+  if (counts.warn > 0)
+    parts.push(
+      `\x1b[33m${counts.warn} warning${counts.warn > 1 ? "s" : ""}${RESET}`,
+    );
+  if (counts.fail > 0)
+    parts.push(
+      `\x1b[31m${counts.fail} error${counts.fail > 1 ? "s" : ""}${RESET}`,
+    );
   console.log(parts.join(", "));
 
   if (counts.fail > 0) process.exit(1);
@@ -122,7 +133,10 @@ function resolveBinary(name: string): string | null {
   return null;
 }
 
-function getBinaryInfo(name: string): { version: string | null; exists: boolean } {
+function getBinaryInfo(name: string): {
+  version: string | null;
+  exists: boolean;
+} {
   const resolved = resolveBinary(name);
   if (!resolved) return { version: null, exists: false };
 
@@ -136,8 +150,12 @@ function getBinaryInfo(name: string): { version: string | null; exists: boolean 
   return { version: match ? match[1] : version, exists: true };
 }
 
-function getConfigFileStatus(): Record<string, { exists: boolean; parseError: string | null }> {
-  const result: Record<string, { exists: boolean; parseError: string | null }> = {};
+function getConfigFileStatus(): Record<
+  string,
+  { exists: boolean; parseError: string | null }
+> {
+  const result: Record<string, { exists: boolean; parseError: string | null }> =
+    {};
 
   const initPath = path.join(RHO_DIR, "init.toml");
   if (fs.existsSync(initPath)) {
@@ -169,7 +187,11 @@ function getConfigFileStatus(): Record<string, { exists: boolean; parseError: st
 function getModuleFileStatus(): Map<string, { missing: string[] }> {
   const result = new Map<string, { missing: string[] }>();
 
-  const rhoRootOnDisk = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const rhoRootOnDisk = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+  );
   const enabledModules = getEnabledModules();
 
   for (const name of enabledModules) {
@@ -192,38 +214,66 @@ function getModuleFileStatus(): Map<string, { missing: string[] }> {
   return result;
 }
 
-function getPiIntegrationStatus(): { settingsExists: boolean; rhoEntryFound: boolean; rhoEntryInSync: boolean | null } {
+function getPiIntegrationStatus(): {
+  settingsExists: boolean;
+  rhoEntryFound: boolean;
+  rhoEntryInSync: boolean | null;
+} {
   if (!fs.existsSync(SETTINGS_PATH)) {
-    return { settingsExists: false, rhoEntryFound: false, rhoEntryInSync: null };
+    return {
+      settingsExists: false,
+      rhoEntryFound: false,
+      rhoEntryInSync: null,
+    };
   }
 
   try {
     const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
     const packages = settings.packages ?? [];
 
-    const rhoRootOnDisk = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const rhoRootOnDisk = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+    );
     const idx = findRhoEntryIndex(packages, rhoRootOnDisk);
     if (idx < 0) {
-      return { settingsExists: true, rhoEntryFound: false, rhoEntryInSync: null };
+      return {
+        settingsExists: true,
+        rhoEntryFound: false,
+        rhoEntryInSync: null,
+      };
     }
 
     const entry = packages[idx];
     const source = typeof entry === "string" ? entry : entry?.source;
     if (typeof source !== "string") {
-      return { settingsExists: true, rhoEntryFound: true, rhoEntryInSync: null };
+      return {
+        settingsExists: true,
+        rhoEntryFound: true,
+        rhoEntryInSync: null,
+      };
     }
 
     // Compare expected vs actual filters if init.toml parses.
     const initPath = path.join(RHO_DIR, "init.toml");
     if (!fs.existsSync(initPath)) {
-      return { settingsExists: true, rhoEntryFound: true, rhoEntryInSync: null };
+      return {
+        settingsExists: true,
+        rhoEntryFound: true,
+        rhoEntryInSync: null,
+      };
     }
 
     let config;
     try {
       config = parseInitToml(fs.readFileSync(initPath, "utf-8"));
     } catch {
-      return { settingsExists: true, rhoEntryFound: true, rhoEntryInSync: null };
+      return {
+        settingsExists: true,
+        rhoEntryFound: true,
+        rhoEntryInSync: null,
+      };
     }
 
     const expected = buildRhoPackageEntry(config, source);
@@ -241,7 +291,11 @@ function getPiIntegrationStatus(): { settingsExists: boolean; rhoEntryFound: boo
       deepEqual(expected.extensions, actual.extensions) &&
       deepEqual(expected.skills, actual.skills);
 
-    return { settingsExists: true, rhoEntryFound: true, rhoEntryInSync: inSync };
+    return {
+      settingsExists: true,
+      rhoEntryFound: true,
+      rhoEntryInSync: inSync,
+    };
   } catch {
     return { settingsExists: true, rhoEntryFound: false, rhoEntryInSync: null };
   }

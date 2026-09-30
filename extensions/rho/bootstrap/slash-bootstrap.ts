@@ -42,10 +42,7 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 function splitArgs(raw: string): string[] {
-  return raw
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  return raw.trim().split(/\s+/).filter(Boolean);
 }
 
 function parseJsonLoose(raw: string): Record<string, unknown> | null {
@@ -68,7 +65,10 @@ function parseJsonLoose(raw: string): Record<string, unknown> | null {
   if (direct) return direct;
 
   // Try parsing standalone JSON lines (common when tools prepend warnings).
-  const lines = t.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = t
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     const parsed = parseObj(lines[i]);
     if (parsed) return parsed;
@@ -125,7 +125,10 @@ function parseJsonLoose(raw: string): Record<string, unknown> | null {
   return null;
 }
 
-function buildNotifyText(command: string, payload: Record<string, unknown> | null): { text: string; level: NotifyLevel } {
+function buildNotifyText(
+  command: string,
+  payload: Record<string, unknown> | null,
+): { text: string; level: NotifyLevel } {
   if (!payload) {
     return { text: `bootstrap ${command}: done`, level: "info" };
   }
@@ -136,13 +139,21 @@ function buildNotifyText(command: string, payload: Record<string, unknown> | nul
     const mode = (payload.mode as string | null | undefined) ?? null;
     const phase = (payload.phase as string | null | undefined) ?? null;
     const active = payload.active === true;
-    const managedCount = typeof payload.managedCount === "number" ? payload.managedCount : 0;
+    const managedCount =
+      typeof payload.managedCount === "number" ? payload.managedCount : 0;
     const managedEntries = Array.isArray(payload.managedEntries)
-      ? payload.managedEntries.filter((item): item is string => typeof item === "string")
+      ? payload.managedEntries.filter(
+          (item): item is string => typeof item === "string",
+        )
       : [];
-    const lastOp = typeof payload.lastOperation === "string" ? payload.lastOperation : null;
-    const lastResult = typeof payload.lastResult === "string" ? payload.lastResult : null;
-    const lastAt = typeof payload.lastOperationAt === "string" ? payload.lastOperationAt : null;
+    const lastOp =
+      typeof payload.lastOperation === "string" ? payload.lastOperation : null;
+    const lastResult =
+      typeof payload.lastResult === "string" ? payload.lastResult : null;
+    const lastAt =
+      typeof payload.lastOperationAt === "string"
+        ? payload.lastOperationAt
+        : null;
 
     const lines = [`Bootstrap: ${status} · version: ${version}`];
     if (mode) lines.push(`Mode: ${mode}${phase ? ` · phase: ${phase}` : ""}`);
@@ -181,9 +192,10 @@ function buildNotifyText(command: string, payload: Record<string, unknown> | nul
     };
   }
 
-  const msg = typeof payload.message === "string" && payload.message.trim()
-    ? payload.message.trim()
-    : `bootstrap ${command}: done`;
+  const msg =
+    typeof payload.message === "string" && payload.message.trim()
+      ? payload.message.trim()
+      : `bootstrap ${command}: done`;
 
   return { text: msg, level: "success" };
 }
@@ -242,8 +254,13 @@ export function handleBootstrapSlash(
   const payload = parseJsonLoose(result.stdout);
 
   if (result.code !== 0) {
-    const errorFromPayload = typeof payload?.error === "string" ? payload.error : undefined;
-    const fallback = (result.stderr || result.stdout || "bootstrap command failed").trim();
+    const errorFromPayload =
+      typeof payload?.error === "string" ? payload.error : undefined;
+    const fallback = (
+      result.stderr ||
+      result.stdout ||
+      "bootstrap command failed"
+    ).trim();
     return {
       ok: false,
       command: built.command,

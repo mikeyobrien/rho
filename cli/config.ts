@@ -175,9 +175,7 @@ export function parsePackagesToml(content: string): PackagesConfig {
 				!Array.isArray(e.extensions) ||
 				!e.extensions.every((x) => typeof x === "string")
 			) {
-				throw new Error(
-					`packages[${i}].extensions must be an array of strings`,
-				);
+				throw new Error(`packages[${i}].extensions must be an array of strings`);
 			}
 			result.extensions = e.extensions as string[];
 		}

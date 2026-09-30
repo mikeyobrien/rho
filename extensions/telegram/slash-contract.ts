@@ -82,7 +82,9 @@ export function parseSlashInput(message: unknown): SlashParseResult {
   };
 }
 
-export function normalizeCommandsPayload(payload: unknown): SlashCommandEntry[] {
+export function normalizeCommandsPayload(
+  payload: unknown,
+): SlashCommandEntry[] {
   if (!payload) {
     return [];
   }
@@ -108,16 +110,30 @@ export function normalizeCommandsPayload(payload: unknown): SlashCommandEntry[] 
 
       return {
         name,
-        source: typeof (command as any).source === "string" ? (command as any).source : "unknown",
-        description: typeof (command as any).description === "string" ? (command as any).description : "",
-        path: typeof (command as any).path === "string" ? (command as any).path : "",
-        location: typeof (command as any).location === "string" ? (command as any).location : "",
+        source:
+          typeof (command as any).source === "string"
+            ? (command as any).source
+            : "unknown",
+        description:
+          typeof (command as any).description === "string"
+            ? (command as any).description
+            : "",
+        path:
+          typeof (command as any).path === "string"
+            ? (command as any).path
+            : "",
+        location:
+          typeof (command as any).location === "string"
+            ? (command as any).location
+            : "",
       } satisfies SlashCommandEntry;
     })
     .filter((command): command is SlashCommandEntry => Boolean(command));
 }
 
-export function buildCommandIndex(commands: unknown): Map<string, SlashCommandEntry> {
+export function buildCommandIndex(
+  commands: unknown,
+): Map<string, SlashCommandEntry> {
   const index = new Map<string, SlashCommandEntry>();
   for (const command of normalizeCommandsPayload(commands)) {
     index.set(command.name, command);
@@ -138,7 +154,10 @@ export function classifySlashCommand(
     return parsed;
   }
 
-  const commandMap = commandIndex instanceof Map ? commandIndex : buildCommandIndex(commandIndex);
+  const commandMap =
+    commandIndex instanceof Map
+      ? commandIndex
+      : buildCommandIndex(commandIndex);
   const command = commandMap.get(parsed.commandName);
   if (command) {
     return {
@@ -150,9 +169,10 @@ export function classifySlashCommand(
     };
   }
 
-  const interactiveOnly = options.interactiveOnlyCommands instanceof Set
-    ? options.interactiveOnlyCommands
-    : INTERACTIVE_ONLY_SLASH_COMMANDS;
+  const interactiveOnly =
+    options.interactiveOnlyCommands instanceof Set
+      ? options.interactiveOnlyCommands
+      : INTERACTIVE_ONLY_SLASH_COMMANDS;
 
   if (interactiveOnly.has(parsed.commandName)) {
     return {
@@ -177,8 +197,12 @@ function shortcutSuggestion(commandName: string): string | null {
   return null;
 }
 
-export function formatUnsupportedMessage(classification: SlashClassification): string {
-  const command = classification?.commandName ? `/${classification.commandName}` : "slash command";
+export function formatUnsupportedMessage(
+  classification: SlashClassification,
+): string {
+  const command = classification?.commandName
+    ? `/${classification.commandName}`
+    : "slash command";
   if (classification?.kind === "interactive_only") {
     return `Unsupported slash command ${command}. This command only runs in the interactive TUI.`;
   }
@@ -198,24 +222,34 @@ export function formatUnsupportedMessage(classification: SlashClassification): s
 
 export function formatSlashAcknowledgement(inputMessage: string): string {
   const parsed = parseSlashInput(inputMessage);
-  const command = parsed.commandName ? `/${parsed.commandName}` : "slash command";
+  const command = parsed.commandName
+    ? `/${parsed.commandName}`
+    : "slash command";
   const tokens = parsed.trimmed.split(/\s+/).filter(Boolean);
   const firstArg = tokens.length > 1 ? ` ${tokens[1]}` : "";
   return `✅ ${command}${firstArg} executed.`;
 }
 
-export function formatSlashPromptFailure(inputMessage: string, rawError: string): string {
+export function formatSlashPromptFailure(
+  inputMessage: string,
+  rawError: string,
+): string {
   const parsed = parseSlashInput(inputMessage);
-  const message = String(rawError || "RPC prompt failed").trim() || "RPC prompt failed";
+  const message =
+    String(rawError || "RPC prompt failed").trim() || "RPC prompt failed";
 
   if (!parsed.isSlash) {
     return message;
   }
 
-  const command = parsed.commandName ? `/${parsed.commandName}` : "slash command";
+  const command = parsed.commandName
+    ? `/${parsed.commandName}`
+    : "slash command";
 
   if (/unknown command|not found|unrecognized|unsupported/i.test(message)) {
-    const suggestion = parsed.commandName ? shortcutSuggestion(parsed.commandName) : null;
+    const suggestion = parsed.commandName
+      ? shortcutSuggestion(parsed.commandName)
+      : null;
     if (suggestion) {
       return `Unsupported slash command ${command}. ${suggestion}`;
     }

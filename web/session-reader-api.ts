@@ -59,9 +59,7 @@ async function listSessionFilesSorted(
 			})),
 		)
 	)
-		.filter((item): item is { file: string; stats: Stats } =>
-			Boolean(item.stats),
-		)
+		.filter((item): item is { file: string; stats: Stats } => Boolean(item.stats))
 		.sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs);
 	sessionListCache = { dir: sessionDir, at: now, sorted };
 	return sorted;

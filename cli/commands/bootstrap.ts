@@ -11,7 +11,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 
-import { BRAIN_PATH, readBrain, deterministicId } from "../../extensions/lib/brain-store.ts";
+import {
+  BRAIN_PATH,
+  readBrain,
+  deterministicId,
+} from "../../extensions/lib/brain-store.ts";
 import {
   BOOTSTRAP_META_KEYS,
   AGENTIC_BOOTSTRAP_ID,
@@ -21,7 +25,9 @@ import { getBootstrapState } from "../../extensions/lib/brain-bootstrap-state.ts
 const HOME = process.env.HOME || os.homedir();
 const RHO_DIR = path.join(HOME, ".rho");
 const LOG_DIR = path.join(RHO_DIR, "logs");
-const AUDIT_PATH = process.env.RHO_BOOTSTRAP_AUDIT_PATH || path.join(LOG_DIR, "bootstrap-events.jsonl");
+const AUDIT_PATH =
+  process.env.RHO_BOOTSTRAP_AUDIT_PATH ||
+  path.join(LOG_DIR, "bootstrap-events.jsonl");
 
 const BOOTSTRAP_ID = AGENTIC_BOOTSTRAP_ID;
 const AGENTIC_BOOTSTRAP_VERSION = "agentic-v1";
@@ -116,7 +122,12 @@ function upsertKeyedEntry(
 ): Record<string, unknown>[] {
   const id = deterministicId(type, naturalKey);
   const next = entries.map((e) => ({ ...e }));
-  const idx = next.findIndex((e) => e.id === id || (e.type === type && (type === "context" ? e.path === naturalKey : e.key === naturalKey)));
+  const idx = next.findIndex(
+    (e) =>
+      e.id === id ||
+      (e.type === type &&
+        (type === "context" ? e.path === naturalKey : e.key === naturalKey)),
+  );
   const normalized: Record<string, unknown> = {
     id,
     type,
@@ -171,7 +182,10 @@ function upsertContextEntry(
   });
 }
 
-function getLatestMetaValue(entries: Record<string, unknown>[], key: string): unknown {
+function getLatestMetaValue(
+  entries: Record<string, unknown>[],
+  key: string,
+): unknown {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (e.type === "meta" && e.key === key) return e.value;
@@ -216,11 +230,19 @@ function activateAgenticBootstrap(
 ): Record<string, unknown>[] {
   let next = current.map((e) => ({ ...e }));
   const existingPhaseRaw = getLatestMetaValue(next, "bootstrap.phase");
-  const existingPhase = typeof existingPhaseRaw === "string" ? existingPhaseRaw.trim() : "";
-  const nextPhase = opts?.resetPhase ? "identity_discovery" : (existingPhase || "identity_discovery");
+  const existingPhase =
+    typeof existingPhaseRaw === "string" ? existingPhaseRaw.trim() : "";
+  const nextPhase = opts?.resetPhase
+    ? "identity_discovery"
+    : existingPhase || "identity_discovery";
 
   next = upsertMetaEntry(next, BOOTSTRAP_META_KEYS.completed, false, now);
-  next = upsertMetaEntry(next, BOOTSTRAP_META_KEYS.version, AGENTIC_BOOTSTRAP_VERSION, now);
+  next = upsertMetaEntry(
+    next,
+    BOOTSTRAP_META_KEYS.version,
+    AGENTIC_BOOTSTRAP_VERSION,
+    now,
+  );
   next = upsertMetaEntry(next, "bootstrap.mode", "agentic", now);
   next = upsertMetaEntry(next, "bootstrap.phase", nextPhase, now);
   next = upsertMetaEntry(next, "bootstrap.inject", "on", now);
@@ -267,11 +289,14 @@ function managedEntrySummary(entry: Record<string, unknown>): string {
   const type = typeof entry.type === "string" ? entry.type : "unknown";
   const key = typeof entry.key === "string" ? entry.key.trim() : "";
   const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
-  const category = typeof entry.category === "string" ? entry.category.trim() : "";
+  const category =
+    typeof entry.category === "string" ? entry.category.trim() : "";
   const text = typeof entry.text === "string" ? clipText(entry.text) : "";
-  const description = typeof entry.description === "string" ? clipText(entry.description) : "";
+  const description =
+    typeof entry.description === "string" ? clipText(entry.description) : "";
 
-  if ((type === "meta" || type === "identity" || type === "user") && key) return `${type}:${key}`;
+  if ((type === "meta" || type === "identity" || type === "user") && key)
+    return `${type}:${key}`;
   if (type === "context" && pathValue) return `context:${pathValue}`;
   if (key) return `${type}:${key}`;
   if (pathValue) return `${type}:${pathValue}`;
@@ -286,14 +311,23 @@ function managedEntrySummary(entry: Record<string, unknown>): string {
     return `preference:${text}`;
   }
 
-  if ((type === "task" || type === "learning" || type === "reminder") && (text || description)) {
+  if (
+    (type === "task" || type === "learning" || type === "reminder") &&
+    (text || description)
+  ) {
     return `${type}:${text || description}`;
   }
 
   return type;
 }
 
-const BOOTSTRAP_EXPOSED_TYPES = new Set(["behavior", "identity", "user", "learning", "preference"]);
+const BOOTSTRAP_EXPOSED_TYPES = new Set([
+  "behavior",
+  "identity",
+  "user",
+  "learning",
+  "preference",
+]);
 
 function listManagedEntries(entries: Record<string, unknown>[]): string[] {
   const out: string[] = [];
@@ -372,7 +406,9 @@ function printStatus(jsonMode: boolean): void {
   }
 
   const managedEntries = Array.isArray(payload.managedEntries)
-    ? payload.managedEntries.filter((value): value is string => typeof value === "string")
+    ? payload.managedEntries.filter(
+        (value): value is string => typeof value === "string",
+      )
     : [];
 
   console.log(`Bootstrap status: ${payload.status}`);
@@ -380,7 +416,8 @@ function printStatus(jsonMode: boolean): void {
   console.log(`Version: ${payload.version ?? "(none)"}`);
   if (payload.mode) console.log(`Mode: ${payload.mode}`);
   if (payload.phase) console.log(`Phase: ${payload.phase}`);
-  if (typeof payload.active === "boolean") console.log(`Active injection: ${payload.active ? "on" : "off"}`);
+  if (typeof payload.active === "boolean")
+    console.log(`Active injection: ${payload.active ? "on" : "off"}`);
   console.log(`Managed entries: ${payload.managedCount ?? 0}`);
   if (managedEntries.length > 0) {
     console.log("Managed entry keys/paths:");
@@ -390,7 +427,9 @@ function printStatus(jsonMode: boolean): void {
   }
   if (payload.completedAt) console.log(`Completed at: ${payload.completedAt}`);
   if (payload.lastOperation) {
-    console.log(`Last op: ${payload.lastOperation} (${payload.lastResult ?? "unknown"}) at ${payload.lastOperationAt}`);
+    console.log(
+      `Last op: ${payload.lastOperation} (${payload.lastResult ?? "unknown"}) at ${payload.lastOperationAt}`,
+    );
   }
 }
 
@@ -418,7 +457,8 @@ async function runBootstrap(args: string[]): Promise<void> {
       version: state.version ?? null,
       mode: "agentic",
       active: false,
-      message: "Bootstrap is completed. Re-run with --force to reopen identity discovery.",
+      message:
+        "Bootstrap is completed. Re-run with --force to reopen identity discovery.",
     };
 
     appendAudit({
@@ -438,7 +478,9 @@ async function runBootstrap(args: string[]): Promise<void> {
   }
 
   const now = nowIso();
-  const nextEntries = activateAgenticBootstrap(current, now, { resetPhase: force || alreadyCompleted });
+  const nextEntries = activateAgenticBootstrap(current, now, {
+    resetPhase: force || alreadyCompleted,
+  });
   writeBrainEntries(nextEntries);
 
   const nextState = getBootstrapState(nextEntries);
@@ -451,7 +493,8 @@ async function runBootstrap(args: string[]): Promise<void> {
     mode: "agentic",
     active: true,
     phase: typeof phase === "string" ? phase : "identity_discovery",
-    message: "Agentic bootstrap activated. Continue the conversation and I will resolve behavior/identity/user/learning/preference in-loop.",
+    message:
+      "Agentic bootstrap activated. Continue the conversation and I will resolve behavior/identity/user/learning/preference in-loop.",
   };
 
   appendAudit({
@@ -473,7 +516,9 @@ function runReapply(args: string[]): void {
   const current = readBrainEntries();
   const state = getBootstrapState(current);
   const now = nowIso();
-  const nextEntries = activateAgenticBootstrap(current, now, { resetPhase: true });
+  const nextEntries = activateAgenticBootstrap(current, now, {
+    resetPhase: true,
+  });
   writeBrainEntries(nextEntries);
 
   const payload = {
@@ -505,7 +550,9 @@ function runUpgrade(args: string[]): void {
   const current = readBrainEntries();
   const state = getBootstrapState(current);
   const now = nowIso();
-  const nextEntries = activateAgenticBootstrap(current, now, { resetPhase: true });
+  const nextEntries = activateAgenticBootstrap(current, now, {
+    resetPhase: true,
+  });
   writeBrainEntries(nextEntries);
 
   const payload = {
@@ -515,7 +562,8 @@ function runUpgrade(args: string[]): void {
     mode: "agentic",
     active: true,
     phase: "identity_discovery",
-    message: "Bootstrap is fully agentic now. Upgrade maps to restarting the bootstrap conversation.",
+    message:
+      "Bootstrap is fully agentic now. Upgrade maps to restarting the bootstrap conversation.",
   };
 
   appendAudit({
@@ -609,13 +657,20 @@ function runReset(args: string[]): void {
       }
     }
 
-    if (entry.type === "context" && entry.path === AGENTIC_BOOTSTRAP_SEED_PATH) {
+    if (
+      entry.type === "context" &&
+      entry.path === AGENTIC_BOOTSTRAP_SEED_PATH
+    ) {
       return false;
     }
 
     if (purgeManaged) {
       if (entry.managed === true) return false;
-      if (typeof entry.source === "string" && entry.source.startsWith("bootstrap:")) return false;
+      if (
+        typeof entry.source === "string" &&
+        entry.source.startsWith("bootstrap:")
+      )
+        return false;
     }
 
     return true;

@@ -53,7 +53,9 @@ function assertIncludes(haystack: string, needle: string, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} -- "${haystack}" does not include "${needle}"`);
+    console.error(
+      `  FAIL: ${label} -- "${haystack}" does not include "${needle}"`,
+    );
     FAIL++;
   }
 }
@@ -63,7 +65,10 @@ let testDir: string;
 let testPath: string;
 
 function setup(): void {
-  testDir = path.join(os.tmpdir(), `tasks-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  testDir = path.join(
+    os.tmpdir(),
+    `tasks-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   fs.mkdirSync(testDir, { recursive: true });
   testPath = path.join(testDir, "tasks.jsonl");
 }
@@ -91,7 +96,10 @@ console.log("\n--- generateId ---");
   for (let i = 0; i < 100; i++) {
     ids.add(generateId([]));
   }
-  assert(ids.size === 100, `100 generated IDs are all unique (got ${ids.size})`);
+  assert(
+    ids.size === 100,
+    `100 generated IDs are all unique (got ${ids.size})`,
+  );
 }
 
 {
@@ -159,7 +167,11 @@ setup();
   assertEq(loaded[0].priority, "high", "priority preserved");
   assertEq(loaded[0].tags, ["code"], "tags preserved");
   assertEq(loaded[1].status, "done", "status preserved");
-  assertEq(loaded[1].completedAt, "2026-02-05T09:00:00.000Z", "completedAt preserved");
+  assertEq(
+    loaded[1].completedAt,
+    "2026-02-05T09:00:00.000Z",
+    "completedAt preserved",
+  );
 }
 
 {
@@ -189,7 +201,11 @@ setup();
   // Load from corrupted file (partial JSON)
   fs.writeFileSync(testPath, "not json\n", "utf-8");
   const tasks = loadTasks(testPath);
-  assertEq(tasks.length, 0, "load from corrupted file returns empty (graceful)");
+  assertEq(
+    tasks.length,
+    0,
+    "load from corrupted file returns empty (graceful)",
+  );
 }
 
 cleanup();
@@ -219,21 +235,30 @@ setup();
 
 {
   // Add with priority
-  const result = addTask({ description: "Ship v1", priority: "high" }, testPath);
+  const result = addTask(
+    { description: "Ship v1", priority: "high" },
+    testPath,
+  );
   assert(result.ok, "add with priority ok");
   assertEq(result.task!.priority, "high", "priority set to high");
 }
 
 {
   // Add with due date
-  const result = addTask({ description: "Write blog post", due: "2026-02-10" }, testPath);
+  const result = addTask(
+    { description: "Write blog post", due: "2026-02-10" },
+    testPath,
+  );
   assert(result.ok, "add with due date ok");
   assertEq(result.task!.due, "2026-02-10", "due date set");
 }
 
 {
   // Add with tags
-  const result = addTask({ description: "Refactor auth", tags: "code, rho" }, testPath);
+  const result = addTask(
+    { description: "Refactor auth", tags: "code, rho" },
+    testPath,
+  );
   assert(result.ok, "add with tags ok");
   assertEq(result.task!.tags, ["code", "rho"], "tags parsed and trimmed");
 }
@@ -253,7 +278,10 @@ setup();
 
 {
   // Invalid priority
-  const result = addTask({ description: "test", priority: "super" as any }, testPath);
+  const result = addTask(
+    { description: "test", priority: "super" as any },
+    testPath,
+  );
   assert(!result.ok, "invalid priority rejected");
   assertIncludes(result.message, "invalid priority", "error mentions priority");
 }
@@ -279,7 +307,11 @@ setup();
   const result = listTasks("pending", testPath);
   assert(result.ok, "list empty is ok");
   assertEq(result.count, 0, "count is 0");
-  assertIncludes(result.message, "No pending tasks", "message says no pending tasks");
+  assertIncludes(
+    result.message,
+    "No pending tasks",
+    "message says no pending tasks",
+  );
 }
 
 {
@@ -323,7 +355,11 @@ setup();
   // Filter by tag
   const tagged = listTasks("code", testPath);
   assertEq(tagged.count, 1, "1 task with tag 'code'");
-  assertEq(tagged.tasks![0].tags.includes("code"), true, "filtered task has code tag");
+  assertEq(
+    tagged.tasks![0].tags.includes("code"),
+    true,
+    "filtered task has code tag",
+  );
 }
 
 {
@@ -387,9 +423,36 @@ console.log("\n--- findTaskById ---");
 
 {
   const tasks: Task[] = [
-    { id: "abc12345", description: "A", status: "pending", priority: "normal", tags: [], created: "", due: null, completedAt: null },
-    { id: "abc1abcd", description: "B", status: "pending", priority: "normal", tags: [], created: "", due: null, completedAt: null },
-    { id: "def12345", description: "C", status: "pending", priority: "normal", tags: [], created: "", due: null, completedAt: null },
+    {
+      id: "abc12345",
+      description: "A",
+      status: "pending",
+      priority: "normal",
+      tags: [],
+      created: "",
+      due: null,
+      completedAt: null,
+    },
+    {
+      id: "abc1abcd",
+      description: "B",
+      status: "pending",
+      priority: "normal",
+      tags: [],
+      created: "",
+      due: null,
+      completedAt: null,
+    },
+    {
+      id: "def12345",
+      description: "C",
+      status: "pending",
+      priority: "normal",
+      tags: [],
+      created: "",
+      due: null,
+      completedAt: null,
+    },
   ];
 
   // Exact match
@@ -555,7 +618,11 @@ setup();
 
   const section = buildHeartbeatSection(testPath);
   assert(section !== null, "section present");
-  assertIncludes(section!, "(due 2099-12-31)", "future due shown without OVERDUE");
+  assertIncludes(
+    section!,
+    "(due 2099-12-31)",
+    "future due shown without OVERDUE",
+  );
   assert(!section!.includes("OVERDUE"), "not flagged as overdue");
 }
 

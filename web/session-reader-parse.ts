@@ -163,10 +163,7 @@ export function extractPreview(content: unknown): string {
 			.filter(Boolean);
 		return textParts.join(" ").trim();
 	}
-	if (
-		typeof content === "object" &&
-		"text" in (content as { text?: unknown })
-	) {
+	if (typeof content === "object" && "text" in (content as { text?: unknown })) {
 		return String((content as { text?: unknown }).text ?? "").trim();
 	}
 	return "";

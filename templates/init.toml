@@ -44,16 +44,22 @@ visual-explainer = true               # Generate polished HTML diagrams, reviews
 
 [modules.ui]
 usage-bars = true                     # Token usage display bars
+tidy-tools = true                     # Compact, reason-first tool output
 
 # ── Module Settings ─────────────────────────────────────
 # Configure individual modules below.
 # Settings only apply when the corresponding module is enabled.
 
+[settings.jev]
+enabled = true                       # Route job admission through Jev when an API key exists
+# api_key_env = "TYPESAFE_API_KEY"   # Also accepts SYSTEMONE_API_KEY if this var is empty
+
 [settings.heartbeat]
 interval = "30m"                      # Check-in interval (e.g., "15m", "1h", "2h")
 # prompt = "~/.rho/heartbeat-prompt.txt"  # Custom heartbeat prompt
+# host = "auto"                        # auto | herdr | tmux. auto uses herdr when it is on PATH.
 
-# Tmux integration (used by `rho start/stop/status/trigger`)
+# Tmux integration (used when host is tmux, or herdr is not installed)
 # tmux_socket = "rho"                 # Name of the dedicated tmux socket (passed as: tmux -L <socket>)
 # tmux_config = "builtin"             # "builtin" = use the tmux config shipped with your installed rho version
 # tmux_config = "~/.rho/tmux.conf"    # Or set an explicit path to your own tmux config

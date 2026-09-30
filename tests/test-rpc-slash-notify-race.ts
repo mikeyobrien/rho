@@ -145,10 +145,7 @@ console.log("-- notify arrives before response for slash command --");
 			resultPromise,
 			new Promise<string>((_, reject) =>
 				setTimeout(
-					() =>
-						reject(
-							new Error("Test timed out after 3s — prompt never resolved"),
-						),
+					() => reject(new Error("Test timed out after 3s — prompt never resolved")),
 					3_000,
 				),
 			),
@@ -274,9 +271,7 @@ console.log(
 							command: "get_commands",
 							id: parsed.id,
 							success: true,
-							data: [
-								{ name: "ping", source: "extension", description: "Ping" },
-							],
+							data: [{ name: "ping", source: "extension", description: "Ping" }],
 						});
 					}, 5);
 				}

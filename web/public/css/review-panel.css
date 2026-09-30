@@ -59,10 +59,19 @@
   font-size: 0.72rem;
 }
 
-.reviewdash-branch-icon { color: var(--cyan); }
-.reviewdash-branch-name { color: var(--text); font-weight: 600; }
-.reviewdash-sep { color: var(--text-dim); }
-.reviewdash-summary { color: var(--text-muted); }
+.reviewdash-branch-icon {
+  color: var(--cyan);
+}
+.reviewdash-branch-name {
+  color: var(--text);
+  font-weight: 600;
+}
+.reviewdash-sep {
+  color: var(--text-dim);
+}
+.reviewdash-summary {
+  color: var(--text-muted);
+}
 
 .reviewdash-session-badge {
   margin-bottom: 0.6rem;
@@ -97,9 +106,21 @@
   font-size: 0.72rem;
 }
 
-.reviewdash-review-row:hover { color: var(--green); }
-.reviewdash-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-.reviewdash-review-files { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reviewdash-review-row:hover {
+  color: var(--green);
+}
+.reviewdash-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.reviewdash-review-files {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .reviewdash-files {
   border: 1px solid var(--border);
@@ -107,7 +128,9 @@
   margin-bottom: 0.6rem;
 }
 
-.reviewdash-entry + .reviewdash-entry { border-top: 1px solid var(--border); }
+.reviewdash-entry + .reviewdash-entry {
+  border-top: 1px solid var(--border);
+}
 
 .reviewdash-row {
   display: flex;
@@ -118,10 +141,19 @@
   cursor: pointer;
 }
 
-.reviewdash-row:hover { background: rgba(255, 255, 255, 0.02); }
+.reviewdash-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
 
-.reviewdash-check { display: flex; align-items: center; }
-.reviewdash-check input { width: 15px; height: 15px; accent-color: var(--green); }
+.reviewdash-check {
+  display: flex;
+  align-items: center;
+}
+.reviewdash-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+}
 
 .reviewdash-status {
   width: 14px;
@@ -130,11 +162,21 @@
   font-weight: 700;
 }
 
-.reviewdash-status.modified { color: var(--yellow); }
-.reviewdash-status.added { color: var(--green); }
-.reviewdash-status.deleted { color: var(--red); }
-.reviewdash-status.renamed { color: var(--cyan); }
-.reviewdash-status.untracked { color: var(--text-dim); }
+.reviewdash-status.modified {
+  color: var(--yellow);
+}
+.reviewdash-status.added {
+  color: var(--green);
+}
+.reviewdash-status.deleted {
+  color: var(--red);
+}
+.reviewdash-status.renamed {
+  color: var(--cyan);
+}
+.reviewdash-status.untracked {
+  color: var(--text-dim);
+}
 
 .reviewdash-path {
   flex: 1;
@@ -145,7 +187,10 @@
   font-size: 0.74rem;
 }
 
-.reviewdash-session-dot { color: var(--cyan); font-size: 0.55rem; }
+.reviewdash-session-dot {
+  color: var(--cyan);
+  font-size: 0.55rem;
+}
 
 .reviewdash-stats {
   display: flex;
@@ -153,9 +198,17 @@
   font-size: 0.65rem;
 }
 
-.reviewdash-add { color: var(--green); }
-.reviewdash-del { color: var(--red); }
-.reviewdash-chevron { color: var(--text-dim); width: 14px; text-align: center; }
+.reviewdash-add {
+  color: var(--green);
+}
+.reviewdash-del {
+  color: var(--red);
+}
+.reviewdash-chevron {
+  color: var(--text-dim);
+  width: 14px;
+  text-align: center;
+}
 
 .reviewdash-diff-wrap {
   border-top: 1px solid var(--border);
@@ -206,13 +259,21 @@
   padding-right: 0.5rem;
 }
 
-.reviewdash-diff-line.add { background: rgba(34, 197, 94, 0.08); }
+.reviewdash-diff-line.add {
+  background: rgba(34, 197, 94, 0.08);
+}
 .reviewdash-diff-line.add .reviewdash-sign,
-.reviewdash-diff-line.add .reviewdash-ln { color: var(--green-dim); }
+.reviewdash-diff-line.add .reviewdash-ln {
+  color: var(--green-dim);
+}
 
-.reviewdash-diff-line.del { background: rgba(239, 68, 68, 0.08); }
+.reviewdash-diff-line.del {
+  background: rgba(239, 68, 68, 0.08);
+}
 .reviewdash-diff-line.del .reviewdash-sign,
-.reviewdash-diff-line.del .reviewdash-ln { color: #b91c1c; }
+.reviewdash-diff-line.del .reviewdash-ln {
+  color: #b91c1c;
+}
 
 .reviewdash-commits {
   border: 1px solid var(--border);
@@ -226,8 +287,15 @@
   font-size: 0.68rem;
 }
 
-.reviewdash-commit-hash { color: var(--cyan); }
-.reviewdash-commit-msg { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reviewdash-commit-hash {
+  color: var(--cyan);
+}
+.reviewdash-commit-msg {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .reviewdash-actions {
   position: sticky;
@@ -251,7 +319,10 @@
   min-width: 0;
 }
 
-.reviewdash-actions-count { color: var(--text-muted); font-size: 0.68rem; }
+.reviewdash-actions-count {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
 
 .reviewdash-actions-error {
   color: var(--red);
@@ -262,7 +333,10 @@
   white-space: nowrap;
 }
 
-.reviewdash-actions-row { display: flex; gap: 0.45rem; }
+.reviewdash-actions-row {
+  display: flex;
+  gap: 0.45rem;
+}
 
 .reviewdash-btn {
   height: 1.9rem;
@@ -276,7 +350,10 @@
   cursor: pointer;
 }
 
-.reviewdash-btn:hover { background: var(--border); color: var(--text); }
+.reviewdash-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
 
 .reviewdash-btn:disabled {
   opacity: 0.55;
@@ -289,12 +366,21 @@
   color: #fff;
 }
 
-.reviewdash-btn.primary:hover { background: var(--green); }
+.reviewdash-btn.primary:hover {
+  background: var(--green);
+}
 
 @media (max-width: 720px) {
   .reviewdash-row,
-  .reviewdash-btn { min-height: 44px; }
+  .reviewdash-btn {
+    min-height: 44px;
+  }
 
-  .reviewdash-ln { width: 1.8rem; min-width: 1.8rem; }
-  .reviewdash-diff-line { font-size: 0.66rem; }
+  .reviewdash-ln {
+    width: 1.8rem;
+    min-width: 1.8rem;
+  }
+  .reviewdash-diff-line {
+    font-size: 0.66rem;
+  }
 }

@@ -10,7 +10,7 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { spawnSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -20,6 +20,21 @@ import { refuseLegacy } from "../install-kind.ts";
 import { planDaemonLaunch } from "../pi-launch.ts";
 import { resolveRhoPaths } from "../rho-paths.ts";
 import {
+  attachHerdrSession,
+  ensureHerdrWorkspace,
+  herdrAgentLive,
+  herdrServerRunning,
+  reportRhoPaneMetadata,
+  startHerdrAgent,
+  startHerdrServerDetached,
+  waitForHerdrServer,
+} from "../herdr-client.ts";
+import {
+  herdrAttachCommand,
+  herdrSessionName,
+  resolveSessionHost,
+} from "../session-host.ts";
+import {
   SESSION_NAME,
   PID_FILE,
   planStart,
@@ -27,6 +42,7 @@ import {
   notificationToCliArgs,
   type DaemonState,
 } from "../daemon-core.ts";
+import { startJobSupervisor, type JobSupervisor } from "../job-supervisor.ts";
 
 const HOME = process.env.HOME || os.homedir();
 const RHO_DIR = path.join(HOME, ".rho");
@@ -80,8 +96,26 @@ function getTmuxConfigSetting(): string | null {
 
 function getTmuxConfPath(): string {
   const setting = getTmuxConfigSetting();
-  if (!setting || setting === "builtin" || setting === "rho") return TMUX_CONF_FALLBACK;
+  if (!setting || setting === "builtin" || setting === "rho")
+    return TMUX_CONF_FALLBACK;
   return expandHome(setting);
+}
+
+function getSessionHostSetting(): string {
+  const env = (process.env.RHO_SESSION_HOST || "").trim();
+  if (env) return env;
+  const cfg = readInitConfig();
+  const fromToml = (cfg?.settings as any)?.heartbeat?.host;
+  return typeof fromToml === "string" ? fromToml.trim() : "";
+}
+
+function selectedHost(): "herdr" | "tmux" {
+  const resolved = resolveSessionHost({
+    requested: getSessionHostSetting(),
+    herdrAvailable: getCommandPath("herdr") !== null,
+  });
+  if (resolved.error) throw new Error(resolved.error);
+  return resolved.host;
 }
 
 function tmuxBaseArgs(): string[] {
@@ -91,13 +125,19 @@ function tmuxBaseArgs(): string[] {
 
 function tmuxSessionExists(): boolean {
   // Rho socket server
-  const r = spawnSync("tmux", [...tmuxBaseArgs(), "has-session", "-t", SESSION_NAME], { stdio: "ignore" });
+  const r = spawnSync(
+    "tmux",
+    [...tmuxBaseArgs(), "has-session", "-t", SESSION_NAME],
+    { stdio: "ignore" },
+  );
   return r.status === 0;
 }
 
 function tmuxLegacySessionExists(): boolean {
   // Back-compat: prior versions used the default tmux socket/config.
-  const r = spawnSync("tmux", ["has-session", "-t", SESSION_NAME], { stdio: "ignore" });
+  const r = spawnSync("tmux", ["has-session", "-t", SESSION_NAME], {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 
@@ -144,7 +184,9 @@ function getCommandPath(cmd: string): string | null {
   }
 
   // Fallback: login shell (may pick up /etc/profile.d/ but not .bashrc/.zshrc).
-  const r = spawnSync("sh", ["-lc", `command -v ${cmd}`], { encoding: "utf-8" });
+  const r = spawnSync("sh", ["-lc", `command -v ${cmd}`], {
+    encoding: "utf-8",
+  });
   if (r.status !== 0) return null;
   const out = (r.stdout || "").trim();
   return out || null;
@@ -186,7 +228,9 @@ function removeNotification(): void {
   if (!rmBin) return;
 
   try {
-    spawnSync("termux-notification-remove", ["rho-daemon"], { stdio: "ignore" });
+    spawnSync("termux-notification-remove", ["rho-daemon"], {
+      stdio: "ignore",
+    });
   } catch {
     // non-fatal
   }
@@ -208,7 +252,11 @@ function ensureTmuxSession(): void {
   }
 
   if (process.env.PATH) {
-    spawnSync("tmux", [...tmuxBaseArgs(), "set-environment", "-g", "PATH", process.env.PATH], { stdio: "ignore" });
+    spawnSync(
+      "tmux",
+      [...tmuxBaseArgs(), "set-environment", "-g", "PATH", process.env.PATH],
+      { stdio: "ignore" },
+    );
   }
 
   for (const args of plan.tmuxCommands) {
@@ -217,6 +265,29 @@ function ensureTmuxSession(): void {
       throw new Error("Failed to create isolated tmux session");
     }
   }
+}
+
+async function ensureHerdrSession(): Promise<void> {
+  if (!herdrServerRunning()) {
+    startHerdrServerDetached();
+    const ready = await waitForHerdrServer();
+    if (!ready) throw new Error("Failed to start the Rho Herdr session");
+  }
+  if (herdrAgentLive()) return;
+
+  const paths = refuseLegacy(resolveRhoPaths(HOME));
+  const rhoBin = getCommandPath("rho");
+  if (!rhoBin) {
+    throw new Error("rho is not installed or is not on PATH.");
+  }
+  const envPairs = [`PI_CODING_AGENT_DIR=${paths.piAgentDir}`];
+  if (process.env.PATH) envPairs.push(`PATH=${process.env.PATH}`);
+  const paneId = ensureHerdrWorkspace({
+    cwd: paths.workspaceDir,
+    envPairs,
+  });
+  await startHerdrAgent(paneId, rhoBin);
+  reportRhoPaneMetadata();
 }
 
 function getWebConfig(): { enabled: boolean; port: number } {
@@ -230,7 +301,10 @@ async function monitorLoop(): Promise<void> {
   let webServer: { url: string; stop: () => void } | null = null;
   let webPort: number | null = null;
 
-  async function applyWebConfig(next: { enabled: boolean; port: number }): Promise<void> {
+  async function applyWebConfig(next: {
+    enabled: boolean;
+    port: number;
+  }): Promise<void> {
     if (!next.enabled) {
       if (webServer) {
         webServer.stop();
@@ -279,8 +353,14 @@ async function monitorLoop(): Promise<void> {
     });
   }
 
+  let jobs: JobSupervisor | null = null;
   const cleanup = () => {
-    try { unlinkSync(PID_PATH); } catch {}
+    try {
+      jobs?.stop();
+    } catch {}
+    try {
+      unlinkSync(PID_PATH);
+    } catch {}
     if (webServer) {
       webServer.stop();
     }
@@ -300,22 +380,38 @@ async function monitorLoop(): Promise<void> {
   });
   process.on("exit", cleanup);
 
+  const useHerdr = selectedHost() === "herdr" && !tmuxSessionExists();
   try {
-    ensureTmuxSession();
-  } catch {
+    if (useHerdr) await ensureHerdrSession();
+    else ensureTmuxSession();
+    jobs = startJobSupervisor({
+      piBin: getCommandPath("pi"),
+      home: HOME,
+    });
+  } catch (err) {
+    const message = (err as Error).stack || (err as Error).message;
+    try {
+      appendFileSync(path.join(RHO_DIR, "monitor.err"), `${message}\n`);
+    } catch {
+      // logging is best-effort
+    }
+    console.error((err as Error).message);
     cleanup();
     process.exit(1);
   }
 
   while (true) {
     await sleep(30_000);
-    if (!tmuxSessionExists()) {
-      try {
+    try {
+      if (useHerdr) {
+        if (!herdrServerRunning() || !herdrAgentLive()) await ensureHerdrSession();
+        else reportRhoPaneMetadata();
+      } else if (!tmuxSessionExists()) {
         ensureTmuxSession();
-      } catch {
-        cleanup();
-        process.exit(1);
       }
+    } catch {
+      cleanup();
+      process.exit(1);
     }
   }
 }
@@ -324,9 +420,12 @@ export async function run(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`rho start
 
-Launch the Rho heartbeat daemon in a tmux session.
+Launch the Rho heartbeat daemon.
 
-Starts a background monitor process that keeps the tmux session alive.
+Uses a Herdr session named rho when herdr is on PATH. Otherwise uses tmux.
+Set RHO_SESSION_HOST=tmux or [settings.heartbeat] host = "tmux" to force tmux.
+
+Starts a background monitor process that keeps the session alive.
 On Android, it also holds a wake lock and shows a persistent notification.
 
 If [settings.web].enabled = true in init.toml, the web server also starts.
@@ -351,14 +450,26 @@ Options:
   // Clean up stale PID file.
   const existingPid = readDaemonPid();
   if (existingPid !== null && !pidAlive(existingPid)) {
-    try { unlinkSync(PID_PATH); } catch {}
+    try {
+      unlinkSync(PID_PATH);
+    } catch {}
   }
 
+  let host: "herdr" | "tmux";
+  try {
+    host = selectedHost();
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exit(1);
+    return;
+  }
+  const herdrRunning = host === "herdr" && herdrServerRunning();
+  const herdrLive = herdrRunning && herdrAgentLive();
   const rhoSocketRunning = tmuxSessionExists();
   const legacyRunning = tmuxLegacySessionExists();
 
   const state: DaemonState = {
-    tmuxRunning: rhoSocketRunning || legacyRunning,
+    tmuxRunning: herdrLive || rhoSocketRunning || legacyRunning,
     daemonPid: readDaemonPid(),
     daemonPidAlive: false,
     platform,
@@ -366,35 +477,76 @@ Options:
 
   const plan = planStart(state, HOME);
 
+  const insideRhoHerdr = Boolean(
+    process.env.HERDR_SOCKET_PATH?.includes(`/sessions/${herdrSessionName()}/`),
+  );
+  if (foreground && insideRhoHerdr && herdrLive) {
+    console.log(
+      "Already in the rho Herdr session. Run `rho status` in a shell for heartbeat info.",
+    );
+    return;
+  }
+
   // If we're already inside the rho tmux session, don't nest-attach.
   if (foreground && process.env.TMUX) {
     try {
-      const currentSession = spawnSync("tmux", ["display-message", "-p", "#S"], { encoding: "utf-8" });
+      const currentSession = spawnSync(
+        "tmux",
+        ["display-message", "-p", "#S"],
+        { encoding: "utf-8" },
+      );
       if (currentSession.stdout?.trim() === SESSION_NAME) {
-        console.log("Already in rho session. Use `/rho status` for heartbeat info.");
+        console.log(
+          "Already in rho session. Run `rho status` in a shell for heartbeat info.",
+        );
         return;
       }
     } catch {}
   }
 
+  if (herdrLive) {
+    if (foreground) {
+      attachHerdrSession();
+    } else {
+      console.log("Rho already running.");
+      console.log(`Attach with: ${herdrAttachCommand()}`);
+    }
+    return;
+  }
+
   if (plan.tmuxAlreadyRunning) {
+    if (host === "herdr") {
+      console.log(
+        "Rho is still running in tmux. Run `rho stop`, then `rho start`, to move it to Herdr.",
+      );
+    }
     // Prefer the new dedicated socket if present.
     if (rhoSocketRunning) {
       if (foreground) {
-        spawnSync("tmux", [...tmuxBaseArgs(), "attach", "-t", plan.sessionName], { stdio: "inherit" });
+        spawnSync(
+          "tmux",
+          [...tmuxBaseArgs(), "attach", "-t", plan.sessionName],
+          { stdio: "inherit" },
+        );
       } else {
         console.log("Rho already running.");
-        console.log(`Attach with: tmux -L ${getTmuxSocket()} attach -t ${plan.sessionName}`);
+        console.log(
+          `Attach with: tmux -L ${getTmuxSocket()} attach -t ${plan.sessionName}`,
+        );
       }
       return;
     }
 
     // Legacy server (default socket) exists.
     console.log("Rho is running on the legacy tmux socket (default config).");
-    console.log("To migrate to the rho tmux config, run: rho stop  (then)  rho start");
+    console.log(
+      "To migrate to the rho tmux config, run: rho stop  (then)  rho start",
+    );
 
     if (foreground) {
-      spawnSync("tmux", ["attach", "-t", plan.sessionName], { stdio: "inherit" });
+      spawnSync("tmux", ["attach", "-t", plan.sessionName], {
+        stdio: "inherit",
+      });
     } else {
       console.log(`Attach with: tmux attach -t ${plan.sessionName}`);
     }
@@ -408,7 +560,10 @@ Options:
   // installs we must use the rho.mjs shim (which loads tsx to handle TS).
   // For dev/git-clone installs (outside node_modules), strip-types works and
   // avoids the tsx dependency.
-  const cliDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const cliDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+  );
   const indexPath = path.join(cliDir, "index.ts");
   const shimPath = path.join(cliDir, "rho.mjs");
 
@@ -417,7 +572,13 @@ Options:
   const canStripTypes = nodeMajor >= 22 && !insideNodeModules;
 
   const childArgs = canStripTypes
-    ? ["--experimental-strip-types", "--no-warnings", indexPath, "start", "--monitor"]
+    ? [
+        "--experimental-strip-types",
+        "--no-warnings",
+        indexPath,
+        "start",
+        "--monitor",
+      ]
     : [shimPath, "start", "--monitor"];
 
   const child = spawn(process.execPath, childArgs, {
@@ -427,26 +588,54 @@ Options:
   });
   child.unref();
 
-  // Wait for the monitor to create the tmux session.  Retry a few times —
-  // on slower systems (VPS, cold npm cache) it can take more than 1 second.
+  const expectHerdr = host === "herdr";
+  // Wait for the monitor to create the session. Herdr also waits for Pi to be detected.
   let started = false;
-  for (let i = 0; i < 5; i++) {
+  const attempts = expectHerdr ? 40 : 5;
+  for (let i = 0; i < attempts; i++) {
     await sleep(1000);
-    if (tmuxSessionExists()) { started = true; break; }
+    if (expectHerdr ? herdrAgentLive() : tmuxSessionExists()) {
+      started = true;
+      break;
+    }
   }
 
   if (!started) {
-    console.error("Failed to start rho daemon (tmux session not found after 5s).");
+    console.error(
+      expectHerdr
+        ? "Failed to start rho daemon (Herdr agent not ready)."
+        : "Failed to start rho daemon (tmux session not found after 5s).",
+    );
     console.error("Check that pi is installed and on PATH: which pi");
     process.exit(1);
   }
 
-  console.log(`Rho running in tmux session: ${plan.sessionName}`);
+  console.log(
+    expectHerdr
+      ? `Rho running in Herdr session: ${plan.sessionName}`
+      : `Rho running in tmux session: ${plan.sessionName}`,
+  );
 
   if (foreground) {
-    spawnSync("tmux", [...tmuxBaseArgs(), "attach", "-t", plan.sessionName], { stdio: "inherit" });
+    if (expectHerdr) {
+      if (insideRhoHerdr) {
+        console.log(
+          "Rho restarted in this Herdr session. Run `rho status` in a shell for heartbeat info.",
+        );
+      } else {
+        attachHerdrSession();
+      }
+    } else {
+      spawnSync("tmux", [...tmuxBaseArgs(), "attach", "-t", plan.sessionName], {
+        stdio: "inherit",
+      });
+    }
   } else {
-    console.log(`Attach with: tmux -L ${getTmuxSocket()} attach -t ${plan.sessionName}`);
+    console.log(
+      expectHerdr
+        ? `Attach with: ${herdrAttachCommand()}`
+        : `Attach with: tmux -L ${getTmuxSocket()} attach -t ${plan.sessionName}`,
+    );
   }
 }
 

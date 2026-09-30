@@ -193,11 +193,7 @@ export default function (pi: ExtensionAPI) {
 	function updateStatus() {
 		const active = state.activeProvider;
 		const data =
-			active === "codex"
-				? state.codex
-				: active === "claude"
-					? state.claude
-					: null;
+			active === "codex" ? state.codex : active === "claude" ? state.claude : null;
 		// Emit for custom footer consumption
 		if (data && !data.error) {
 			pi.events.emit("usage:update", {

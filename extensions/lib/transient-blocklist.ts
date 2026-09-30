@@ -35,5 +35,5 @@ const TRANSIENT_PATTERNS = [
  * Transient entries are dropped before reaching the brain.
  */
 export function isTransient(text: string): boolean {
-	return TRANSIENT_PATTERNS.some((pattern) => pattern.test(text));
+  return TRANSIENT_PATTERNS.some((pattern) => pattern.test(text));
 }

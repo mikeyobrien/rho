@@ -199,10 +199,7 @@ console.log("-- state factory defaults --");
 		first.pendingRpcCommands instanceof Map,
 		"factory creates pending RPC map",
 	);
-	assert(
-		first.toolCallPartById instanceof Map,
-		"factory creates tool-call map",
-	);
+	assert(first.toolCallPartById instanceof Map, "factory creates tool-call map");
 	assert(
 		first.usageAccountedMessageIds instanceof Set,
 		"factory creates usage-accounted set",

@@ -57,9 +57,6 @@ app.post("/api/git/context", async (c) => {
 		});
 		return c.json({ context });
 	} catch (error) {
-		return c.json(
-			{ error: (error as Error).message ?? "Invalid context" },
-			400,
-		);
+		return c.json({ error: (error as Error).message ?? "Invalid context" }, 400);
 	}
 });

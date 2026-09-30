@@ -421,11 +421,7 @@ console.log("\n-- stopped/idle-timeout sessions clear runtime binding --");
 		false,
 		"idle timeout clears recover state",
 	);
-	assertEq(
-		state.replayingPendingRpc,
-		false,
-		"idle timeout clears replay state",
-	);
+	assertEq(state.replayingPendingRpc, false, "idle timeout clears replay state");
 
 	state.rpcSessionId = "rpc-stop-2";
 	state.isSendingPrompt = true;

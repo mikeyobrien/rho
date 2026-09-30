@@ -371,8 +371,7 @@ try {
 
 		const firstDelta = await waitForMessage(
 			client1.messages,
-			(msg) =>
-				msg?.type === "rpc_event" && msg?.event?.type === "message_update",
+			(msg) => msg?.type === "rpc_event" && msg?.event?.type === "message_update",
 			2000,
 		);
 		const lastSeqSeen = Number(firstDelta.seq ?? 0);

@@ -27,10 +27,10 @@ export function isTelegramParseModeError(error: unknown): boolean {
 
   const message = String(error.description || "").toLowerCase();
   return (
-    message.includes("can't parse entities")
-    || message.includes("can't find end of")
-    || message.includes("unsupported start tag")
-    || message.includes("entity")
+    message.includes("can't parse entities") ||
+    message.includes("can't find end of") ||
+    message.includes("unsupported start tag") ||
+    message.includes("entity")
   );
 }
 
@@ -38,7 +38,11 @@ export function isTelegramParseModeError(error: unknown): boolean {
  * Should a failed send be re-queued for a later flush cycle?
  * Called AFTER auto-retry exhausted its within-call retries.
  */
-export function isRetryableAfterAutoRetry(error: unknown, attempt: number, maxAttempts = 6): boolean {
+export function isRetryableAfterAutoRetry(
+  error: unknown,
+  attempt: number,
+  maxAttempts = 6,
+): boolean {
   if (attempt >= maxAttempts) return false;
   if (error instanceof HttpError) return true;
   if (!(error instanceof GrammyError)) return false;
@@ -53,11 +57,13 @@ export function queueRetryDelayMs(error: unknown, attempt: number): number {
     return Math.max(0, retryAfter * 1000);
   }
   const base = 2000;
-  return Math.min(60_000, base * Math.pow(2, Math.max(0, attempt)));
+  return Math.min(60_000, base * 2 ** Math.max(0, attempt));
 }
 
 /** Build reply_parameters for grammY sendMessage/sendVoice calls. */
-export function replyParams(messageId: number | undefined): Record<string, unknown> {
+export function replyParams(
+  messageId: number | undefined,
+): Record<string, unknown> {
   return messageId ? { reply_parameters: { message_id: messageId } } : {};
 }
 

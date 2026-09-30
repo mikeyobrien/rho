@@ -146,15 +146,11 @@ console.log("\n-- review page also uses local Alpine/highlight assets --");
 		"review/index.html uses local Alpine runtime",
 	);
 	assert(
-		!html.includes(
-			"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/",
-		),
+		!html.includes("https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/"),
 		"review/index.html no longer pulls highlight assets from cdnjs",
 	);
 	assert(
-		!html.includes(
-			"https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js",
-		),
+		!html.includes("https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"),
 		"review/index.html no longer pulls Alpine from jsDelivr",
 	);
 }

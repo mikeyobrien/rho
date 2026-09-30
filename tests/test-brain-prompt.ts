@@ -115,16 +115,32 @@ console.log("\n--- section order ---");
 {
   const brain = emptyBrain();
   brain.behaviors.push({
-    id: "b1", type: "behavior", created: daysAgo(0), category: "do", text: "Be direct",
+    id: "b1",
+    type: "behavior",
+    created: daysAgo(0),
+    category: "do",
+    text: "Be direct",
   } as BehaviorEntry);
   brain.preferences.push({
-    id: "p1", type: "preference", created: daysAgo(0), category: "Communication", text: "Terse style",
+    id: "p1",
+    type: "preference",
+    created: daysAgo(0),
+    category: "Communication",
+    text: "Terse style",
   } as PreferenceEntry);
   brain.contexts.push({
-    id: "c1", type: "context", created: daysAgo(0), project: "test", path: "/tmp", content: "Test project context",
+    id: "c1",
+    type: "context",
+    created: daysAgo(0),
+    project: "test",
+    path: "/tmp",
+    content: "Test project context",
   } as ContextEntry);
   brain.learnings.push({
-    id: "l1", type: "learning", created: daysAgo(0), text: "Use pnpm",
+    id: "l1",
+    type: "learning",
+    created: daysAgo(0),
+    text: "Use pnpm",
   } as LearningEntry);
 
   const result = buildBrainPrompt(brain, "/tmp");
@@ -147,10 +163,16 @@ console.log("\n--- learning ranking: recency ---");
 {
   const brain = emptyBrain();
   brain.learnings.push({
-    id: "old", type: "learning", created: daysAgo(60), text: "Old learning",
+    id: "old",
+    type: "learning",
+    created: daysAgo(60),
+    text: "Old learning",
   } as LearningEntry);
   brain.learnings.push({
-    id: "new", type: "learning", created: daysAgo(1), text: "New learning",
+    id: "new",
+    type: "learning",
+    created: daysAgo(1),
+    text: "New learning",
   } as LearningEntry);
 
   const result = buildBrainPrompt(brain, "/tmp");
@@ -164,12 +186,19 @@ console.log("\n--- learning ranking: project scope ---");
 {
   const brain = emptyBrain();
   brain.learnings.push({
-    id: "global", type: "learning", created: daysAgo(1), text: "Global learning",
+    id: "global",
+    type: "learning",
+    created: daysAgo(1),
+    text: "Global learning",
     scope: "global",
   } as LearningEntry);
   brain.learnings.push({
-    id: "scoped", type: "learning", created: daysAgo(1), text: "Scoped learning",
-    scope: "project", projectPath: "/my/project",
+    id: "scoped",
+    type: "learning",
+    created: daysAgo(1),
+    text: "Scoped learning",
+    scope: "project",
+    projectPath: "/my/project",
   } as LearningEntry);
 
   const result = buildBrainPrompt(brain, "/my/project/src");
@@ -183,11 +212,17 @@ console.log("\n--- learning ranking: manual > auto ---");
 {
   const brain = emptyBrain();
   brain.learnings.push({
-    id: "auto", type: "learning", created: daysAgo(1), text: "Auto learning",
+    id: "auto",
+    type: "learning",
+    created: daysAgo(1),
+    text: "Auto learning",
     source: "auto",
   } as LearningEntry);
   brain.learnings.push({
-    id: "manual", type: "learning", created: daysAgo(1), text: "Manual learning",
+    id: "manual",
+    type: "learning",
+    created: daysAgo(1),
+    text: "Manual learning",
     source: "manual",
   } as LearningEntry);
 
@@ -202,10 +237,20 @@ console.log("\n--- context matching: longest prefix wins ---");
 {
   const brain = emptyBrain();
   brain.contexts.push({
-    id: "c1", type: "context", created: daysAgo(0), project: "short", path: "/foo", content: "Short context",
+    id: "c1",
+    type: "context",
+    created: daysAgo(0),
+    project: "short",
+    path: "/foo",
+    content: "Short context",
   } as ContextEntry);
   brain.contexts.push({
-    id: "c2", type: "context", created: daysAgo(0), project: "long", path: "/foo/bar", content: "Long context",
+    id: "c2",
+    type: "context",
+    created: daysAgo(0),
+    project: "long",
+    path: "/foo/bar",
+    content: "Long context",
   } as ContextEntry);
 
   const result = buildBrainPrompt(brain, "/foo/bar/baz");
@@ -217,15 +262,26 @@ console.log("\n--- context matching: no match ---");
 {
   const brain = emptyBrain();
   brain.contexts.push({
-    id: "c1", type: "context", created: daysAgo(0), project: "other", path: "/other/project", content: "Other context",
+    id: "c1",
+    type: "context",
+    created: daysAgo(0),
+    project: "other",
+    path: "/other/project",
+    content: "Other context",
   } as ContextEntry);
   brain.learnings.push({
-    id: "l1", type: "learning", created: daysAgo(0), text: "Some learning",
+    id: "l1",
+    type: "learning",
+    created: daysAgo(0),
+    text: "Some learning",
   } as LearningEntry);
 
   const result = buildBrainPrompt(brain, "/my/project");
   assert(!result.includes("Other context"), "non-matching context excluded");
-  assert(!result.includes("Project"), "no project section header when no match");
+  assert(
+    !result.includes("Project"),
+    "no project section header when no match",
+  );
 }
 
 console.log("\n--- budget overflow truncation ---");
@@ -248,7 +304,11 @@ console.log("\n--- surplus rolls into learnings ---");
   // Tiny behavior section → learnings should get more space
   const brain = emptyBrain();
   brain.behaviors.push({
-    id: "b1", type: "behavior", created: daysAgo(0), category: "do", text: "Ok",
+    id: "b1",
+    type: "behavior",
+    created: daysAgo(0),
+    category: "do",
+    text: "Ok",
   } as BehaviorEntry);
   for (let i = 0; i < 50; i++) {
     brain.learnings.push({
@@ -259,10 +319,17 @@ console.log("\n--- surplus rolls into learnings ---");
     } as LearningEntry);
   }
 
-  const resultSmallBehavior = buildBrainPrompt(brain, "/tmp", { promptBudget: 1000 });
+  const resultSmallBehavior = buildBrainPrompt(brain, "/tmp", {
+    promptBudget: 1000,
+  });
   // Count learning lines
-  const learningLines = resultSmallBehavior.split("\n").filter(l => l.startsWith("- ")).length;
-  assert(learningLines > 5, `surplus budget → more learnings rendered: got ${learningLines}`);
+  const learningLines = resultSmallBehavior
+    .split("\n")
+    .filter((l) => l.startsWith("- ")).length;
+  assert(
+    learningLines > 5,
+    `surplus budget → more learnings rendered: got ${learningLines}`,
+  );
 }
 
 console.log("\n--- configurable budget: 500 < 2000 ---");
@@ -279,33 +346,55 @@ console.log("\n--- configurable budget: 500 < 2000 ---");
 
   const small = buildBrainPrompt(brain, "/tmp", { promptBudget: 500 });
   const large = buildBrainPrompt(brain, "/tmp", { promptBudget: 2000 });
-  assert(small.length < large.length, `budget 500 (${small.length} chars) < budget 2000 (${large.length} chars)`);
+  assert(
+    small.length < large.length,
+    `budget 500 (${small.length} chars) < budget 2000 (${large.length} chars)`,
+  );
 }
 
 console.log("\n--- identity rendered in prompt ---");
 {
   const brain = emptyBrain();
   brain.identity.set("name", {
-    id: "id-1", type: "identity", key: "name", value: "rho", created: daysAgo(0),
+    id: "id-1",
+    type: "identity",
+    key: "name",
+    value: "rho",
+    created: daysAgo(0),
   } as IdentityEntry);
   brain.identity.set("role", {
-    id: "id-2", type: "identity", key: "role", value: "A persistent coding agent", created: daysAgo(0),
+    id: "id-2",
+    type: "identity",
+    key: "role",
+    value: "A persistent coding agent",
+    created: daysAgo(0),
   } as IdentityEntry);
 
   const result = buildBrainPrompt(brain, "/tmp");
   assert(result.includes("## Identity"), "identity section header present");
   assert(result.includes("**name:** rho"), "identity key-value rendered");
-  assert(result.includes("**role:** A persistent coding agent"), "identity role rendered");
+  assert(
+    result.includes("**role:** A persistent coding agent"),
+    "identity role rendered",
+  );
 }
 
 console.log("\n--- user rendered in prompt ---");
 {
   const brain = emptyBrain();
   brain.user.set("name", {
-    id: "u-1", type: "user", key: "name", value: "Mikey", created: daysAgo(0),
+    id: "u-1",
+    type: "user",
+    key: "name",
+    value: "Mikey",
+    created: daysAgo(0),
   } as UserEntry);
   brain.user.set("timezone", {
-    id: "u-2", type: "user", key: "timezone", value: "US/Central", created: daysAgo(0),
+    id: "u-2",
+    type: "user",
+    key: "timezone",
+    value: "US/Central",
+    created: daysAgo(0),
   } as UserEntry);
 
   const result = buildBrainPrompt(brain, "/tmp");
@@ -318,16 +407,31 @@ console.log("\n--- identity + user appear before behavior ---");
 {
   const brain = emptyBrain();
   brain.identity.set("name", {
-    id: "id-1", type: "identity", key: "name", value: "rho", created: daysAgo(0),
+    id: "id-1",
+    type: "identity",
+    key: "name",
+    value: "rho",
+    created: daysAgo(0),
   } as IdentityEntry);
   brain.user.set("name", {
-    id: "u-1", type: "user", key: "name", value: "Mikey", created: daysAgo(0),
+    id: "u-1",
+    type: "user",
+    key: "name",
+    value: "Mikey",
+    created: daysAgo(0),
   } as UserEntry);
   brain.behaviors.push({
-    id: "b1", type: "behavior", created: daysAgo(0), category: "do", text: "Be direct",
+    id: "b1",
+    type: "behavior",
+    created: daysAgo(0),
+    category: "do",
+    text: "Be direct",
   } as BehaviorEntry);
   brain.learnings.push({
-    id: "l1", type: "learning", created: daysAgo(0), text: "Use pnpm",
+    id: "l1",
+    type: "learning",
+    created: daysAgo(0),
+    text: "Use pnpm",
   } as LearningEntry);
 
   const result = buildBrainPrompt(brain, "/tmp");
@@ -348,35 +452,62 @@ console.log("\n--- identity + user reduce budget for other sections ---");
   const brain = emptyBrain();
   // Add identity and user entries that consume some budget
   brain.identity.set("name", {
-    id: "id-1", type: "identity", key: "name", value: "rho", created: daysAgo(0),
+    id: "id-1",
+    type: "identity",
+    key: "name",
+    value: "rho",
+    created: daysAgo(0),
   } as IdentityEntry);
   brain.user.set("name", {
-    id: "u-1", type: "user", key: "name", value: "Mikey", created: daysAgo(0),
+    id: "u-1",
+    type: "user",
+    key: "name",
+    value: "Mikey",
+    created: daysAgo(0),
   } as UserEntry);
   for (let i = 0; i < 100; i++) {
     brain.learnings.push({
-      id: `l${i}`, type: "learning", created: daysAgo(i),
+      id: `l${i}`,
+      type: "learning",
+      created: daysAgo(i),
       text: `Learning ${i}: content for budget test with identity overhead`,
     } as LearningEntry);
   }
 
   const result = buildBrainPrompt(brain, "/tmp", { promptBudget: 500 });
   const tokens = approxTokens(result);
-  assert(tokens <= 500, `budget=500 still enforced with identity+user: got ${tokens} tokens`);
-  assert(result.includes("## Identity"), "identity present in constrained budget");
+  assert(
+    tokens <= 500,
+    `budget=500 still enforced with identity+user: got ${tokens} tokens`,
+  );
+  assert(
+    result.includes("## Identity"),
+    "identity present in constrained budget",
+  );
 }
 
 console.log("\n--- getInjectedIds includes identity + user ---");
 {
   const brain = emptyBrain();
   brain.identity.set("name", {
-    id: "id-1", type: "identity", key: "name", value: "rho", created: daysAgo(0),
+    id: "id-1",
+    type: "identity",
+    key: "name",
+    value: "rho",
+    created: daysAgo(0),
   } as IdentityEntry);
   brain.user.set("tz", {
-    id: "u-1", type: "user", key: "tz", value: "US/Central", created: daysAgo(0),
+    id: "u-1",
+    type: "user",
+    key: "tz",
+    value: "US/Central",
+    created: daysAgo(0),
   } as UserEntry);
   brain.learnings.push({
-    id: "l1", type: "learning", created: daysAgo(0), text: "Use pnpm",
+    id: "l1",
+    type: "learning",
+    created: daysAgo(0),
+    text: "Use pnpm",
   } as LearningEntry);
 
   const ids = getInjectedIds(brain, "/tmp");
@@ -389,10 +520,18 @@ console.log("\n--- identity keys sorted alphabetically ---");
 {
   const brain = emptyBrain();
   brain.identity.set("role", {
-    id: "id-2", type: "identity", key: "role", value: "agent", created: daysAgo(0),
+    id: "id-2",
+    type: "identity",
+    key: "role",
+    value: "agent",
+    created: daysAgo(0),
   } as IdentityEntry);
   brain.identity.set("name", {
-    id: "id-1", type: "identity", key: "name", value: "rho", created: daysAgo(0),
+    id: "id-1",
+    type: "identity",
+    key: "name",
+    value: "rho",
+    created: daysAgo(0),
   } as IdentityEntry);
 
   const result = buildBrainPrompt(brain, "/tmp");

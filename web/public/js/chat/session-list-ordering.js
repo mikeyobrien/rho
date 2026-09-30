@@ -78,8 +78,7 @@ export function getSessionRowMeta(session, sessionStateById) {
 	const lastActivityAt = toFiniteNumber(state?.lastActivityAt, 0);
 	const sortAnchorAt = toFiniteNumber(state?.sortAnchorAt, 0);
 	const unreadMilestone = Boolean(state?.unreadMilestone);
-	const isActiveRuntime =
-		hasRuntimeBinding(state) || Boolean(session?.isActive);
+	const isActiveRuntime = hasRuntimeBinding(state) || Boolean(session?.isActive);
 
 	return {
 		status,

@@ -62,7 +62,9 @@ function assertIncludes(arr: string[], item: string, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} — ${JSON.stringify(arr)} does not include "${item}"`);
+    console.error(
+      `  FAIL: ${label} — ${JSON.stringify(arr)} does not include "${item}"`,
+    );
     FAIL++;
   }
 }
@@ -172,7 +174,9 @@ console.log("\n--- extractWikilinks ---");
 }
 
 {
-  const links = extractWikilinks("See [[agent-memory]] and [[heartbeat]] for details.");
+  const links = extractWikilinks(
+    "See [[agent-memory]] and [[heartbeat]] for details.",
+  );
   assertEq(links, ["agent-memory", "heartbeat"], "extracts multiple wikilinks");
 }
 
@@ -197,7 +201,9 @@ console.log("\n--- extractWikilinks ---");
 }
 
 {
-  const links = extractWikilinks("Nested [[outer]] stuff [[inner-note|display]].");
+  const links = extractWikilinks(
+    "Nested [[outer]] stuff [[inner-note|display]].",
+  );
   assertEq(links, ["outer", "inner-note"], "handles adjacent links");
 }
 
@@ -208,7 +214,9 @@ console.log("\n--- buildGraph ---");
 
 setupTestVault();
 
-writeTestNote("concepts/agent-memory.md", `---
+writeTestNote(
+  "concepts/agent-memory.md",
+  `---
 type: concept
 created: 2026-02-05
 updated: 2026-02-05
@@ -225,9 +233,12 @@ source: manual
 
 ## Body
 
-Agent memory is important.`);
+Agent memory is important.`,
+);
 
-writeTestNote("concepts/heartbeat.md", `---
+writeTestNote(
+  "concepts/heartbeat.md",
+  `---
 type: concept
 created: 2026-02-05
 updated: 2026-02-05
@@ -243,9 +254,12 @@ source: manual
 
 ## Body
 
-The heartbeat runs periodically.`);
+The heartbeat runs periodically.`,
+);
 
-writeTestNote("patterns/orphan-note.md", `---
+writeTestNote(
+  "patterns/orphan-note.md",
+  `---
 type: pattern
 created: 2026-02-05
 updated: 2026-02-05
@@ -261,16 +275,20 @@ source: manual
 
 ## Body
 
-Nobody links to this note.`);
+Nobody links to this note.`,
+);
 
-writeTestNote("log/2026-02-05.md", `---
+writeTestNote(
+  "log/2026-02-05.md",
+  `---
 type: log
 created: 2026-02-05
 ---
 
 # 2026-02-05
 
-Daily log entry. No connections needed.`);
+Daily log entry. No connections needed.`,
+);
 
 {
   const graph = buildGraph(TEST_VAULT);
@@ -286,7 +304,10 @@ Daily log entry. No connections needed.`);
     assert(am.links.has("rho"), "agent-memory links to rho");
     assertEq(am.links.size, 2, "agent-memory has 2 outgoing links");
     // backlinks: heartbeat links back
-    assert(am.backlinks.has("heartbeat"), "agent-memory has backlink from heartbeat");
+    assert(
+      am.backlinks.has("heartbeat"),
+      "agent-memory has backlink from heartbeat",
+    );
   }
 
   // Check heartbeat note
@@ -294,7 +315,10 @@ Daily log entry. No connections needed.`);
   assert(hb !== undefined, "heartbeat exists in graph");
   if (hb) {
     assert(hb.links.has("agent-memory"), "heartbeat links to agent-memory");
-    assert(hb.backlinks.has("agent-memory"), "heartbeat has backlink from agent-memory");
+    assert(
+      hb.backlinks.has("agent-memory"),
+      "heartbeat has backlink from agent-memory",
+    );
   }
 
   // Check orphan detection (orphan-note has no backlinks from existing notes)
@@ -302,7 +326,10 @@ Daily log entry. No connections needed.`);
   assert(orphan !== undefined, "orphan-note exists in graph");
   if (orphan) {
     assertEq(orphan.backlinks.size, 0, "orphan-note has 0 backlinks");
-    assert(orphan.links.has("nonexistent-note"), "orphan-note links to nonexistent-note");
+    assert(
+      orphan.links.has("nonexistent-note"),
+      "orphan-note links to nonexistent-note",
+    );
   }
 
   // Check log note
@@ -377,7 +404,10 @@ Content here.`;
 
   const result = validateNote(noFrontmatter, "concept");
   assert(!result.valid, "rejects note without frontmatter");
-  assert(result.reason!.includes("frontmatter"), `reason mentions frontmatter: ${result.reason}`);
+  assert(
+    result.reason!.includes("frontmatter"),
+    `reason mentions frontmatter: ${result.reason}`,
+  );
 }
 
 {
@@ -395,7 +425,10 @@ No connections section here.`;
 
   const result = validateNote(noConnections, "concept");
   assert(!result.valid, "rejects concept without connections section");
-  assert(result.reason!.includes("Connections"), `reason mentions Connections: ${result.reason}`);
+  assert(
+    result.reason!.includes("Connections"),
+    `reason mentions Connections: ${result.reason}`,
+  );
 }
 
 {
@@ -416,8 +449,14 @@ updated: 2026-02-05
 Missing links.`;
 
   const result = validateNote(noWikilinks, "concept");
-  assert(!result.valid, "rejects concept with connections section but no wikilinks");
-  assert(result.reason!.includes("wikilink"), `reason mentions wikilink: ${result.reason}`);
+  assert(
+    !result.valid,
+    "rejects concept with connections section but no wikilinks",
+  );
+  assert(
+    result.reason!.includes("wikilink"),
+    `reason mentions wikilink: ${result.reason}`,
+  );
 }
 
 {
@@ -509,18 +548,34 @@ console.log("\n--- createDefaultFiles ---");
   assert(fs.existsSync(path.join(testDir, "_index.md")), "_index.md created");
   assert(fs.existsSync(path.join(testDir, "_inbox.md")), "_inbox.md created");
 
-  const indexContent = fs.readFileSync(path.join(testDir, "_index.md"), "utf-8");
-  assert(indexContent.includes("type: moc"), "_index.md has moc type in frontmatter");
+  const indexContent = fs.readFileSync(
+    path.join(testDir, "_index.md"),
+    "utf-8",
+  );
+  assert(
+    indexContent.includes("type: moc"),
+    "_index.md has moc type in frontmatter",
+  );
   assert(indexContent.includes("# Vault Index"), "_index.md has title");
 
-  const inboxContent = fs.readFileSync(path.join(testDir, "_inbox.md"), "utf-8");
+  const inboxContent = fs.readFileSync(
+    path.join(testDir, "_inbox.md"),
+    "utf-8",
+  );
   assert(inboxContent.includes("# Inbox"), "_inbox.md has title");
 
   // Idempotent: doesn't overwrite existing files
   fs.writeFileSync(path.join(testDir, "_index.md"), "custom content");
   createDefaultFiles(testDir);
-  const afterContent = fs.readFileSync(path.join(testDir, "_index.md"), "utf-8");
-  assertEq(afterContent, "custom content", "createDefaultFiles does not overwrite existing");
+  const afterContent = fs.readFileSync(
+    path.join(testDir, "_index.md"),
+    "utf-8",
+  );
+  assertEq(
+    afterContent,
+    "custom content",
+    "createDefaultFiles does not overwrite existing",
+  );
 
   fs.rmSync(testDir, { recursive: true, force: true });
 }
@@ -537,15 +592,32 @@ console.log("\n--- captureToInbox ---");
 
   // Capture a simple entry
   const result1 = captureToInbox(testDir, "First capture entry");
-  assert(result1.includes("First capture entry"), "capture result includes text");
+  assert(
+    result1.includes("First capture entry"),
+    "capture result includes text",
+  );
 
-  const inboxContent = fs.readFileSync(path.join(testDir, "_inbox.md"), "utf-8");
-  assert(inboxContent.includes("First capture entry"), "inbox file contains captured text");
+  const inboxContent = fs.readFileSync(
+    path.join(testDir, "_inbox.md"),
+    "utf-8",
+  );
+  assert(
+    inboxContent.includes("First capture entry"),
+    "inbox file contains captured text",
+  );
   assert(inboxContent.includes("---"), "inbox has separator");
 
   // Capture with source and context
-  const result2 = captureToInbox(testDir, "Second entry", "conversation", "discussing vault design");
-  assert(result2.includes("Second entry"), "second capture result includes text");
+  const result2 = captureToInbox(
+    testDir,
+    "Second entry",
+    "conversation",
+    "discussing vault design",
+  );
+  assert(
+    result2.includes("Second entry"),
+    "second capture result includes text",
+  );
   assert(result2.includes("conversation"), "result includes source");
 
   const inboxAfter = fs.readFileSync(path.join(testDir, "_inbox.md"), "utf-8");
@@ -554,7 +626,10 @@ console.log("\n--- captureToInbox ---");
   assert(inboxAfter.includes("discussing vault design"), "inbox has context");
 
   // Multiple captures append, don't overwrite
-  assert(inboxAfter.includes("First capture entry"), "first entry still present after second capture");
+  assert(
+    inboxAfter.includes("First capture entry"),
+    "first entry still present after second capture",
+  );
 
   fs.rmSync(testDir, { recursive: true, force: true });
 }
@@ -619,10 +694,21 @@ created: 2026-02-05
 
 No connections section.`;
 
-  const invalidResult = writeNote(testDir, "bad-note", invalidContent, "concept");
+  const invalidResult = writeNote(
+    testDir,
+    "bad-note",
+    invalidContent,
+    "concept",
+  );
   assert(!invalidResult.valid, "invalid note rejected by writeNote");
-  assert(invalidResult.reason!.includes("Connections"), "reason explains rejection");
-  assert(!fs.existsSync(path.join(testDir, "concepts", "bad-note.md")), "rejected note not written to disk");
+  assert(
+    invalidResult.reason!.includes("Connections"),
+    "reason explains rejection",
+  );
+  assert(
+    !fs.existsSync(path.join(testDir, "concepts", "bad-note.md")),
+    "rejected note not written to disk",
+  );
 
   // Write a moc to root dir
   const mocContent = `---
@@ -643,7 +729,11 @@ Overview.`;
 
   const mocResult = writeNote(testDir, "my-moc", mocContent, "moc");
   assert(mocResult.valid, "moc note accepted");
-  assertEq(mocResult.path!, path.join(testDir, "my-moc.md"), "moc placed in vault root");
+  assertEq(
+    mocResult.path!,
+    path.join(testDir, "my-moc.md"),
+    "moc placed in vault root",
+  );
 
   // Overwrite existing note
   const updatedConcept = `---
@@ -664,7 +754,12 @@ tags: [test, updated]
 
 Updated content.`;
 
-  const updateResult = writeNote(testDir, "test-concept", updatedConcept, "concept");
+  const updateResult = writeNote(
+    testDir,
+    "test-concept",
+    updatedConcept,
+    "concept",
+  );
   assert(updateResult.valid, "update accepted");
   const updatedContent = fs.readFileSync(updateResult.path!, "utf-8");
   assert(updatedContent.includes("Updated content"), "file updated on disk");
@@ -683,7 +778,10 @@ console.log("\n--- readNote ---");
   ensureVaultDirs(testDir);
 
   // Set up test notes
-  writeNote(testDir, "alpha", `---
+  writeNote(
+    testDir,
+    "alpha",
+    `---
 type: concept
 created: 2026-02-05
 updated: 2026-02-05
@@ -698,9 +796,14 @@ tags: [test]
 
 ## Body
 
-Alpha content.`, "concept");
+Alpha content.`,
+    "concept",
+  );
 
-  writeNote(testDir, "beta", `---
+  writeNote(
+    testDir,
+    "beta",
+    `---
 type: concept
 created: 2026-02-05
 updated: 2026-02-05
@@ -715,7 +818,9 @@ tags: [test]
 
 ## Body
 
-Beta content.`, "concept");
+Beta content.`,
+    "concept",
+  );
 
   // Build graph so backlinks are computed
   const graph = buildGraph(testDir);
@@ -723,13 +828,24 @@ Beta content.`, "concept");
   // Read alpha
   const alphaResult = readNote(testDir, "alpha", graph);
   assert(alphaResult !== null, "readNote returns result for existing note");
-  assert(alphaResult!.content.includes("Alpha content"), "readNote returns content");
-  assertIncludes(alphaResult!.backlinks, "beta", "alpha has backlink from beta");
+  assert(
+    alphaResult!.content.includes("Alpha content"),
+    "readNote returns content",
+  );
+  assertIncludes(
+    alphaResult!.backlinks,
+    "beta",
+    "alpha has backlink from beta",
+  );
 
   // Read beta
   const betaResult = readNote(testDir, "beta", graph);
   assert(betaResult !== null, "readNote returns result for beta");
-  assertIncludes(betaResult!.backlinks, "alpha", "beta has backlink from alpha");
+  assertIncludes(
+    betaResult!.backlinks,
+    "alpha",
+    "beta has backlink from alpha",
+  );
 
   // Read nonexistent note
   const missing = readNote(testDir, "nonexistent", graph);
@@ -749,7 +865,10 @@ console.log("\n--- getVaultStatus ---");
   createDefaultFiles(testDir);
 
   // Write some notes of various types
-  writeNote(testDir, "concept-a", `---
+  writeNote(
+    testDir,
+    "concept-a",
+    `---
 type: concept
 created: 2026-02-05
 updated: 2026-02-05
@@ -763,9 +882,14 @@ updated: 2026-02-05
 
 ## Body
 
-Content.`, "concept");
+Content.`,
+    "concept",
+  );
 
-  writeNote(testDir, "concept-b", `---
+  writeNote(
+    testDir,
+    "concept-b",
+    `---
 type: concept
 created: 2026-02-05
 updated: 2026-02-05
@@ -779,9 +903,14 @@ updated: 2026-02-05
 
 ## Body
 
-Content.`, "concept");
+Content.`,
+    "concept",
+  );
 
-  writeNote(testDir, "pattern-x", `---
+  writeNote(
+    testDir,
+    "pattern-x",
+    `---
 type: pattern
 created: 2026-02-05
 updated: 2026-02-05
@@ -795,16 +924,23 @@ updated: 2026-02-05
 
 ## Body
 
-Pattern content.`, "pattern");
+Pattern content.`,
+    "pattern",
+  );
 
-  writeNote(testDir, "2026-02-05-log", `---
+  writeNote(
+    testDir,
+    "2026-02-05-log",
+    `---
 type: log
 created: 2026-02-05
 ---
 
 # Daily Log
 
-Just some notes.`, "log");
+Just some notes.`,
+    "log",
+  );
 
   // Add some inbox entries
   captureToInbox(testDir, "First inbox item");
@@ -815,19 +951,43 @@ Just some notes.`, "log");
 
   // 4 written notes + _index.md + _inbox.md = 6 total, but status should count properly
   // _index.md is type moc, _inbox.md has no frontmatter so type unknown
-  assert(status.totalNotes === graph.size, `totalNotes matches graph size (${graph.size})`);
-  assert(status.byType["concept"] === 2, `2 concept notes (got ${status.byType["concept"]})`);
-  assert(status.byType["pattern"] === 1, `1 pattern note (got ${status.byType["pattern"]})`);
-  assert(status.byType["log"] === 1, `1 log note (got ${status.byType["log"]})`);
-  assert(status.byType["moc"] === 1, `1 moc note (_index.md) (got ${status.byType["moc"]})`);
+  assert(
+    status.totalNotes === graph.size,
+    `totalNotes matches graph size (${graph.size})`,
+  );
+  assert(
+    status.byType["concept"] === 2,
+    `2 concept notes (got ${status.byType["concept"]})`,
+  );
+  assert(
+    status.byType["pattern"] === 1,
+    `1 pattern note (got ${status.byType["pattern"]})`,
+  );
+  assert(
+    status.byType["log"] === 1,
+    `1 log note (got ${status.byType["log"]})`,
+  );
+  assert(
+    status.byType["moc"] === 1,
+    `1 moc note (_index.md) (got ${status.byType["moc"]})`,
+  );
   assert(status.inboxItems === 2, `2 inbox items (got ${status.inboxItems})`);
   assert(typeof status.orphanCount === "number", "orphanCount is a number");
-  assert(typeof status.avgLinksPerNote === "number", "avgLinksPerNote is a number");
-  assert(status.avgLinksPerNote > 0, `avgLinksPerNote > 0 (got ${status.avgLinksPerNote})`);
+  assert(
+    typeof status.avgLinksPerNote === "number",
+    "avgLinksPerNote is a number",
+  );
+  assert(
+    status.avgLinksPerNote > 0,
+    `avgLinksPerNote > 0 (got ${status.avgLinksPerNote})`,
+  );
 
   // Orphan detection: pattern-x and 2026-02-05-log have no backlinks and don't start with _
   // _index.md also has no backlinks but it's special
-  assert(status.orphanCount >= 2, `at least 2 orphans (got ${status.orphanCount})`);
+  assert(
+    status.orphanCount >= 2,
+    `at least 2 orphans (got ${status.orphanCount})`,
+  );
 
   fs.rmSync(testDir, { recursive: true, force: true });
 }
@@ -858,7 +1018,10 @@ console.log("\n--- listNotes ---");
   ensureVaultDirs(testDir);
   createDefaultFiles(testDir);
 
-  writeNote(testDir, "agent-memory", `---
+  writeNote(
+    testDir,
+    "agent-memory",
+    `---
 type: concept
 created: 2026-02-01
 updated: 2026-02-05
@@ -873,9 +1036,14 @@ tags: [memory, agent]
 
 ## Body
 
-Memory content.`, "concept");
+Memory content.`,
+    "concept",
+  );
 
-  writeNote(testDir, "heartbeat", `---
+  writeNote(
+    testDir,
+    "heartbeat",
+    `---
 type: concept
 created: 2026-02-02
 updated: 2026-02-04
@@ -890,9 +1058,14 @@ tags: [automation]
 
 ## Body
 
-Heartbeat content.`, "concept");
+Heartbeat content.`,
+    "concept",
+  );
 
-  writeNote(testDir, "retry-pattern", `---
+  writeNote(
+    testDir,
+    "retry-pattern",
+    `---
 type: pattern
 created: 2026-02-03
 updated: 2026-02-03
@@ -907,22 +1080,32 @@ tags: [resilience]
 
 ## Body
 
-Retry content.`, "pattern");
+Retry content.`,
+    "pattern",
+  );
 
-  writeNote(testDir, "2026-02-05-log", `---
+  writeNote(
+    testDir,
+    "2026-02-05-log",
+    `---
 type: log
 created: 2026-02-05
 ---
 
 # Daily Log
 
-Log content.`, "log");
+Log content.`,
+    "log",
+  );
 
   const graph = buildGraph(testDir);
 
   // List all notes
   const all = listNotes(graph);
-  assert(all.length === graph.size, `list all returns all notes (${graph.size})`);
+  assert(
+    all.length === graph.size,
+    `list all returns all notes (${graph.size})`,
+  );
 
   // Each entry has required fields
   const first = all[0];
@@ -934,7 +1117,10 @@ Log content.`, "log");
   // Filter by type
   const concepts = listNotes(graph, "concept");
   assertEq(concepts.length, 2, "2 concept notes");
-  assert(concepts.every(n => n.type === "concept"), "all filtered are concepts");
+  assert(
+    concepts.every((n) => n.type === "concept"),
+    "all filtered are concepts",
+  );
 
   const patterns = listNotes(graph, "pattern");
   assertEq(patterns.length, 1, "1 pattern note");
@@ -944,15 +1130,25 @@ Log content.`, "log");
 
   // Filter by query (matches title or slug)
   const memoryResults = listNotes(graph, undefined, "memory");
-  assert(memoryResults.some(n => n.slug === "agent-memory"), "query 'memory' finds agent-memory");
+  assert(
+    memoryResults.some((n) => n.slug === "agent-memory"),
+    "query 'memory' finds agent-memory",
+  );
 
   const heartbeatResults = listNotes(graph, undefined, "heartbeat");
-  assert(heartbeatResults.some(n => n.slug === "heartbeat"), "query 'heartbeat' finds heartbeat");
+  assert(
+    heartbeatResults.some((n) => n.slug === "heartbeat"),
+    "query 'heartbeat' finds heartbeat",
+  );
 
   // Filter by type AND query
   const conceptMemory = listNotes(graph, "concept", "memory");
   assertEq(conceptMemory.length, 1, "type+query narrows results");
-  assertEq(conceptMemory[0].slug, "agent-memory", "finds agent-memory with type+query filter");
+  assertEq(
+    conceptMemory[0].slug,
+    "agent-memory",
+    "finds agent-memory with type+query filter",
+  );
 
   // Query with no matches
   const noResults = listNotes(graph, undefined, "zzzznonexistent");
@@ -960,7 +1156,10 @@ Log content.`, "log");
 
   // Query is case-insensitive
   const upperQuery = listNotes(graph, undefined, "AGENT");
-  assert(upperQuery.some(n => n.slug === "agent-memory"), "query is case-insensitive");
+  assert(
+    upperQuery.some((n) => n.slug === "agent-memory"),
+    "query is case-insensitive",
+  );
 
   fs.rmSync(testDir, { recursive: true, force: true });
 }

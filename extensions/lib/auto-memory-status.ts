@@ -96,8 +96,7 @@ function parseStatusSnapshot(raw: string): AutoMemoryStatusSnapshot | null {
 					? parsed.activeRunId
 					: null,
 			activeSessionId:
-				typeof parsed.activeSessionId === "string" &&
-				parsed.activeSessionId.trim()
+				typeof parsed.activeSessionId === "string" && parsed.activeSessionId.trim()
 					? parsed.activeSessionId
 					: null,
 			activeLeafId:
@@ -142,9 +141,7 @@ function parseStatusSnapshot(raw: string): AutoMemoryStatusSnapshot | null {
 
 export function readAutoMemoryStatus(): AutoMemoryStatusSnapshot | null {
 	try {
-		return parseStatusSnapshot(
-			fs.readFileSync(AUTO_MEMORY_STATUS_PATH, "utf-8"),
-		);
+		return parseStatusSnapshot(fs.readFileSync(AUTO_MEMORY_STATUS_PATH, "utf-8"));
 	} catch {
 		return null;
 	}

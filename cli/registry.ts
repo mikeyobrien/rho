@@ -162,4 +162,12 @@ export const REGISTRY: Record<string, ModuleEntry> = {
 		skills: [],
 		description: "Token usage display bars",
 	},
+	"tidy-tools": {
+		category: "ui",
+		extensions: [],
+		skills: [],
+		npmPackage: "@mobrienv/pi-tidy-tools",
+		description:
+			"Compact, reason-first tool output with configurable layouts and diffs",
+	},
 };

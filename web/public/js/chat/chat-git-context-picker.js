@@ -8,9 +8,7 @@ function gitProjectFromCwd(cwd) {
 }
 
 function getActiveSessionId(vm) {
-	return typeof vm.activeSessionId === "string"
-		? vm.activeSessionId.trim()
-		: "";
+	return typeof vm.activeSessionId === "string" ? vm.activeSessionId.trim() : "";
 }
 
 function ensurePickerState(vm) {
@@ -49,9 +47,7 @@ export const rhoChatGitContextMethods = {
 	async refreshGitProject() {
 		ensurePickerState(this);
 		const sessionId = getActiveSessionId(this);
-		const query = sessionId
-			? `?sessionId=${encodeURIComponent(sessionId)}`
-			: "";
+		const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
 		try {
 			const response = await fetch(`/api/git/status${query}`, {
 				cache: "no-store",
@@ -145,13 +141,10 @@ export const rhoChatGitContextMethods = {
 				return;
 			}
 			const payload = await response.json();
-			this.gitProjects = Array.isArray(payload?.projects)
-				? payload.projects
-				: [];
+			this.gitProjects = Array.isArray(payload?.projects) ? payload.projects : [];
 			if (this.gitProjects.length > 0) {
 				const activeMatch = this.gitProjects.find(
-					(repo) =>
-						typeof repo?.cwd === "string" && repo.cwd === this.activeGitCwd,
+					(repo) => typeof repo?.cwd === "string" && repo.cwd === this.activeGitCwd,
 				);
 				const hasCurrent = this.gitProjects.some(
 					(repo) => repo?.id === this.selectedGitProjectId,

@@ -208,9 +208,7 @@ async function loadChatVm(): Promise<ChatVm> {
 			throw new Error("import.meta.dirname is unavailable");
 		}
 		const chatPath = path.resolve(importDir, "../web/public/js/chat.js");
-		await import(
-			`${pathToFileURL(chatPath).href}?reconnect-test=${Date.now()}`
-		);
+		await import(`${pathToFileURL(chatPath).href}?reconnect-test=${Date.now()}`);
 
 		const init = listeners.get("alpine:init");
 		if (!init) {

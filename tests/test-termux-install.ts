@@ -52,7 +52,9 @@ console.log("-- package.json keeps node-pty optional --");
 	);
 }
 
-console.log("\n-- terminal manager degrades cleanly when node-pty is unavailable --");
+console.log(
+	"\n-- terminal manager degrades cleanly when node-pty is unavailable --",
+);
 {
 	setNodePtyLoaderForTests(() => {
 		throw new Error("simulated missing native binding");

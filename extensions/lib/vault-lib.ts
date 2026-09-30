@@ -42,8 +42,10 @@ export function parseFrontmatter(content: string): Frontmatter {
         result[key] = inner.split(",").map((s) => s.trim());
       }
     } else {
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
         value = value.slice(1, -1);
       }
       result[key] = value;

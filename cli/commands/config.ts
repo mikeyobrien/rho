@@ -28,7 +28,9 @@ Options:
   }
 
   if (!fs.existsSync(INIT_TOML)) {
-    console.error(`No config found. Run \`rho init\` to create ~/.rho/init.toml.`);
+    console.error(
+      `No config found. Run \`rho init\` to create ~/.rho/init.toml.`,
+    );
     process.exit(1);
   }
 
@@ -56,7 +58,9 @@ Options:
     const mods = config.modules[cat] ?? {};
     const entries = Object.entries(mods);
     if (entries.length === 0) continue;
-    const parts = entries.map(([name, enabled]) => `${name} ${enabled ? "✓" : "✗"}`);
+    const parts = entries.map(
+      ([name, enabled]) => `${name} ${enabled ? "✓" : "✗"}`,
+    );
     console.log(`  ${cat.padEnd(12)} ${parts.join("  ")}`);
   }
 
@@ -66,7 +70,9 @@ Options:
     console.log("");
     console.log("Settings:");
     for (const [section, values] of Object.entries(config.settings)) {
-      for (const [key, val] of Object.entries(values as Record<string, unknown>)) {
+      for (const [key, val] of Object.entries(
+        values as Record<string, unknown>,
+      )) {
         const display = typeof val === "string" ? `"${val}"` : String(val);
         console.log(`  ${section}.${key} = ${display}`);
       }

@@ -17,7 +17,11 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
 import { detectPlatform, planInit, planBootstrap } from "../init-core.ts";
-import { ensureIsolatedDirs, refuseLegacy, writeLayoutMarker } from "../install-kind.ts";
+import {
+  ensureIsolatedDirs,
+  refuseLegacy,
+  writeLayoutMarker,
+} from "../install-kind.ts";
 import { resolveRhoPaths } from "../rho-paths.ts";
 
 const HOME = process.env.HOME || os.homedir();
@@ -189,7 +193,10 @@ Options:
       }
       fs.symlinkSync(link.source, link.target);
     }
-    if (verbose) console.log(`✓ Installed ${platform} skills (${bootstrap.platformSkillLinks.length})`);
+    if (verbose)
+      console.log(
+        `✓ Installed ${platform} skills (${bootstrap.platformSkillLinks.length})`,
+      );
   }
 
   // Symlink platform extensions
@@ -205,7 +212,10 @@ Options:
       }
       fs.symlinkSync(link.source, link.target);
     }
-    if (verbose) console.log(`✓ Installed ${platform} extensions (${bootstrap.platformExtensionLinks.length})`);
+    if (verbose)
+      console.log(
+        `✓ Installed ${platform} extensions (${bootstrap.platformExtensionLinks.length})`,
+      );
   }
 
   // ── Summary ──

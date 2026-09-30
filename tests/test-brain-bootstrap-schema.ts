@@ -26,7 +26,9 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+    console.error(
+      `  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+    );
     FAIL++;
   }
 }
@@ -54,12 +56,26 @@ if (schema) {
     | ((input: unknown) => ValidateResult)
     | undefined;
   const buildManagedKey = schema.buildManagedKey as
-    | ((input: { type: string; category?: string; key?: string; text?: string }) => string)
+    | ((input: {
+        type: string;
+        category?: string;
+        key?: string;
+        text?: string;
+      }) => string)
     | undefined;
 
-  assert(typeof validateBootstrapMeta === "function", "BS-002: validateBootstrapMeta exists");
-  assert(typeof validateManagedMetadata === "function", "BS-002: validateManagedMetadata exists");
-  assert(typeof buildManagedKey === "function", "BS-002: buildManagedKey exists");
+  assert(
+    typeof validateBootstrapMeta === "function",
+    "BS-002: validateBootstrapMeta exists",
+  );
+  assert(
+    typeof validateManagedMetadata === "function",
+    "BS-002: validateManagedMetadata exists",
+  );
+  assert(
+    typeof buildManagedKey === "function",
+    "BS-002: buildManagedKey exists",
+  );
 
   if (validateBootstrapMeta) {
     const valid = validateBootstrapMeta({
@@ -78,8 +94,15 @@ if (schema) {
   }
 
   if (validateManagedMetadata) {
-    const missingSource = validateManagedMetadata({ managed: true, sourceVersion: "agentic-v1" });
-    assertEq(missingSource.ok, false, "BS-002: managed metadata requires source");
+    const missingSource = validateManagedMetadata({
+      managed: true,
+      sourceVersion: "agentic-v1",
+    });
+    assertEq(
+      missingSource.ok,
+      false,
+      "BS-002: managed metadata requires source",
+    );
 
     const ok = validateManagedMetadata({
       managed: true,
@@ -91,8 +114,14 @@ if (schema) {
   }
 
   if (buildManagedKey) {
-    const a = buildManagedKey({ type: "preference", key: "communication.style" });
-    const b = buildManagedKey({ type: "preference", key: "communication.style" });
+    const a = buildManagedKey({
+      type: "preference",
+      key: "communication.style",
+    });
+    const b = buildManagedKey({
+      type: "preference",
+      key: "communication.style",
+    });
     assertEq(a, b, "BS-002: managed key generation is deterministic");
   }
 }

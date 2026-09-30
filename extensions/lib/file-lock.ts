@@ -77,16 +77,21 @@ function mtimeMs(filePath: string): number | null {
   }
 }
 
-function isStale(lock: LockPayload | null, lockPath: string, staleMs: number, now: number): boolean {
+function isStale(
+  lock: LockPayload | null,
+  lockPath: string,
+  staleMs: number,
+  now: number,
+): boolean {
   if (lock) {
     if (!isPidRunning(lock.pid)) return true;
     if (!Number.isFinite(lock.refreshedAt)) return true;
-    return (now - lock.refreshedAt) > staleMs;
+    return now - lock.refreshedAt > staleMs;
   }
   // Unparseable: fall back to mtime
   const mt = mtimeMs(lockPath);
   if (mt == null) return true; // file gone
-  return (now - mt) > staleMs;
+  return now - mt > staleMs;
 }
 
 /**
@@ -177,7 +182,11 @@ export async function withFileLock<T>(
     const existing = readLock(lockPath);
     if (isStale(existing, lockPath, staleMs, now)) {
       // Remove stale lock and retry immediately
-      try { fs.unlinkSync(lockPath); } catch { /* race: someone else cleaned it */ }
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {
+        /* race: someone else cleaned it */
+      }
       continue;
     }
 
@@ -185,7 +194,7 @@ export async function withFileLock<T>(
     if (Date.now() >= deadline) {
       throw new Error(
         `LOCK_TIMEOUT: could not acquire ${lockPath} within ${timeoutMs}ms` +
-        (existing ? ` (held by pid ${existing.pid})` : ""),
+          (existing ? ` (held by pid ${existing.pid})` : ""),
       );
     }
 

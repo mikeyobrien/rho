@@ -200,7 +200,7 @@ install_rho_dev() {
   done
 
   # Clean up old-style symlinks from previous installs
-  local pi_dir="$HOME/.rho/pi-agent"
+  local pi_dir="$HOME/.rho/agent"
   if [ -L "$pi_dir/extensions" ]; then
     rm -f "$pi_dir/extensions"
   elif [ -d "$pi_dir/extensions" ]; then

@@ -23,8 +23,7 @@ document.addEventListener("alpine:init", () => {
 			this.theme = savedTheme === "light" ? "light" : "dark";
 			this.applyTheme(this.theme);
 			this.isMobileShell = this.detectMobileShell();
-			this.modifierKeys =
-				localStorage.getItem("rho-mobile-modifier-keys") === "1";
+			this.modifierKeys = localStorage.getItem("rho-mobile-modifier-keys") === "1";
 			await this.loadConfig();
 			await this.loadProviderUsage();
 		},
@@ -113,8 +112,7 @@ document.addEventListener("alpine:init", () => {
 		detectMobileShell() {
 			try {
 				return (
-					new URLSearchParams(window.location.search).get("mobile_shell") ===
-					"1"
+					new URLSearchParams(window.location.search).get("mobile_shell") === "1"
 				);
 			} catch {
 				return false;
@@ -194,9 +192,7 @@ document.addEventListener("alpine:init", () => {
 			const parts = [];
 			if (resetDate) parts.push(`resets on ${resetDate}`);
 			if (Number.isFinite(daysUntilReset)) {
-				parts.push(
-					`${daysUntilReset} day${daysUntilReset === 1 ? "" : "s"} left`,
-				);
+				parts.push(`${daysUntilReset} day${daysUntilReset === 1 ? "" : "s"} left`);
 			}
 			return parts.length > 0 ? parts.join(" · ") : "";
 		},

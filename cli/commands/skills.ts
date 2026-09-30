@@ -79,7 +79,10 @@ export async function run(args: string[]): Promise<void> {
   const provider = parsed.provider;
   const forwarded = parsed.forwarded;
 
-  if (forwarded.length === 0 || (forwarded.length === 1 && isHelpFlag(forwarded[0]))) {
+  if (
+    forwarded.length === 0 ||
+    (forwarded.length === 1 && isHelpFlag(forwarded[0]))
+  ) {
     printHelp();
     return;
   }
@@ -120,7 +123,9 @@ function runVercel(forwarded: string[]): never {
 
   // update <skill> is unsupported by vercel provider CLI
   if (mappedCommand === "update" && analysis.positionals.length > 1) {
-    console.error("Error: provider=vercel does not support update <skill>. Use `rho skills update`.");
+    console.error(
+      "Error: provider=vercel does not support update <skill>. Use `rho skills update`.",
+    );
     process.exit(1);
   }
 
@@ -128,10 +133,20 @@ function runVercel(forwarded: string[]): never {
   const hadGlobalFlag = hasAnyOption(args, ["--global", "-g"]);
 
   // Pi-oriented defaults for canonical CRUD commands
-  if ((mappedCommand === "add" || mappedCommand === "remove" || mappedCommand === "list") && !hadAgentFlag) {
+  if (
+    (mappedCommand === "add" ||
+      mappedCommand === "remove" ||
+      mappedCommand === "list") &&
+    !hadAgentFlag
+  ) {
     args.push("--agent", "pi");
   }
-  if ((mappedCommand === "add" || mappedCommand === "remove" || mappedCommand === "list") && !hadGlobalFlag) {
+  if (
+    (mappedCommand === "add" ||
+      mappedCommand === "remove" ||
+      mappedCommand === "list") &&
+    !hadGlobalFlag
+  ) {
     args.push("--global");
   }
 
@@ -173,13 +188,17 @@ function runVercel(forwarded: string[]): never {
 function runVercelShow(skill: string): void {
   const trimmed = skill.trim();
   if (!trimmed) {
-    console.error("Error: show requires a skill name. Example: rho skills show web-design-guidelines");
+    console.error(
+      "Error: show requires a skill name. Example: rho skills show web-design-guidelines",
+    );
     process.exit(1);
   }
 
   if (!fs.existsSync(VERCEL_LOCKFILE)) {
     console.error(`No Vercel lockfile found: ${VERCEL_LOCKFILE}`);
-    console.error("Install a skill first: rho skills install <package> --skill <name>");
+    console.error(
+      "Install a skill first: rho skills install <package> --skill <name>",
+    );
     process.exit(1);
   }
 
@@ -231,13 +250,17 @@ function runClawhub(forwarded: string[]): never {
 
   const r = spawnSync("npx", npxArgs, { stdio: "inherit" });
   if (r.error) {
-    console.error(`Error: failed to run npx clawhub@latest (${r.error.message}).`);
+    console.error(
+      `Error: failed to run npx clawhub@latest (${r.error.message}).`,
+    );
     process.exit(1);
   }
 
   const status = r.status ?? 1;
   if (status === 0) {
-    const workdir = path.resolve(getOptionValue(args, "--workdir") ?? CLAWHUB_WORKDIR);
+    const workdir = path.resolve(
+      getOptionValue(args, "--workdir") ?? CLAWHUB_WORKDIR,
+    );
     const dir = getOptionValue(args, "--dir") ?? CLAWHUB_DIR;
     const installRoot = path.resolve(workdir, dir);
 
@@ -323,7 +346,7 @@ Providers:
   vercel  -> wraps \`npx skills\`
              install/list/remove defaults: --agent pi --global
   clawhub -> wraps \`npx clawhub@latest\`
-             defaults: --workdir ~/.rho/pi-agent --dir skills
+             defaults: --workdir ~/.rho/agent --dir skills
 
 Examples:
   rho skills install vercel-labs/agent-skills --skill web-design-guidelines
@@ -367,11 +390,19 @@ function parseProvider(args: string[]): {
     if (arg === "--provider") {
       const value = args[i + 1];
       if (!value || value.startsWith("-")) {
-        return { provider, forwarded, error: "--provider requires a value (vercel|clawhub)." };
+        return {
+          provider,
+          forwarded,
+          error: "--provider requires a value (vercel|clawhub).",
+        };
       }
       i += 1;
       if (!isProvider(value)) {
-        return { provider, forwarded, error: `unsupported provider "${value}". Use vercel or clawhub.` };
+        return {
+          provider,
+          forwarded,
+          error: `unsupported provider "${value}". Use vercel or clawhub.`,
+        };
       }
       provider = value;
       continue;
@@ -380,7 +411,11 @@ function parseProvider(args: string[]): {
     if (arg.startsWith("--provider=")) {
       const value = arg.slice("--provider=".length);
       if (!isProvider(value)) {
-        return { provider, forwarded, error: `unsupported provider "${value}". Use vercel or clawhub.` };
+        return {
+          provider,
+          forwarded,
+          error: `unsupported provider "${value}". Use vercel or clawhub.`,
+        };
       }
       provider = value;
       continue;
@@ -425,7 +460,10 @@ function getOptionValue(args: string[], name: string): string | null {
   return null;
 }
 
-function analyzeArgs(args: string[]): { positionals: string[]; positionalIndices: number[] } {
+function analyzeArgs(args: string[]): {
+  positionals: string[];
+  positionalIndices: number[];
+} {
   const positionals: string[] = [];
   const positionalIndices: number[] = [];
 

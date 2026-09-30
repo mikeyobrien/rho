@@ -33,7 +33,9 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+    console.error(
+      `  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+    );
     FAIL++;
   }
 }
@@ -95,10 +97,22 @@ console.log("\n-- handleBootstrapSlash success paths --");
   assertEq(r.ok, true, "status success => ok");
   assertEq(r.command, "status", "status command captured");
   assert(r.notify.text.includes("completed"), "status notify includes state");
-  assert(r.notify.text.includes("Mode: agentic"), "status notify includes mode");
-  assert(r.notify.text.includes("Managed entries: 7"), "status notify includes managed count");
-  assert(r.notify.text.includes("identity:agent.role"), "status notify includes managed entry preview");
-  assert(r.notify.text.includes("Last op: upgrade"), "status notify includes last op summary");
+  assert(
+    r.notify.text.includes("Mode: agentic"),
+    "status notify includes mode",
+  );
+  assert(
+    r.notify.text.includes("Managed entries: 7"),
+    "status notify includes managed count",
+  );
+  assert(
+    r.notify.text.includes("identity:agent.role"),
+    "status notify includes managed entry preview",
+  );
+  assert(
+    r.notify.text.includes("Last op: upgrade"),
+    "status notify includes last op summary",
+  );
 }
 
 {
@@ -128,7 +142,10 @@ console.log("\n-- handleBootstrapSlash success paths --");
   const r = handleBootstrapSlash("diff", runner);
   assertEq(r.ok, true, "diff success => ok");
   assert(r.notify.text.includes("mode=agentic"), "diff notify includes mode");
-  assert(r.notify.text.includes("phase=identity_discovery"), "diff notify includes phase");
+  assert(
+    r.notify.text.includes("phase=identity_discovery"),
+    "diff notify includes phase",
+  );
 }
 
 {
@@ -145,8 +162,14 @@ console.log("\n-- handleBootstrapSlash success paths --");
 
   const r = handleBootstrapSlash("status", runner);
   assertEq(r.ok, true, "noisy output still parsed as success");
-  assert(r.notify.text.includes("completed"), "noisy output parsing keeps status details");
-  assert(r.notify.text.includes("agentic-v1"), "noisy output parsing keeps version details");
+  assert(
+    r.notify.text.includes("completed"),
+    "noisy output parsing keeps status details",
+  );
+  assert(
+    r.notify.text.includes("agentic-v1"),
+    "noisy output parsing keeps version details",
+  );
 }
 
 console.log("\n-- handleBootstrapSlash error path --");
@@ -161,7 +184,10 @@ console.log("\n-- handleBootstrapSlash error path --");
   assertEq(r.ok, false, "unknown subcommand => not ok");
   assertEq(r.code, 2, "unknown subcommand returns usage code 2");
   assertEq(invoked, false, "unknown subcommand does not invoke CLI runner");
-  assert(r.notify.text.includes("Usage: /bootstrap"), "unknown subcommand includes usage hint");
+  assert(
+    r.notify.text.includes("Usage: /bootstrap"),
+    "unknown subcommand includes usage hint",
+  );
 }
 
 {
@@ -174,7 +200,10 @@ console.log("\n-- handleBootstrapSlash error path --");
   const r = handleBootstrapSlash("reset", runner);
   assertEq(r.ok, false, "error => not ok");
   assertEq(r.code, 1, "error code propagated");
-  assert(r.notify.text.toLowerCase().includes("confirmation"), "error notify includes stderr reason");
+  assert(
+    r.notify.text.toLowerCase().includes("confirmation"),
+    "error notify includes stderr reason",
+  );
 }
 
 console.log(`\n=== Results: ${PASS} passed, ${FAIL} failed ===\n`);

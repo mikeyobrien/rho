@@ -42,7 +42,7 @@ async function main() {
         `---\n\n` +
         `# Alpha Note\n\n` +
         `Hello world from Alpha. See [[beta]].\n`,
-      TEST_VAULT
+      TEST_VAULT,
     );
 
     writeFile(
@@ -53,7 +53,7 @@ async function main() {
         `---\n\n` +
         `# Beta Note\n\n` +
         `This mentions foobar and world again.\n`,
-      TEST_VAULT
+      TEST_VAULT,
     );
 
     const searcher = new VaultSearch(TEST_VAULT);
@@ -66,27 +66,43 @@ async function main() {
       const res = await searcher.search({ query: "hello", mode: "grep" });
       assert(res.mode === "grep", "mode=grep uses grep");
       assert(res.results.length >= 1, "grep finds a match");
-      assert(res.results[0].path.includes("alpha.md"), "grep returns matching note path");
+      assert(
+        res.results[0].path.includes("alpha.md"),
+        "grep returns matching note path",
+      );
     }
 
     const hasSqlite = await searcher.sqliteAvailable();
-    if (!hasSqlite) {
-      console.log("  (sqlite not available, skipping FTS tests)");
-    } else {
+    if (hasSqlite) {
       const res = await searcher.search({ query: "world", mode: "fts" });
       assert(res.mode === "fts", "mode=fts uses fts");
       assert(res.results.length >= 1, "fts finds a match");
 
-      const tagRes = await searcher.search({ query: "world", mode: "fts", tags: ["foo", "bar"] });
-      assert(tagRes.results.length === 1, "tag filter (ALL tags) narrows results");
-      assert(tagRes.results[0].path.includes("alpha.md"), "tag filtered result is alpha.md");
+      const tagRes = await searcher.search({
+        query: "world",
+        mode: "fts",
+        tags: ["foo", "bar"],
+      });
+      assert(
+        tagRes.results.length === 1,
+        "tag filter (ALL tags) narrows results",
+      );
+      assert(
+        tagRes.results[0].path.includes("alpha.md"),
+        "tag filtered result is alpha.md",
+      );
 
       const reindexed = await searcher.reindex();
       assert(reindexed >= 2, "/vault-reindex equivalent rebuilds index");
+    } else {
+      console.log("  (sqlite not available, skipping FTS tests)");
     }
-
   } finally {
-    try { fs.rmSync(TEST_VAULT, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(TEST_VAULT, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 
   console.log(`\nPASS: ${PASS}, FAIL: ${FAIL}`);

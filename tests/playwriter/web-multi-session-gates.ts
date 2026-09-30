@@ -206,9 +206,7 @@ function installFakeRpcManager(rpcManager: RpcManagerLike): {
 		state.timers.add(timer);
 	}
 
-	function buildStateResponse(
-		state: FakeSessionState,
-	): Record<string, unknown> {
+	function buildStateResponse(state: FakeSessionState): Record<string, unknown> {
 		return {
 			model: "playwriter-fake-model",
 			thinkingLevel: "medium",

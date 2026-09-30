@@ -114,10 +114,7 @@ document.addEventListener("alpine:init", () => {
 				this._onViewChanged = null;
 			}
 			if (this._onVisibilityChange) {
-				document.removeEventListener(
-					"visibilitychange",
-					this._onVisibilityChange,
-				);
+				document.removeEventListener("visibilitychange", this._onVisibilityChange);
 				this._onVisibilityChange = null;
 			}
 			if (this._onAutoMemoryUpdated) {

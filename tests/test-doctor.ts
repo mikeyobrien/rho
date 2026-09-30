@@ -23,7 +23,9 @@ function assertEq(actual: unknown, expected: unknown, label: string): void {
     console.log(`  PASS: ${label}`);
     PASS++;
   } else {
-    console.error(`  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+    console.error(
+      `  FAIL: ${label} — got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`,
+    );
     FAIL++;
   }
 }
@@ -135,13 +137,19 @@ console.log("\n=== checkConfigFile ===\n");
   // File doesn't exist
   const r = checkConfigFile("init.toml", false, null);
   assertEq(r.status, "fail", "missing init.toml is fail");
-  assert(r.fix !== undefined && r.fix.includes("rho init"), "fix suggests rho init");
+  assert(
+    r.fix !== undefined && r.fix.includes("rho init"),
+    "fix suggests rho init",
+  );
 }
 {
   // File exists but has parse error
   const r = checkConfigFile("init.toml", true, "unexpected token at line 5");
   assertEq(r.status, "fail", "malformed init.toml is fail");
-  assert(r.message.includes("unexpected token"), "message includes parse error");
+  assert(
+    r.message.includes("unexpected token"),
+    "message includes parse error",
+  );
 }
 {
   // packages.toml missing is just a warning (optional)
@@ -154,28 +162,34 @@ console.log("\n=== checkModuleFiles ===\n");
 
 {
   // All module files exist
-  const r = checkModuleFiles(new Map([
-    ["heartbeat", { missing: [] }],
-    ["vault", { missing: [] }],
-  ]));
+  const r = checkModuleFiles(
+    new Map([
+      ["heartbeat", { missing: [] }],
+      ["vault", { missing: [] }],
+    ]),
+  );
   assertEq(r.status, "ok", "all module files present");
 }
 {
   // Some module files missing
-  const r = checkModuleFiles(new Map([
-    ["heartbeat", { missing: [] }],
-    ["vault", { missing: ["extensions/vault-search"] }],
-  ]));
+  const r = checkModuleFiles(
+    new Map([
+      ["heartbeat", { missing: [] }],
+      ["vault", { missing: ["extensions/vault-search"] }],
+    ]),
+  );
   assertEq(r.status, "fail", "missing module file is fail");
   assert(r.message.includes("vault"), "message names the module");
   assert(r.message.includes("vault-search"), "message names the missing path");
 }
 {
   // Multiple modules with missing files
-  const r = checkModuleFiles(new Map([
-    ["vault", { missing: ["extensions/vault-search"] }],
-    ["email", { missing: ["extensions/email", "skills/rho-cloud-email"] }],
-  ]));
+  const r = checkModuleFiles(
+    new Map([
+      ["vault", { missing: ["extensions/vault-search"] }],
+      ["email", { missing: ["extensions/email", "skills/rho-cloud-email"] }],
+    ]),
+  );
   assertEq(r.status, "fail", "multiple missing is fail");
   assert(r.message.includes("vault"), "mentions vault");
   assert(r.message.includes("email"), "mentions email");
@@ -198,13 +212,19 @@ console.log("\n=== checkPiIntegration ===\n");
   // Settings.json has rho entry but it is out of sync
   const r = checkPiIntegration(true, true, false);
   assertEq(r.status, "warn", "out of sync is warn");
-  assert(r.fix !== undefined && r.fix.includes("rho sync"), "fix suggests rho sync");
+  assert(
+    r.fix !== undefined && r.fix.includes("rho sync"),
+    "fix suggests rho sync",
+  );
 }
 {
   // Settings.json exists but no rho entry
   const r = checkPiIntegration(true, false, null);
   assertEq(r.status, "fail", "no rho entry in settings");
-  assert(r.fix !== undefined && r.fix.includes("rho sync"), "fix suggests rho sync");
+  assert(
+    r.fix !== undefined && r.fix.includes("rho sync"),
+    "fix suggests rho sync",
+  );
 }
 {
   // No settings.json at all
@@ -223,7 +243,10 @@ console.log("\n=== checkDataDir ===\n");
 {
   const r = checkDataDir("brain", false);
   assertEq(r.status, "warn", "brain dir missing is warn");
-  assert(r.fix !== undefined && r.fix.includes("rho sync"), "fix suggests rho sync or rho init");
+  assert(
+    r.fix !== undefined && r.fix.includes("rho sync"),
+    "fix suggests rho sync or rho init",
+  );
 }
 {
   const r = checkDataDir("vault", true);
@@ -252,7 +275,10 @@ console.log("\n=== checkAuthFile ===\n");
   // Rho Cloud auth missing, email module enabled
   const r = checkAuthFile("rho-cloud", false, true);
   assertEq(r.status, "warn", "rho cloud auth missing is warn");
-  assert(r.fix !== undefined && r.fix.includes("rho login"), "fix suggests rho login");
+  assert(
+    r.fix !== undefined && r.fix.includes("rho login"),
+    "fix suggests rho login",
+  );
 }
 {
   // Rho Cloud auth missing but email not enabled
@@ -285,7 +311,11 @@ console.log("\n=== runAllChecks ===\n");
       ["heartbeat", { missing: [] }],
       ["vault", { missing: [] }],
     ]),
-    piIntegration: { settingsExists: true, rhoEntryFound: true, rhoEntryInSync: true },
+    piIntegration: {
+      settingsExists: true,
+      rhoEntryFound: true,
+      rhoEntryInSync: true,
+    },
     dataDirs: {
       brain: true,
       vault: true,
@@ -326,10 +356,12 @@ console.log("\n=== runAllChecks ===\n");
       "init.toml": { exists: true, parseError: null },
       "packages.toml": { exists: false, parseError: null },
     },
-    moduleFiles: new Map([
-      ["vault", { missing: ["extensions/vault-search"] }],
-    ]),
-    piIntegration: { settingsExists: true, rhoEntryFound: false, rhoEntryInSync: null },
+    moduleFiles: new Map([["vault", { missing: ["extensions/vault-search"] }]]),
+    piIntegration: {
+      settingsExists: true,
+      rhoEntryFound: false,
+      rhoEntryInSync: null,
+    },
     dataDirs: {
       brain: true,
       vault: false,
@@ -361,12 +393,16 @@ console.log("\n=== runAllChecks ===\n");
   assertEq(tmuxCheck?.result.status, "warn", "tmux missing warns");
 
   // Pi integration should fail
-  const piCheck = results.find((r) => r.label.toLowerCase().includes("rho entry"));
+  const piCheck = results.find((r) =>
+    r.label.toLowerCase().includes("rho entry"),
+  );
   assertEq(piCheck?.result.status, "fail", "pi integration missing fails");
 
   // Rho cloud should warn
   const cloudCheck = results.find(
-    (r) => r.label.toLowerCase().includes("rho cloud") || r.label.toLowerCase().includes("rho-cloud")
+    (r) =>
+      r.label.toLowerCase().includes("rho cloud") ||
+      r.label.toLowerCase().includes("rho-cloud"),
   );
   assertEq(cloudCheck?.result.status, "warn", "rho cloud auth missing warns");
 }
@@ -385,7 +421,11 @@ console.log("\n=== runAllChecks ===\n");
       "packages.toml": { exists: true, parseError: null },
     },
     moduleFiles: new Map(),
-    piIntegration: { settingsExists: true, rhoEntryFound: true, rhoEntryInSync: true },
+    piIntegration: {
+      settingsExists: true,
+      rhoEntryFound: true,
+      rhoEntryInSync: true,
+    },
     dataDirs: {
       brain: true,
       vault: true,
@@ -400,7 +440,9 @@ console.log("\n=== runAllChecks ===\n");
 
   // Rho cloud check should be ok since email not enabled
   const cloudCheck = results.find(
-    (r) => r.label.toLowerCase().includes("rho cloud") || r.label.toLowerCase().includes("rho-cloud")
+    (r) =>
+      r.label.toLowerCase().includes("rho cloud") ||
+      r.label.toLowerCase().includes("rho-cloud"),
   );
   assertEq(cloudCheck?.result.status, "ok", "rho-cloud ok when email disabled");
 }
@@ -419,7 +461,11 @@ console.log("\n=== runAllChecks ===\n");
       "packages.toml": { exists: true, parseError: null },
     },
     moduleFiles: new Map(),
-    piIntegration: { settingsExists: true, rhoEntryFound: true, rhoEntryInSync: null },
+    piIntegration: {
+      settingsExists: true,
+      rhoEntryFound: true,
+      rhoEntryInSync: null,
+    },
     dataDirs: {
       brain: true,
       vault: true,
@@ -447,9 +493,25 @@ import { formatResults, type CategorizedCheck } from "../cli/doctor-core.ts";
 
 {
   const checks: CategorizedCheck[] = [
-    { category: "System", label: "Node.js", result: { status: "ok", message: "v22.5.0" } },
-    { category: "System", label: "tmux", result: { status: "warn", message: "not found", fix: "Install tmux" } },
-    { category: "Config", label: "init.toml", result: { status: "fail", message: "parse error", fix: "Fix TOML syntax" } },
+    {
+      category: "System",
+      label: "Node.js",
+      result: { status: "ok", message: "v22.5.0" },
+    },
+    {
+      category: "System",
+      label: "tmux",
+      result: { status: "warn", message: "not found", fix: "Install tmux" },
+    },
+    {
+      category: "Config",
+      label: "init.toml",
+      result: {
+        status: "fail",
+        message: "parse error",
+        fix: "Fix TOML syntax",
+      },
+    },
   ];
   const output = formatResults(checks);
 
@@ -470,8 +532,16 @@ import { formatResults, type CategorizedCheck } from "../cli/doctor-core.ts";
 {
   // All ok — should indicate healthy
   const checks: CategorizedCheck[] = [
-    { category: "System", label: "Node.js", result: { status: "ok", message: "v22.5.0" } },
-    { category: "Config", label: "init.toml", result: { status: "ok", message: "exists" } },
+    {
+      category: "System",
+      label: "Node.js",
+      result: { status: "ok", message: "v22.5.0" },
+    },
+    {
+      category: "Config",
+      label: "init.toml",
+      result: { status: "ok", message: "exists" },
+    },
   ];
   const output = formatResults(checks);
   assert(output.length > 0, "output is non-empty");

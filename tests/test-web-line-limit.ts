@@ -47,9 +47,7 @@ if (offenders.length > 0) {
 	console.error("\nFiles over line limit:");
 	for (const offender of offenders) {
 		const rel = path.relative(path.resolve(TEST_DIR, ".."), offender.filePath);
-		console.error(
-			` - ${rel}: ${offender.lines} lines (${offender.size} bytes)`,
-		);
+		console.error(` - ${rel}: ${offender.lines} lines (${offender.size} bytes)`);
 	}
 	process.exit(1);
 }

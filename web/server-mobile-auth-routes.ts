@@ -45,7 +45,10 @@ app.use(`${AUTH_ROUTE_PREFIX}/*`, async (c, next) => {
 	applyAuthCors(c);
 });
 
-export function validateToken(token: string, expectedHashes: string[]): boolean {
+export function validateToken(
+	token: string,
+	expectedHashes: string[],
+): boolean {
 	const hash = crypto.createHash("sha256").update(token).digest("hex");
 	return expectedHashes.includes(hash);
 }

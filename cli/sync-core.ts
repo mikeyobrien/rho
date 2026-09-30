@@ -244,10 +244,7 @@ export function planSync(input: PlanSyncInput): SyncPlan {
 
 	// Start with existing settings or create fresh
 	const settingsJson: Record<string, unknown> = input.settingsJson
-		? (JSON.parse(JSON.stringify(input.settingsJson)) as Record<
-				string,
-				unknown
-			>)
+		? (JSON.parse(JSON.stringify(input.settingsJson)) as Record<string, unknown>)
 		: {};
 
 	if (!Array.isArray(settingsJson.packages)) {
@@ -274,9 +271,7 @@ export function planSync(input: PlanSyncInput): SyncPlan {
 		.map((pkg) => pkg.source);
 
 	// Determine packages to remove (in previous sync.lock but not in packages.toml)
-	const newManagedSources = new Set(
-		pkgConfig.packages.map((pkg) => pkg.source),
-	);
+	const newManagedSources = new Set(pkgConfig.packages.map((pkg) => pkg.source));
 	const prevManagedSources = syncLock?.managed_packages ?? [];
 	const packagesToRemove = prevManagedSources.filter(
 		(source) => !newManagedSources.has(source),

@@ -1,4 +1,10 @@
-import { LeaseHandle, isLeaseStale, readLeaseMeta, readLeasePayload, tryAcquireLeaseLock } from "../lib/lease-lock.ts";
+import {
+  LeaseHandle,
+  isLeaseStale,
+  readLeaseMeta,
+  readLeasePayload,
+  tryAcquireLeaseLock,
+} from "../lib/lease-lock.ts";
 
 export const TELEGRAM_POLL_LEASE_PURPOSE = "rho-telegram-poll-leadership";
 
@@ -40,14 +46,18 @@ export function createTelegramPollLeadershipState(): TelegramPollLeadershipState
   };
 }
 
-export function releaseTelegramPollLeadership(state: TelegramPollLeadershipState): void {
+export function releaseTelegramPollLeadership(
+  state: TelegramPollLeadershipState,
+): void {
   state.isLeader = false;
   state.ownerPid = null;
   state.lease?.release();
   state.lease = null;
 }
 
-export function readTelegramPollLockOwner(lockPath: string): TelegramPollLockOwnerInfo | null {
+export function readTelegramPollLockOwner(
+  lockPath: string,
+): TelegramPollLockOwnerInfo | null {
   const payload = readLeasePayload(lockPath);
   if (!payload) return null;
   return {
@@ -94,10 +104,15 @@ export function stepTelegramPollLeadership(
   state.ownerPid = meta.payload?.pid ?? null;
 
   if (!meta.payload || isLeaseStale(meta, params.staleMs, params.now)) {
-    const acquired = tryAcquireLeaseLock(params.lockPath, params.nonce, params.now, {
-      staleMs: params.staleMs,
-      purpose,
-    });
+    const acquired = tryAcquireLeaseLock(
+      params.lockPath,
+      params.nonce,
+      params.now,
+      {
+        staleMs: params.staleMs,
+        purpose,
+      },
+    );
     state.ownerPid = acquired.ownerPid;
     if (acquired.ok) {
       state.isLeader = true;

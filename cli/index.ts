@@ -16,7 +16,9 @@ const __dirname = path.dirname(__filename);
 const pkgPath = path.resolve(__dirname, "..", "package.json");
 let VERSION = "0.0.0";
 try {
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { version?: string };
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
+    version?: string;
+  };
   if (typeof pkg.version === "string") VERSION = pkg.version;
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -30,35 +32,91 @@ interface CommandDef {
 }
 
 const COMMANDS: Record<string, CommandDef> = {
-  init:    { description: "Initialize Rho config in ~/.rho/",           load: () => import("./commands/init.ts") },
-  sync:    { description: "Sync config to pi settings.json",            load: () => import("./commands/sync.ts") },
-  doctor:  { description: "Check system health and config validity",    load: () => import("./commands/doctor.ts") },
-  upgrade: { description: "Update Rho and sync new modules",            load: () => import("./commands/upgrade.ts") },
-  start:   { description: "Start the heartbeat daemon",                 load: () => import("./commands/start.ts") },
-  stop:    { description: "Stop the heartbeat daemon",                  load: () => import("./commands/stop.ts") },
-  status:  { description: "Show daemon and module status",              load: () => import("./commands/status.ts") },
-  trigger: { description: "Force an immediate heartbeat check-in",      load: () => import("./commands/trigger.ts") },
-  config:  { description: "Show current configuration",                 load: () => import("./commands/config.ts") },
-  logs:    { description: "Show recent heartbeat output",               load: () => import("./commands/logs.ts") },
-  telegram: { description: "Manage the Telegram worker",                 load: () => import("./commands/telegram.ts") },
-  login:   { description: "Authenticate with pi providers",            load: () => import("./commands/login.ts") },
-  migrate: { description: "Preview or apply isolated Rho migration", load: () => import("./commands/migrate.ts") },
-  web:     { description: "Launch the web UI server",                   load: () => import("./commands/web.ts") },
-  skills:  { description: "Install external skills (default provider: vercel)", load: () => import("./commands/skills.ts") },
-  bootstrap: { description: "Manage brain-native bootstrap lifecycle",    load: () => import("./commands/bootstrap.ts") },
+  init: {
+    description: "Initialize Rho config in ~/.rho/",
+    load: () => import("./commands/init.ts"),
+  },
+  sync: {
+    description: "Sync config to pi settings.json",
+    load: () => import("./commands/sync.ts"),
+  },
+  doctor: {
+    description: "Check system health and config validity",
+    load: () => import("./commands/doctor.ts"),
+  },
+  upgrade: {
+    description: "Update Rho and sync new modules",
+    load: () => import("./commands/upgrade.ts"),
+  },
+  start: {
+    description: "Start the heartbeat daemon",
+    load: () => import("./commands/start.ts"),
+  },
+  agent: {
+    description: "Start the Rho agent (default)",
+    load: () => import("./commands/agent.ts"),
+  },
+  stop: {
+    description: "Stop the heartbeat daemon",
+    load: () => import("./commands/stop.ts"),
+  },
+  restart: {
+    description: "Restart the daemon and dedicated session",
+    load: () => import("./commands/restart.ts"),
+  },
+  status: {
+    description: "Show daemon and module status",
+    load: () => import("./commands/status.ts"),
+  },
+  trigger: {
+    description: "Force an immediate heartbeat check-in",
+    load: () => import("./commands/trigger.ts"),
+  },
+  config: {
+    description: "Show current configuration",
+    load: () => import("./commands/config.ts"),
+  },
+  logs: {
+    description: "Show recent heartbeat output",
+    load: () => import("./commands/logs.ts"),
+  },
+  telegram: {
+    description: "Manage the Telegram worker",
+    load: () => import("./commands/telegram.ts"),
+  },
+  login: {
+    description: "Authenticate with pi providers",
+    load: () => import("./commands/login.ts"),
+  },
+  migrate: {
+    description: "Preview or apply isolated Rho migration",
+    load: () => import("./commands/migrate.ts"),
+  },
+  web: {
+    description: "Launch the web UI server",
+    load: () => import("./commands/web.ts"),
+  },
+  skills: {
+    description: "Install external skills (default provider: vercel)",
+    load: () => import("./commands/skills.ts"),
+  },
+  bootstrap: {
+    description: "Manage brain-native bootstrap lifecycle",
+    load: () => import("./commands/bootstrap.ts"),
+  },
 };
 
 function printHelp(): void {
   const maxLen = Math.max(...Object.keys(COMMANDS).map((k) => k.length));
   const lines = Object.entries(COMMANDS).map(
-    ([name, def]) => `  ${name.padEnd(maxLen + 2)}${def.description}`
+    ([name, def]) => `  ${name.padEnd(maxLen + 2)}${def.description}`,
   );
 
   console.log(`rho v${VERSION} - AI agent framework
 
 Usage: rho [command] [options]
 
-Running \`rho\` with no arguments starts the daemon (if needed) and attaches.
+Running \`rho\` with no arguments starts the Rho agent (same as \`rho agent\`).
 
 Commands:
 ${lines.join("\n")}
@@ -91,10 +149,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Bare `rho` with no args: start daemon if needed, attach foreground
+  // Bare `rho` is the agent. `rho start` remains the daemon.
   if (args.length === 0) {
-    const cmd = await COMMANDS["start"].load();
-    await cmd.run(["--foreground"]);
+    const cmd = await COMMANDS["agent"].load();
+    await cmd.run([]);
     return;
   }
 
@@ -102,7 +160,9 @@ async function main(): Promise<void> {
   const cmdArgs = args.slice(1);
 
   if (!COMMANDS[cmdName]) {
-    console.error(`Unknown command: ${cmdName}\nRun \`rho --help\` for available commands.`);
+    console.error(
+      `Unknown command: ${cmdName}\nRun \`rho --help\` for available commands.`,
+    );
     process.exit(1);
   }
 

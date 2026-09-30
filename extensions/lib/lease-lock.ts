@@ -99,21 +99,29 @@ export function readLeasePayload(lockPath: string): LeasePayloadV1 | null {
 
 export function readLeaseMeta(lockPath: string): LeaseMeta {
   const st = safeStat(lockPath);
-  const inode = st ? (typeof (st as any).ino === "number" ? (st as any).ino : null) : null;
+  const inode = st
+    ? typeof (st as any).ino === "number"
+      ? (st as any).ino
+      : null
+    : null;
   const mtimeMs = st ? (st.mtimeMs ?? null) : null;
   return { payload: readLeasePayload(lockPath), mtimeMs, inode };
 }
 
-export function isLeaseStale(meta: LeaseMeta, staleMs: number, now: number): boolean {
+export function isLeaseStale(
+  meta: LeaseMeta,
+  staleMs: number,
+  now: number,
+): boolean {
   const p = meta.payload;
   if (p) {
     if (!isPidRunning(p.pid)) return true;
     if (!Number.isFinite(p.refreshedAt)) return true;
-    return (now - p.refreshedAt) > staleMs;
+    return now - p.refreshedAt > staleMs;
   }
   // Unparseable lock file: fall back to mtime
   if (meta.mtimeMs == null) return true; // file gone
-  return (now - meta.mtimeMs) > staleMs;
+  return now - meta.mtimeMs > staleMs;
 }
 
 function ensureDirForFile(filePath: string): void {
@@ -124,20 +132,39 @@ function ensureDirForFile(filePath: string): void {
   }
 }
 
-function tryCreateExclusiveFd(lockPath: string, content: string): { ok: true; fd: number; inode: number } | { ok: false; code?: string } {
+function tryCreateExclusiveFd(
+  lockPath: string,
+  content: string,
+): { ok: true; fd: number; inode: number } | { ok: false; code?: string } {
   try {
     ensureDirForFile(lockPath);
-    const fd = fs.openSync(lockPath, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+    const fd = fs.openSync(
+      lockPath,
+      fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_EXCL,
+      0o600,
+    );
     try {
       fs.writeSync(fd, content, 0, "utf-8");
       // Best-effort: flush so other processes see a complete JSON payload.
-      try { fs.fsyncSync(fd); } catch { /* ignore */ }
+      try {
+        fs.fsyncSync(fd);
+      } catch {
+        /* ignore */
+      }
       const st = fs.fstatSync(fd);
       const inode = typeof (st as any).ino === "number" ? (st as any).ino : -1;
       return { ok: true, fd, inode };
     } catch (err) {
-      try { fs.closeSync(fd); } catch { /* ignore */ }
-      try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {
+        /* ignore */
+      }
       throw err;
     }
   } catch (err) {
@@ -150,7 +177,11 @@ function writeLeaseInPlace(fd: number, content: string): boolean {
   try {
     fs.ftruncateSync(fd, 0);
     fs.writeSync(fd, content, 0, "utf-8");
-    try { fs.fsyncSync(fd); } catch { /* ignore */ }
+    try {
+      fs.fsyncSync(fd);
+    } catch {
+      /* ignore */
+    }
     return true;
   } catch {
     return false;
@@ -166,7 +197,14 @@ export class LeaseHandle {
   readonly purpose: string;
   private closed = false;
 
-  constructor(args: { lockPath: string; fd: number; inode: number; pid: number; nonce: string; purpose: string }) {
+  constructor(args: {
+    lockPath: string;
+    fd: number;
+    inode: number;
+    pid: number;
+    nonce: string;
+    purpose: string;
+  }) {
     this.lockPath = args.lockPath;
     this.fd = args.fd;
     this.inode = args.inode;
@@ -195,7 +233,12 @@ export class LeaseHandle {
     if (!this.isCurrent()) return false;
     // If the on-disk payload no longer matches our pid/nonce/purpose, treat as lost.
     const onDisk = readLeasePayload(this.lockPath);
-    if (onDisk && (onDisk.pid !== this.pid || onDisk.nonce !== this.nonce || onDisk.purpose !== this.purpose)) {
+    if (
+      onDisk &&
+      (onDisk.pid !== this.pid ||
+        onDisk.nonce !== this.nonce ||
+        onDisk.purpose !== this.purpose)
+    ) {
       return false;
     }
     const payload: LeasePayloadV1 = {
@@ -210,7 +253,12 @@ export class LeaseHandle {
     // Best-effort preserve acquiredAt from existing file so it doesn't drift.
     try {
       const existing = readLeasePayload(this.lockPath);
-      if (existing && existing.pid === this.pid && existing.nonce === this.nonce && existing.purpose === this.purpose) {
+      if (
+        existing &&
+        existing.pid === this.pid &&
+        existing.nonce === this.nonce &&
+        existing.purpose === this.purpose
+      ) {
         payload.acquiredAt = existing.acquiredAt;
       }
     } catch {
@@ -227,10 +275,18 @@ export class LeaseHandle {
     if (this.closed) return;
     try {
       if (this.isCurrent()) {
-        try { fs.unlinkSync(this.lockPath); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(this.lockPath);
+        } catch {
+          /* ignore */
+        }
       }
     } finally {
-      try { fs.closeSync(this.fd); } catch { /* ignore */ }
+      try {
+        fs.closeSync(this.fd);
+      } catch {
+        /* ignore */
+      }
       this.closed = true;
     }
   }
@@ -248,7 +304,9 @@ export function tryAcquireLeaseLock(
   nonce: string,
   now: number,
   opts: AcquireLeaseOpts,
-): { ok: true; lease: LeaseHandle; ownerPid: number } | { ok: false; ownerPid: number | null } {
+):
+  | { ok: true; lease: LeaseHandle; ownerPid: number }
+  | { ok: false; ownerPid: number | null } {
   const basePayload: LeasePayloadV1 = {
     version: 1,
     purpose: opts.purpose,
@@ -275,12 +333,17 @@ export function tryAcquireLeaseLock(
     }
 
     // Unexpected FS error: treat as not acquired.
-    if (created.code && created.code !== "EEXIST") return { ok: false, ownerPid: null };
+    if (created.code && created.code !== "EEXIST")
+      return { ok: false, ownerPid: null };
 
     // Existing lock: decide if stale.
     const meta = readLeaseMeta(lockPath);
     if (isLeaseStale(meta, opts.staleMs, now)) {
-      try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {
+        /* ignore */
+      }
       continue;
     }
     return { ok: false, ownerPid: meta.payload?.pid ?? null };

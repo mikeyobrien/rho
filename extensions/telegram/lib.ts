@@ -10,7 +10,10 @@ export const TELEGRAM_DIR = join(RHO_HOME, "telegram");
 export const TELEGRAM_STATE_PATH = join(TELEGRAM_DIR, "state.json");
 export const TELEGRAM_POLL_LOCK_PATH = join(TELEGRAM_DIR, "poll.lock.json");
 export const TELEGRAM_WORKER_LOCK_PATH = join(TELEGRAM_DIR, "worker.lock.json");
-export const TELEGRAM_CHECK_TRIGGER_PATH = join(TELEGRAM_DIR, "check.trigger.json");
+export const TELEGRAM_CHECK_TRIGGER_PATH = join(
+  TELEGRAM_DIR,
+  "check.trigger.json",
+);
 
 export interface TelegramSettings {
   enabled: boolean;
@@ -70,31 +73,47 @@ export const DEFAULT_STATE: TelegramRuntimeState = {
 
 function toNumberArray(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  return value.filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
 }
 
-export function readTelegramSettings(initPath: string = INIT_TOML): TelegramSettings {
+export function readTelegramSettings(
+  initPath: string = INIT_TOML,
+): TelegramSettings {
   if (!existsSync(initPath)) return { ...DEFAULT_SETTINGS };
   try {
-    const raw = parseToml(readFileSync(initPath, "utf-8")) as Record<string, any>;
+    const raw = parseToml(readFileSync(initPath, "utf-8")) as Record<
+      string,
+      any
+    >;
     const settings = (raw.settings ?? {}) as Record<string, unknown>;
     const telegram = (settings.telegram ?? {}) as Record<string, unknown>;
 
     return {
-      enabled: typeof telegram.enabled === "boolean" ? telegram.enabled : DEFAULT_SETTINGS.enabled,
+      enabled:
+        typeof telegram.enabled === "boolean"
+          ? telegram.enabled
+          : DEFAULT_SETTINGS.enabled,
       mode: telegram.mode === "webhook" ? "webhook" : "polling",
-      botTokenEnv: typeof telegram.bot_token_env === "string" && telegram.bot_token_env.trim()
-        ? telegram.bot_token_env.trim()
-        : DEFAULT_SETTINGS.botTokenEnv,
-      pollTimeoutSeconds: typeof telegram.poll_timeout_seconds === "number" && telegram.poll_timeout_seconds > 0
-        ? Math.floor(telegram.poll_timeout_seconds)
-        : DEFAULT_SETTINGS.pollTimeoutSeconds,
+      botTokenEnv:
+        typeof telegram.bot_token_env === "string" &&
+        telegram.bot_token_env.trim()
+          ? telegram.bot_token_env.trim()
+          : DEFAULT_SETTINGS.botTokenEnv,
+      pollTimeoutSeconds:
+        typeof telegram.poll_timeout_seconds === "number" &&
+        telegram.poll_timeout_seconds > 0
+          ? Math.floor(telegram.poll_timeout_seconds)
+          : DEFAULT_SETTINGS.pollTimeoutSeconds,
       rpcPromptTimeoutSeconds:
-        typeof telegram.rpc_prompt_timeout_seconds === "number" && telegram.rpc_prompt_timeout_seconds > 0
+        typeof telegram.rpc_prompt_timeout_seconds === "number" &&
+        telegram.rpc_prompt_timeout_seconds > 0
           ? Math.floor(telegram.rpc_prompt_timeout_seconds)
           : DEFAULT_SETTINGS.rpcPromptTimeoutSeconds,
       backgroundPromptTimeoutSeconds:
-        typeof telegram.background_prompt_timeout_seconds === "number" && telegram.background_prompt_timeout_seconds > 0
+        typeof telegram.background_prompt_timeout_seconds === "number" &&
+        telegram.background_prompt_timeout_seconds > 0
           ? Math.floor(telegram.background_prompt_timeout_seconds)
           : DEFAULT_SETTINGS.backgroundPromptTimeoutSeconds,
       allowedChatIds: toNumberArray(telegram.allowed_chat_ids),
@@ -105,11 +124,13 @@ export function readTelegramSettings(initPath: string = INIT_TOML): TelegramSett
           : DEFAULT_SETTINGS.requireMentionInGroups,
       threadedMode: telegram.threaded_mode === true,
       sttProvider:
-        telegram.stt_provider === "elevenlabs" || telegram.stt_provider === "openai"
+        telegram.stt_provider === "elevenlabs" ||
+        telegram.stt_provider === "openai"
           ? telegram.stt_provider
           : DEFAULT_SETTINGS.sttProvider,
       sttApiKeyEnv:
-        typeof telegram.stt_api_key_env === "string" && telegram.stt_api_key_env.trim()
+        typeof telegram.stt_api_key_env === "string" &&
+        telegram.stt_api_key_env.trim()
           ? telegram.stt_api_key_env.trim()
           : DEFAULT_SETTINGS.sttApiKeyEnv,
       sttEndpoint:
@@ -130,7 +151,9 @@ function ensureTelegramDir(telegramDir: string): void {
   mkdirSync(telegramDir, { recursive: true });
 }
 
-export function loadRuntimeState(statePath: string = TELEGRAM_STATE_PATH): TelegramRuntimeState {
+export function loadRuntimeState(
+  statePath: string = TELEGRAM_STATE_PATH,
+): TelegramRuntimeState {
   const telegramDir = dirname(statePath);
   ensureTelegramDir(telegramDir);
   if (!existsSync(statePath)) {
@@ -138,35 +161,65 @@ export function loadRuntimeState(statePath: string = TELEGRAM_STATE_PATH): Teleg
     return { ...DEFAULT_STATE };
   }
   try {
-    const parsed = JSON.parse(readFileSync(statePath, "utf-8")) as Partial<TelegramRuntimeState>;
+    const parsed = JSON.parse(
+      readFileSync(statePath, "utf-8"),
+    ) as Partial<TelegramRuntimeState>;
     return {
-      last_update_id: typeof parsed.last_update_id === "number" ? parsed.last_update_id : 0,
-      last_poll_at: typeof parsed.last_poll_at === "string" || parsed.last_poll_at === null ? parsed.last_poll_at : null,
-      consecutive_failures: typeof parsed.consecutive_failures === "number" ? parsed.consecutive_failures : 0,
+      last_update_id:
+        typeof parsed.last_update_id === "number" ? parsed.last_update_id : 0,
+      last_poll_at:
+        typeof parsed.last_poll_at === "string" || parsed.last_poll_at === null
+          ? parsed.last_poll_at
+          : null,
+      consecutive_failures:
+        typeof parsed.consecutive_failures === "number"
+          ? parsed.consecutive_failures
+          : 0,
       mode: parsed.mode === "webhook" ? "webhook" : "polling",
-      last_check_request_at: typeof parsed.last_check_request_at === "number" ? parsed.last_check_request_at : null,
-      last_check_consume_at: typeof parsed.last_check_consume_at === "number" ? parsed.last_check_consume_at : null,
-      last_check_outcome: parsed.last_check_outcome === "ok" || parsed.last_check_outcome === "error" ? parsed.last_check_outcome : null,
-      last_check_requester_pid: typeof parsed.last_check_requester_pid === "number" ? parsed.last_check_requester_pid : null,
+      last_check_request_at:
+        typeof parsed.last_check_request_at === "number"
+          ? parsed.last_check_request_at
+          : null,
+      last_check_consume_at:
+        typeof parsed.last_check_consume_at === "number"
+          ? parsed.last_check_consume_at
+          : null,
+      last_check_outcome:
+        parsed.last_check_outcome === "ok" ||
+        parsed.last_check_outcome === "error"
+          ? parsed.last_check_outcome
+          : null,
+      last_check_requester_pid:
+        typeof parsed.last_check_requester_pid === "number"
+          ? parsed.last_check_requester_pid
+          : null,
     };
   } catch {
     return { ...DEFAULT_STATE };
   }
 }
 
-export function saveRuntimeState(state: TelegramRuntimeState, statePath: string = TELEGRAM_STATE_PATH): void {
+export function saveRuntimeState(
+  state: TelegramRuntimeState,
+  statePath: string = TELEGRAM_STATE_PATH,
+): void {
   const telegramDir = dirname(statePath);
   ensureTelegramDir(telegramDir);
   writeFileSync(statePath, JSON.stringify(state, null, 2));
 }
 
-export function advanceUpdateOffset(current: number, updateIds: number[]): number {
+export function advanceUpdateOffset(
+  current: number,
+  updateIds: number[],
+): number {
   if (updateIds.length === 0) return current;
   const maxUpdateId = Math.max(...updateIds);
   return Math.max(current, maxUpdateId + 1);
 }
 
-export function markPollSuccess(state: TelegramRuntimeState): TelegramRuntimeState {
+export function markPollSuccess(
+  state: TelegramRuntimeState,
+): TelegramRuntimeState {
   return {
     ...state,
     consecutive_failures: 0,
@@ -174,7 +227,9 @@ export function markPollSuccess(state: TelegramRuntimeState): TelegramRuntimeSta
   };
 }
 
-export function markPollFailure(state: TelegramRuntimeState): TelegramRuntimeState {
+export function markPollFailure(
+  state: TelegramRuntimeState,
+): TelegramRuntimeState {
   return {
     ...state,
     consecutive_failures: state.consecutive_failures + 1,

@@ -42,8 +42,7 @@ export const rhoChatModelAndExtensionMethods = {
 		const currentInput = toFiniteNumber(this.sessionStats?.inputTokens) ?? 0;
 		const currentOutput = toFiniteNumber(this.sessionStats?.outputTokens) ?? 0;
 		const currentCacheRead = toFiniteNumber(this.sessionStats?.cacheRead) ?? 0;
-		const currentCacheWrite =
-			toFiniteNumber(this.sessionStats?.cacheWrite) ?? 0;
+		const currentCacheWrite = toFiniteNumber(this.sessionStats?.cacheWrite) ?? 0;
 
 		this.sessionStats = {
 			tokens: currentTokens + totalTokens,
@@ -208,8 +207,7 @@ export const rhoChatModelAndExtensionMethods = {
 			}
 
 			if (slashClassification.kind !== "supported") {
-				this.error =
-					slashContract.formatUnsupportedMessage(slashClassification);
+				this.error = slashContract.formatUnsupportedMessage(slashClassification);
 				return;
 			}
 
@@ -219,8 +217,7 @@ export const rhoChatModelAndExtensionMethods = {
 
 		if (this.isStreaming) {
 			const text = this.promptText.trim();
-			const images =
-				this.pendingImages.length > 0 ? [...this.pendingImages] : [];
+			const images = this.pendingImages.length > 0 ? [...this.pendingImages] : [];
 			this.promptQueue.push({
 				id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
 				text,
@@ -309,13 +306,9 @@ export const rhoChatModelAndExtensionMethods = {
 			description,
 			options: options.map((opt, idx) => ({
 				value:
-					typeof opt === "string"
-						? opt
-						: (opt.value ?? opt.label ?? String(idx)),
+					typeof opt === "string" ? opt : (opt.value ?? opt.label ?? String(idx)),
 				label:
-					typeof opt === "string"
-						? opt
-						: (opt.label ?? opt.value ?? String(idx)),
+					typeof opt === "string" ? opt : (opt.label ?? opt.value ?? String(idx)),
 				description: typeof opt === "object" ? (opt.description ?? "") : "",
 			})),
 			selectedValue: null,

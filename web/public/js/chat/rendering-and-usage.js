@@ -138,9 +138,7 @@ function formatUsage(usage, model) {
 	const contextWindow = usageContextWindow || guessedContextWindow;
 	const contextTokens =
 		Number(
-			usageObj.contextTokens ??
-				usageObj.context_tokens ??
-				usageObj.inputWithCache,
+			usageObj.contextTokens ?? usageObj.context_tokens ?? usageObj.inputWithCache,
 		) ||
 		input + cacheRead ||
 		totalTokens;
@@ -280,7 +278,7 @@ function normalizeMessage(message, isLazy = false) {
 				...part,
 				key: `${message.id}-thinking-${index}`,
 				rawContent: thinkingText,
-				content: !isLazy ? renderMarkdown(thinkingText) : thinkingText,
+				content: isLazy ? thinkingText : renderMarkdown(thinkingText),
 				preview: generateOutputPreview(thinkingText, 100),
 				isRendered: !isLazy,
 			};
@@ -294,25 +292,17 @@ function normalizeMessage(message, isLazy = false) {
 					: safeString(part.output ?? "");
 			const toolName = part.name ?? "";
 			const parsedOutput = parseToolOutput(output, toolName);
-			const semantic =
-				part.semantic ?? parseToolSemantic(toolName, args, output);
+			const semantic = part.semantic ?? parseToolSemantic(toolName, args, output);
 			const headerSummary = semanticHeaderSummary(toolName, semantic);
-			const outputSummaryText = semanticOutputSummary(
-				toolName,
-				semantic,
-				output,
-			);
+			const outputSummaryText = semanticOutputSummary(toolName, semantic, output);
 			return {
 				...part,
 				key: `${message.id}-tool-${index}`,
 				args,
-				argsSummary:
-					headerSummary || part.argsSummary || clampString(args, 120),
+				argsSummary: headerSummary || part.argsSummary || clampString(args, 120),
 				output,
 				outputPreview:
-					outputSummaryText ||
-					part.outputPreview ||
-					generateOutputPreview(output),
+					outputSummaryText || part.outputPreview || generateOutputPreview(output),
 				status: part.status ?? "done",
 				duration: part.duration ?? "",
 				isFileEdit: isFileEditTool(toolName),
