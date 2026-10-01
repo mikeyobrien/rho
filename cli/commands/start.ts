@@ -469,7 +469,7 @@ Options:
   const legacyRunning = tmuxLegacySessionExists();
 
   const state: DaemonState = {
-    tmuxRunning: herdrLive || rhoSocketRunning || legacyRunning,
+    sessionRunning: herdrLive || rhoSocketRunning || legacyRunning,
     daemonPid: readDaemonPid(),
     daemonPidAlive: false,
     platform,

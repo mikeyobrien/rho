@@ -84,7 +84,7 @@ function makeConfig(
 
 function makeState(overrides?: Partial<DaemonState>): DaemonState {
   return {
-    tmuxRunning: false,
+    sessionRunning: false,
     daemonPid: null,
     daemonPidAlive: false,
     platform: "linux",
@@ -181,19 +181,19 @@ console.log("\n=== notificationToCliArgs ===\n");
 console.log("\n=== isRunning ===\n");
 
 {
-  const state = makeState({ tmuxRunning: true });
+  const state = makeState({ sessionRunning: true });
   assertEq(isRunning(state), true, "running when tmux session exists");
 }
 
 {
-  const state = makeState({ tmuxRunning: false });
+  const state = makeState({ sessionRunning: false });
   assertEq(isRunning(state), false, "not running when no tmux session");
 }
 
 {
   // PID alive but no tmux session — not considered running
   const state = makeState({
-    tmuxRunning: false,
+    sessionRunning: false,
     daemonPid: 123,
     daemonPidAlive: true,
   });
@@ -207,7 +207,7 @@ console.log("\n=== isRunning ===\n");
 {
   // Tmux running, daemon PID dead — still considered running
   const state = makeState({
-    tmuxRunning: true,
+    sessionRunning: true,
     daemonPid: 123,
     daemonPidAlive: false,
   });
@@ -344,7 +344,7 @@ console.log("\n=== formatStatus ===\n");
 {
   // Full status with config
   const info: StatusInfo = {
-    state: makeState({ tmuxRunning: true, platform: "android" }),
+    state: makeState({ sessionRunning: true, platform: "android" }),
     version: "0.2.0",
     agentName: "tau",
     config: makeConfig(),
@@ -371,7 +371,7 @@ console.log("\n=== formatStatus ===\n");
 {
   // Stopped, no config
   const info: StatusInfo = {
-    state: makeState({ tmuxRunning: false, platform: "linux" }),
+    state: makeState({ sessionRunning: false, platform: "linux" }),
     version: null,
     agentName: null,
     config: null,
@@ -390,7 +390,7 @@ console.log("\n=== formatStatus ===\n");
 {
   // Running but no pane output
   const info: StatusInfo = {
-    state: makeState({ tmuxRunning: true, platform: "macos" }),
+    state: makeState({ sessionRunning: true, platform: "macos" }),
     version: "0.1.0",
     agentName: "rho",
     config: makeConfig(),
@@ -409,7 +409,7 @@ console.log("\n=== formatStatus ===\n");
     ui: { "usage-bars": true },
   });
   const info: StatusInfo = {
-    state: makeState({ tmuxRunning: true }),
+    state: makeState({ sessionRunning: true }),
     version: "0.2.0",
     agentName: "tau",
     config,
@@ -423,7 +423,7 @@ console.log("\n=== formatStatus ===\n");
 {
   // Pane output not shown when not running (even if provided)
   const info: StatusInfo = {
-    state: makeState({ tmuxRunning: false }),
+    state: makeState({ sessionRunning: false }),
     version: null,
     agentName: null,
     config: null,
@@ -459,7 +459,7 @@ console.log("\n=== planStart ===\n");
 
 {
   // Already running
-  const state = makeState({ tmuxRunning: true, platform: "android" });
+  const state = makeState({ sessionRunning: true, platform: "android" });
   const plan = planStart(state, "/home");
   assertEq(plan.tmuxAlreadyRunning, true, "tmux already running");
   assertEq(plan.needsWakeLock, true, "still needs wake lock");
@@ -479,7 +479,7 @@ console.log("\n=== planStop ===\n");
 {
   // Stop on Linux, running
   const state = makeState({
-    tmuxRunning: true,
+    sessionRunning: true,
     daemonPid: 1234,
     platform: "linux",
   });
@@ -490,7 +490,7 @@ console.log("\n=== planStop ===\n");
     false,
     "no notification remove on linux",
   );
-  assertEq(plan.tmuxRunning, true, "tmux is running");
+  assertEq(plan.sessionRunning, true, "tmux is running");
   assertEq(plan.daemonPid, 1234, "has daemon PID");
   assertEq(plan.sessionName, "rho", "session name");
 }
@@ -498,7 +498,7 @@ console.log("\n=== planStop ===\n");
 {
   // Stop on Android, running
   const state = makeState({
-    tmuxRunning: true,
+    sessionRunning: true,
     daemonPid: 5678,
     platform: "android",
   });
@@ -513,21 +513,21 @@ console.log("\n=== planStop ===\n");
 
 {
   // Stop when already stopped
-  const state = makeState({ tmuxRunning: false, daemonPid: null });
+  const state = makeState({ sessionRunning: false, daemonPid: null });
   const plan = planStop(state);
-  assertEq(plan.tmuxRunning, false, "tmux not running");
+  assertEq(plan.sessionRunning, false, "tmux not running");
   assertEq(plan.daemonPid, null, "no daemon PID");
 }
 
 {
   // Stop with daemon PID but no tmux (zombie state)
   const state = makeState({
-    tmuxRunning: false,
+    sessionRunning: false,
     daemonPid: 9999,
     platform: "android",
   });
   const plan = planStop(state);
-  assertEq(plan.tmuxRunning, false, "tmux not running");
+  assertEq(plan.sessionRunning, false, "tmux not running");
   assertEq(plan.daemonPid, 9999, "daemon PID to kill");
   assertEq(plan.needsWakeUnlock, true, "still unlock on android");
 }
@@ -544,7 +544,7 @@ console.log("\n=== Edge cases ===\n");
     ui: { "usage-bars": false },
   });
   const info: StatusInfo = {
-    state: makeState({ tmuxRunning: true }),
+    state: makeState({ sessionRunning: true }),
     version: "0.2.0",
     agentName: "test",
     config,
