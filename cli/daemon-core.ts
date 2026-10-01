@@ -5,7 +5,6 @@
  * operations. All functions are pure and testable.
  */
 
-import { REGISTRY } from "./registry.ts";
 import type { RhoConfig } from "./config.ts";
 
 // ---- Constants ----
