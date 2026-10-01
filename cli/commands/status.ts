@@ -205,7 +205,7 @@ Options:
   const herdrRunning = herdrServerRunning();
 
   const state: DaemonState = {
-    tmuxRunning: herdrRunning || active !== null,
+    sessionRunning: herdrRunning || active !== null,
     daemonPid,
     daemonPidAlive: daemonPid === null ? false : pidAlive(daemonPid),
     platform,
@@ -230,7 +230,7 @@ Options:
     heartbeat: mergeHeartbeat(readHeartbeatState(), readHeartbeatSettings()),
     paneOutput: herdrRunning
       ? readHerdrAgent(20) || null
-      : state.tmuxRunning
+      : state.sessionRunning
         ? capturePaneOutput()
         : null,
     tmuxSocket: getTmuxSocket(),
@@ -245,7 +245,7 @@ Options:
           version: info.version,
           agent: agentName,
           platform,
-          tmuxSession: state.tmuxRunning,
+          tmuxSession: state.sessionRunning,
           host: herdrRunning ? "herdr" : active ? "tmux" : null,
           session: herdrRunning ? "rho" : null,
           daemonPid: state.daemonPid,

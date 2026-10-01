@@ -92,7 +92,7 @@ Options:
   const legacyRunning = tmuxLegacySessionExists();
 
   const state: DaemonState = {
-    tmuxRunning: herdrRunning || rhoSocketRunning || legacyRunning,
+    sessionRunning: herdrRunning || rhoSocketRunning || legacyRunning,
     daemonPid: readDaemonPid(),
     daemonPidAlive: false,
     platform,
@@ -100,7 +100,7 @@ Options:
 
   const plan = planStop(state);
 
-  if (!plan.tmuxRunning && plan.daemonPid === null) {
+  if (!plan.sessionRunning && plan.daemonPid === null) {
     console.log("Rho is not running.");
     return;
   }
@@ -130,7 +130,7 @@ Options:
   if (herdrRunning) stopHerdrSession();
 
   // Kill tmux session (new socket + legacy socket)
-  if (plan.tmuxRunning) {
+  if (plan.sessionRunning) {
     spawnSync("tmux", tmuxArgs(["kill-session", "-t", plan.sessionName]), {
       stdio: "ignore",
     });

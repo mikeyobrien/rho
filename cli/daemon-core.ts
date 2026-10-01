@@ -17,7 +17,7 @@ export const PID_FILE = ".rho-daemon.pid";
 export type Platform = "android" | "macos" | "linux";
 
 export interface DaemonState {
-  tmuxRunning: boolean;
+  sessionRunning: boolean;
   daemonPid: number | null;
   daemonPidAlive: boolean;
   platform: Platform;
@@ -106,7 +106,7 @@ export function notificationToCliArgs(args: NotificationArgs): string[] {
  * True if tmux session exists (daemon PID is optional — session is the source of truth).
  */
 export function isRunning(state: DaemonState): boolean {
-  return state.tmuxRunning;
+  return state.sessionRunning;
 }
 
 /**
@@ -169,10 +169,10 @@ export function formatStatus(info: StatusInfo): string {
   lines.push("");
 
   // Daemon state + heartbeat schedule
-  const runState = info.state.tmuxRunning ? "running" : "stopped";
+  const runState = info.state.sessionRunning ? "running" : "stopped";
   let hbLine = `Heartbeat: ${runState}`;
 
-  if (info.state.tmuxRunning && info.heartbeat) {
+  if (info.state.sessionRunning && info.heartbeat) {
     if (!info.heartbeat.enabled || info.heartbeat.intervalMs === 0) {
       hbLine += " (disabled)";
     } else if (typeof info.heartbeat.nextCheckAt === "number") {
@@ -184,15 +184,15 @@ export function formatStatus(info: StatusInfo): string {
 
   lines.push(hbLine);
 
-  if (info.state.tmuxRunning && info.sessionAttach) {
+  if (info.state.sessionRunning && info.sessionAttach) {
     lines.push(`Session:   ${info.sessionAttach}`);
-  } else if (info.state.tmuxRunning && info.tmuxSocket) {
+  } else if (info.state.sessionRunning && info.tmuxSocket) {
     lines.push(
       `Session:   tmux -L ${info.tmuxSocket} attach -t ${SESSION_NAME}`,
     );
   }
 
-  if (!info.state.tmuxRunning) {
+  if (!info.state.sessionRunning) {
     if (!info.config) {
       lines.push("  → Run `rho init` first (no config found)");
     }
@@ -210,7 +210,7 @@ export function formatStatus(info: StatusInfo): string {
   }
 
   // Pane output (last lines from tmux)
-  if (info.paneOutput && info.state.tmuxRunning) {
+  if (info.paneOutput && info.state.sessionRunning) {
     lines.push("");
     lines.push("--- Recent output ---");
     lines.push(info.paneOutput);
@@ -236,7 +236,7 @@ export function planStart(state: DaemonState, homeDir: string): StartPlan {
   return {
     needsWakeLock: state.platform === "android",
     needsNotification: state.platform === "android",
-    tmuxAlreadyRunning: state.tmuxRunning,
+    tmuxAlreadyRunning: state.sessionRunning,
     sessionName: SESSION_NAME,
     homeDir,
   };
@@ -245,7 +245,7 @@ export function planStart(state: DaemonState, homeDir: string): StartPlan {
 export interface StopPlan {
   needsWakeUnlock: boolean;
   needsNotificationRemove: boolean;
-  tmuxRunning: boolean;
+  sessionRunning: boolean;
   daemonPid: number | null;
   sessionName: string;
 }
@@ -257,7 +257,7 @@ export function planStop(state: DaemonState): StopPlan {
   return {
     needsWakeUnlock: state.platform === "android",
     needsNotificationRemove: state.platform === "android",
-    tmuxRunning: state.tmuxRunning,
+    sessionRunning: state.sessionRunning,
     daemonPid: state.daemonPid,
     sessionName: SESSION_NAME,
   };
