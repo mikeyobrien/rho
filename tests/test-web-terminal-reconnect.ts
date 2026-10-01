@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import * as net from "node:net";
 import { serve } from "@hono/node-server";
 import WebSocket from "ws";
@@ -99,6 +100,28 @@ type SessionEnvelope = {
 };
 
 console.log("\n=== Web Terminal Reconnect Smoke ===\n");
+
+// node-pty is an optional native dependency; without a working PTY the server
+// answers `create` with terminal_error and this smoke test can only time out.
+function probePty(): string | null {
+	try {
+		const pty = createRequire(import.meta.url)("node-pty") as {
+			spawn: (file: string, args: string[], opts: object) => { kill(): void };
+		};
+		pty
+			.spawn(process.env.SHELL?.trim() || "bash", [], { cols: 80, rows: 24 })
+			.kill();
+		return null;
+	} catch (error) {
+		return (error as Error).message.split("\n")[0];
+	}
+}
+
+const ptyUnavailable = probePty();
+if (ptyUnavailable) {
+	console.log(`SKIP: node-pty cannot spawn a terminal (${ptyUnavailable})`);
+	process.exit(0);
+}
 
 const port = await getFreePort();
 const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
