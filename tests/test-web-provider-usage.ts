@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { getPiAuthPath } from "../extensions/lib/provider-usage.ts";
 
 let PASS = 0;
 let FAIL = 0;
@@ -40,8 +41,8 @@ fs.writeFileSync(
 	"utf-8",
 );
 
-const authDir = path.join(tempHome, ".pi", "agent");
-const authPath = path.join(authDir, "auth.json");
+const authPath = getPiAuthPath(tempHome);
+const authDir = path.dirname(authPath);
 fs.mkdirSync(authDir, { recursive: true });
 
 const serverUrl = pathToFileURL(path.resolve("web/server.ts")).href;
