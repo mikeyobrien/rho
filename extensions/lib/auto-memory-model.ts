@@ -66,6 +66,19 @@ function normalizeConfiguredModel(
 	};
 }
 
+/**
+ * Output-token cap for the extraction call. The JSON answer fits in 512 tokens, but a model that always
+ * reasons (e.g. forced adaptive thinking) spends a 512 cap on thinking and returns no text, so every
+ * non-trivial conversation ends "parse_failed". Reasoning models get room for both.
+ */
+export function autoMemoryMaxTokens(model: {
+	reasoning?: boolean;
+	maxTokens?: number;
+}): number {
+	const cap = model.reasoning ? 8192 : 512;
+	return Math.min(cap, model.maxTokens || cap);
+}
+
 export function readInitAutoMemoryModelSetting(
 	initPath: string = DEFAULT_INIT_TOML_PATH,
 ): string | undefined {

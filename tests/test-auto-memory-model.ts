@@ -9,6 +9,7 @@ import path from "node:path";
 import {
 	type AutoMemoryModelLike,
 	type AutoMemoryModelRegistryLike,
+	autoMemoryMaxTokens,
 	readInitAutoMemoryModelSetting,
 	resolveAutoMemoryModel,
 } from "../extensions/lib/auto-memory-model.ts";
@@ -302,6 +303,29 @@ console.log("\n-- resolveAutoMemoryModel --");
 		"pinned model can resolve without session model",
 	);
 }
+
+// A model that always reasons spent a 512-token cap on thinking and returned no JSON.
+assertEq(
+	autoMemoryMaxTokens({ reasoning: true, maxTokens: 128000 }),
+	8192,
+	"reasoning model gets room to think and answer",
+);
+assertEq(
+	autoMemoryMaxTokens({ reasoning: false, maxTokens: 128000 }),
+	512,
+	"non-reasoning model keeps the 512 cap",
+);
+assertEq(
+	autoMemoryMaxTokens({ reasoning: true, maxTokens: 4096 }),
+	4096,
+	"never above the model's own limit",
+);
+assertEq(
+	autoMemoryMaxTokens({ reasoning: true }),
+	8192,
+	"reasoning model without maxTokens",
+);
+assertEq(autoMemoryMaxTokens({}), 512, "model without either field");
 
 console.log(`\n=== Results: ${PASS} passed, ${FAIL} failed ===\n`);
 process.exit(FAIL > 0 ? 1 : 0);
