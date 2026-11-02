@@ -368,7 +368,6 @@ async function storeLearningEntry(
 	);
 
 	if (!written) return { stored: false, reason: "duplicate" };
-	brainCache = null;
 	return { stored: true, id: entry.id };
 }
 
@@ -416,7 +415,6 @@ async function storePreferenceEntry(
 	);
 
 	if (!written) return { stored: false, reason: "duplicate" };
-	brainCache = null;
 	return { stored: true, id: entry.id };
 }
 
