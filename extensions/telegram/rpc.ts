@@ -516,7 +516,9 @@ export class TelegramRpcRunner {
     const extensionNotifyText = extractExtensionNotifyText(event);
     if (extensionNotifyText) {
       const pending = session.pending;
-      if (pending) {
+      // A notify is a slash command's output. In a normal prompt it is not the reply
+      // (e.g. auto-memory's receipt for the previous run arriving while the next one runs).
+      if (pending?.isSlashCommand) {
         const separator = pending.lastAssistantText && pending.lastAssistantText.length > 0 ? "\n" : "";
         pending.lastAssistantText = `${pending.lastAssistantText}${separator}${extensionNotifyText}`;
         if (pending.isSlashCommand && (pending.sawPromptResponse || pending.sawAgentEnd)) {

@@ -32,6 +32,7 @@ import { Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { resolveAutoMemoryRange } from "../lib/auto-memory-delta.ts";
 import {
+	autoMemoryMaxTokens,
 	readInitAutoMemoryModelSetting,
 	resolveAutoMemoryModel,
 } from "../lib/auto-memory-model.ts";
@@ -368,7 +369,6 @@ async function storeLearningEntry(
 	);
 
 	if (!written) return { stored: false, reason: "duplicate" };
-	brainCache = null;
 	return { stored: true, id: entry.id };
 }
 
@@ -416,7 +416,6 @@ async function storePreferenceEntry(
 	);
 
 	if (!written) return { stored: false, reason: "duplicate" };
-	brainCache = null;
 	return { stored: true, id: entry.id };
 }
 
@@ -738,7 +737,7 @@ async function runAutoMemoryExtraction(
 
 	for (const candidate of candidates) {
 		try {
-			const maxTokens = Math.min(512, candidate.model.maxTokens || 512);
+			const maxTokens = autoMemoryMaxTokens(candidate.model);
 			const result = await complete(
 				candidate.model,
 				{
