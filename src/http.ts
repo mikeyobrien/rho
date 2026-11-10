@@ -18,6 +18,8 @@ export interface ServerOptions {
 	models: Models;
 	dir: string;
 	port: number;
+	/** The commit this rho runs, when it runs from a git checkout. The release gate reads it. */
+	commit?: string;
 	log?: (line: string) => void;
 }
 export interface Server {
@@ -283,7 +285,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		},
 	});
 	savePairCode();
-	writeFileSync(join(dir, "daemon.json"), JSON.stringify({ pid: process.pid, port: server.port, startedAt }), { mode: 0o600 });
+	writeFileSync(join(dir, "daemon.json"), JSON.stringify({ pid: process.pid, port: server.port, startedAt, commit: options.commit }), { mode: 0o600 });
 	return {
 		port: server.port ?? options.port,
 		pairCode: () => pairCode,

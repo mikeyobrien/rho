@@ -2,7 +2,7 @@
 // yes; a few things are refused outright.
 //
 //   refused   deleting a git directory; touching rho's own data (its token and storage)
-//   waits     git push, publishing a package, merging or releasing on GitHub
+//   waits     git push, publishing a package, merging or releasing on GitHub, `rho release`
 //
 // A waiting command is shown to the person with Allow and Deny. Allow grants that exact command
 // once. The request and the grant are a document in the conversation, so they survive a restart.
@@ -43,6 +43,8 @@ const WAITS: [RegExp, string][] = [
 	[new RegExp(`${GIT}push\\b`), "git push"],
 	[/\b(?:npm|pnpm|yarn|bun)\s+publish\b/, "publishing a package"],
 	[/\bgh\s+(?:release\s+(?:create|delete)|pr\s+merge|repo\s+delete)\b/, "a GitHub release, merge or delete"],
+	// The moment code the agent wrote gets the agent's powers. Its checks are the agent's own too.
+	[/\brho\s+release\b(?!\s+--status)/, "putting new code into the running rho"],
 ];
 
 /** What the guard says about a shell command. Pure: the text and the paths decide. */

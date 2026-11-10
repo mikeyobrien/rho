@@ -17,8 +17,10 @@ const models = createModels();
 models.setProvider(claudeCodeProvider());
 await models.refresh({ providers: [CLAUDE_CODE] }).catch((error: Error) => log(`models: could not ask Claude Code for its models: ${error.message}`));
 const core = await openCore({ dir, models, config: readConfig(dir, log), log, onFailed: () => setTimeout(() => process.exit(1), 100) });
-const server = await serve({ core, models, dir, port, log });
-log(`rho: pid ${process.pid} on http://127.0.0.1:${server.port}, data in ${dir}`);
+const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: import.meta.dir, stderr: "ignore" });
+const commit = head.exitCode === 0 ? head.stdout.toString().trim() : undefined;
+const server = await serve({ core, models, dir, port, commit, log });
+log(`rho: pid ${process.pid} on http://127.0.0.1:${server.port}, data in ${dir}${commit ? `, commit ${commit.slice(0, 7)}` : ""}`);
 const notice = rho1Notice(home);
 if (notice) log(notice);
 
