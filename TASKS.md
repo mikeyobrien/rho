@@ -29,10 +29,13 @@ In order. Each item ends in something that can be checked.
    question from the command line). Crash test passes under Bun, in a second process killed
    with SIGKILL: mid-answer, the next process retries once and the question is not asked
    twice; mid-tool, the tool does not run again and the model is told it was interrupted.
-2. **Model access.** PARTLY DONE. pi-durable takes a pi-ai `Models` object, so every pi-ai
-   provider works once the host registers it and a credential exists. Claude on the Max plan:
-   DONE, `src/claude/` (below). Still to do in the daemon: register the built-in providers,
-   read pi's login file for their credentials, model and thinking level per conversation.
+2. **Model access.** DONE 2026-11-10. pi-durable takes a pi-ai `Models` object. The daemon
+   registers all of pi-ai's built-in providers (`src/providers.ts`, see "Providers and first
+   run" below), and the model and thinking level are set per conversation (`POST /api/model`).
+   Claude on a plan: `src/claude/` (below), opt-in.
+   Changed from the first plan: rho does not read pi's login file. Credentials come from
+   `rho key` or the provider's environment variable, so rho needs no pi install and pi's
+   OAuth logins are not used. Not verified: any hosted provider with a real API key.
 3. **HTTP and the event stream.** DONE 2026-11-10: `src/http.ts`, `src/view.ts`; `src/main.ts`
    is now a daemon (port `RHO_PORT`, default 4780). Loopback only, bearer token, one-time
    pairing, origin and host checks. Submit (with `requestId`, steer or follow-up), stop, new
