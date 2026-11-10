@@ -250,6 +250,24 @@ export function start(env) {
 			live.push(make("div", { className: "msg user unsent", textContent: item.text }));
 			live.push(note(connection === "live" ? "Sending" : "Not sent yet", "note unsent-note"));
 		}
+		for (const ask of state?.approvals ?? []) {
+			const card = make("div", { className: "approval" });
+			const answer = (allow) => async () => {
+				try {
+					await api("approve", { id: ask.id, allow });
+				} catch (error) {
+					flash(error.message);
+				}
+			};
+			const allow = make("button", { type: "button", className: "allow", textContent: "Allow" });
+			const deny = make("button", { type: "button", textContent: "Deny" });
+			allow.addEventListener("click", answer(true));
+			deny.addEventListener("click", answer(false));
+			const buttons = make("div", { className: "approval-buttons" });
+			buttons.append(deny, allow);
+			card.append(note(`Needs your yes: ${ask.what}`, "note approval-what"), make("pre", { textContent: ask.command }), buttons);
+			live.push(card);
+		}
 		if (state?.running) {
 			for (const tool of state.tools) if (tool.status !== "done") live.push(Object.assign(toolCard(tool.name, calls.get(tool.id), "running", tool.output.slice(-2000), false), { open: tool.output !== "" }));
 			if (state.partial) live.push(make("div", { className: "msg assistant streaming", textContent: state.partial }));

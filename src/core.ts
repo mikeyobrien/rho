@@ -8,11 +8,12 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { homedir } from "node:os";
-import { SearchTools } from "./tools/search.ts";
+import { guard } from "./tools/guard.ts";
+import { excludeFromSearch, SearchTools } from "./tools/search.ts";
 import { tidy } from "./tools/tidy.ts";
 import { webTools, type WebOptions } from "./tools/web.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const context = BACKGROUND_CONTEXT;
@@ -22,6 +23,8 @@ export interface RhoConfig {
 	model?: string;
 	/** The directory the first conversation works in. Default: the home directory. */
 	cwd?: string;
+	/** Most tool rounds one run takes before it stops and says so. Default: 200. */
+	maxTurns?: number;
 	/** Thinking level for new conversations. Default: medium. */
 	thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }
@@ -123,7 +126,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	const home = config.cwd ?? homedir();
 	const registry = createRegistry();
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
-	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? [])]) registry.install(tidy(extension));
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir)]) registry.install(tidy(extension));
+	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
 	const harness = await Harness.open(
 		await openNodeSqliteStorage(join(options.dir, "rho.sqlite")),
 		{
@@ -146,6 +150,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	});
 	// The agent choices are stored with the conversation on first use; later starts keep them.
 	const root = await harness.root(context, { agent: { model: parseModel(config.model ?? DEFAULT_MODEL), thinkingLevel: config.thinking ?? "medium", instructions: INSTRUCTIONS, cwd: home } });
+	const maxTurns = Number.isInteger(config.maxTurns) && config.maxTurns! >= 1 ? config.maxTurns! : 200;
+	if ((await root.agent(context)).maxTurns !== maxTurns) await root.configure({ maxTurns }, context); // a run is bounded
 	harness.resume();
 	return { harness, root, close: () => harness.close(context).finally(release) };
 }

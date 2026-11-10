@@ -11,6 +11,12 @@ const MAX_FILES = 50_000; // files one search will consider
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // larger files are not searched
 const MAX_LINE = 500; // characters of a line shown, and tested against the pattern
 const SKIP = new Set([".git", "node_modules"]);
+/** Directories no search looks into, as absolute paths: rho's own data. Set once by the core. */
+const excluded = new Set<string>();
+export function excludeFromSearch(dir: string): void {
+	excluded.add(dir);
+}
+const hidden = (path: string): boolean => [...excluded].some((dir) => path === dir || path.startsWith(`${dir}/`));
 
 const stopped = (context: Context): void => {
 	if (context.abortSignal?.aborted) throw new Error("Stopped.");
@@ -31,7 +37,7 @@ export async function filesUnder(env: ExecutionEnv, root: string, context: Conte
 	const git = await env.exec(["git", "ls-files", "-co", "--exclude-standard", "-z"], { cwd: root, onOutput: (text, _context, info) => void (info.stream === "stdout" && out.length < 16_000_000 && (out += text)) }, context);
 	stopped(context);
 	if (git.ok && git.value.exitCode === 0) {
-		const files = [...new Set(out.split("\0").filter((file) => file !== "" && !file.split("/").some((part) => SKIP.has(part))))].sort();
+		const files = [...new Set(out.split("\0").filter((file) => file !== "" && !file.split("/").some((part) => SKIP.has(part)) && !hidden(`${root}/${file}`)))].sort();
 		return { files: files.slice(0, MAX_FILES), truncated: files.length > MAX_FILES };
 	}
 	// Not a git work tree, or no git: walk it.
@@ -48,6 +54,7 @@ export async function filesUnder(env: ExecutionEnv, root: string, context: Conte
 		for (const entry of listed.value) {
 			if (SKIP.has(entry.name)) continue;
 			const path = dir === "" ? entry.name : `${dir}/${entry.name}`;
+			if (hidden(`${root}/${path}`)) continue;
 			if (entry.kind === "directory") queue.push(path);
 			else if (files.push(path) >= MAX_FILES) return { files: files.sort(), truncated: true };
 		}

@@ -14,6 +14,7 @@ import { El, fakeDocument } from "./fixtures/dom.ts";
 // The page's real script against a real daemon with a scripted model, on a stand-in DOM.
 // It proves the page's logic. It does not prove layout or anything a real browser adds.
 let dir: string;
+let work: string; // where the agent's tools work; never rho's own data directory
 let core: Core;
 let server: Server;
 let faux: ReturnType<typeof fauxProvider>;
@@ -23,7 +24,7 @@ let down = false; // when true, the page cannot reach the daemon
 const pages: { stop(): void }[] = [];
 
 async function boot(port = 0) {
-	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: dir }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })] });
+	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: work }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })] });
 	server = await serve({ core, models, dir, port });
 }
 function waitTool() {
@@ -40,6 +41,7 @@ function waitTool() {
 }
 beforeEach(async () => {
 	dir = mkdtempSync(join(tmpdir(), "rho-page-test-"));
+	work = mkdtempSync(join(tmpdir(), "rho-page-work-"));
 	faux = fauxProvider();
 	models = createModels();
 	models.setProvider(faux.provider);
@@ -52,6 +54,7 @@ afterEach(async () => {
 	await server.stop().catch(() => undefined);
 	await core.close().catch(() => undefined);
 	rmSync(dir, { recursive: true, force: true });
+	rmSync(work, { recursive: true, force: true });
 });
 
 interface Page { $(id: string): El; stored: Map<string, string>; location: { hash: string; pathname: string; search: string }; document: ReturnType<typeof fakeDocument>; messages(): string[]; type(words: string): Promise<void>; send(words: string): Promise<void> }
@@ -133,7 +136,7 @@ test("a tool round shows a card while it runs and a card with its result after",
 });
 
 test("a tool card is two lines, what it is for and what it did, with the output and the diff inside", async () => {
-	writeFileSync(join(dir, "hello.txt"), "one\nhello wrold\nthree\n");
+	writeFileSync(join(work, "hello.txt"), "one\nhello wrold\nthree\n");
 	faux.setResponses([
 		fauxAssistantMessage(fauxToolCall("edit", { reasoning: "fix the greeting typo", path: "hello.txt", edits: [{ oldText: "wrold", newText: "world" }] }), { stopReason: "toolUse" }),
 		fauxAssistantMessage(fauxToolCall("bash", { reasoning: "confirm the file reads right", command: "cat hello.txt" }), { stopReason: "toolUse" }),
@@ -160,7 +163,23 @@ test("a tool card is two lines, what it is for and what it did, with the output 
 	expect(changed).toEqual([["del", "-hello wrold"], ["add", "+hello world"]]);
 	expect(part(cards[1]!, "output")).toBe("one\nhello world\nthree\n");
 	expect(cards[1]!.all().some((node) => node.className === "diff")).toBe(false);
-	expect(readFileSync(join(dir, "hello.txt"), "utf8")).toBe("one\nhello world\nthree\n");
+	expect(readFileSync(join(work, "hello.txt"), "utf8")).toBe("one\nhello world\nthree\n");
+});
+
+test("a command that cannot be undone shows a card with Allow and Deny, and Deny tells the agent no", async () => {
+	faux.setResponses([fauxAssistantMessage(fauxToolCall("bash", { command: "git push origin main" }), { stopReason: "toolUse" }), fauxAssistantMessage("It needs your yes."), fauxAssistantMessage("Understood, not pushing.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("push it");
+	await until("the card", () => page.messages().some((line) => line.startsWith("approval|")) && idle(page));
+	const card = (page.$("live").children as El[]).find((node) => node.className === "approval")!;
+	expect(card.textContent).toContain("Needs your yes: git push");
+	expect(card.all().find((node) => node.tag === "pre")!.textContent).toBe("git push origin main");
+	expect(card.all().filter((node) => node.tag === "button").map((node) => node.textContent)).toEqual(["Deny", "Allow"]);
+	await card.all().find((node) => node.textContent === "Deny")!.fire("click");
+	await until("the answer to no", () => page.messages().at(-1) === "msg assistant|Understood, not pushing." && idle(page));
+	expect(page.messages().some((line) => line.startsWith("approval|"))).toBe(false);
+	expect(page.messages()).toContain("msg user|No. Do not run: `git push origin main`");
 });
 
 test("while a run works: words queue and can be taken back; an empty box is Stop", async () => {

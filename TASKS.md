@@ -84,8 +84,25 @@ In order. Each item ends in something that can be checked.
 11. **The self-build gate.** Rho runs from a release checkout and works in a separate one. A
     `release` step runs `bun run check`, switches the service to the new commit, health-checks
     it, and goes back to the last good commit if it does not answer.
-12. **Guard rails for `bash`.** Refuse deleting a git directory, writing rho's own data
-    directory, and `git push` without a yes. A turn limit per run.
+12. **Guard rails.** DONE 2026-11-10: `src/tools/guard.ts`, wrapped around every tool that
+    touches files or runs commands.
+    - Refused: `rm` of a `.git` directory or anything in one; any tool reading, writing,
+      listing or searching rho's own data directory (its token and storage), by path, by a
+      relative path, or through a link. Searches from above pass over it.
+    - Waits for a yes: `git push`, publishing a package, a GitHub release, merge or repo
+      delete. The command does not run; the page shows it with Allow and Deny. Allow grants
+      that exact command once; the answer reaches the agent as the person's message. The
+      request and the grant are a conversation document and survive a restart.
+    - A run stops after `maxTurns` tool rounds (default 200) and says so.
+    Checked: 8 tests, one of them a real `git push` to a bare repository that did not happen
+    until the yes and happened once after it. The test for links found a hole (a new file
+    written through a link into rho's data) that was then closed.
+    Limits, stated in a test: the rules read the command's text. `g=git; $g push`, a script
+    that pushes, another interpreter deleting `.git`, `find -exec rm`, and a glob that reaches
+    the token all pass. The model runs as the person, with the person's shell; this stops
+    mistakes, not intent. Text that merely names a push (`echo 'run git push yourself'`)
+    asks needlessly. Not checked: a live model's behaviour when refused or made to wait.
+    No notification is sent for a waiting request; the person sees it when they open the page.
 13. **Service.** runit service and boot script, as the phone agent has.
 
 ## Soon after: what makes dogfooding pleasant

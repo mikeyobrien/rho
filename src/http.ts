@@ -7,6 +7,7 @@ import { extname, isAbsolute, join, resolve, sep } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
+import { answerApproval, Approvals } from "./tools/guard.ts";
 import { entryView, stateView, type StateView } from "./view.ts";
 
 export interface ServerOptions {
@@ -81,7 +82,8 @@ export async function serve(options: ServerOptions): Promise<Server> {
 	const encoder = new TextEncoder();
 	const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
 	const watch = await root.watch(context);
-	let current: StateView = stateView(watch.value);
+	const approvals = async (): Promise<StateView["approvals"]> => ((await core.harness.snapshot(Approvals, root.id, context))?.pending ?? []).map(({ id, tool, command, what }) => ({ id, tool, command, what }));
+	let current: StateView = stateView(watch.value, await approvals());
 	const frame = () => encoder.encode(`data: ${JSON.stringify(current)}\n\n`);
 	const send = (bytes: Uint8Array) => {
 		for (const stream of [...streams]) {
@@ -94,7 +96,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 	};
 	watch.start(async (call) => {
 		if (call.kind !== "value") return;
-		current = stateView(call.value);
+		current = stateView(call.value, await approvals());
 		send(frame());
 	});
 	const keepalive = setInterval(() => send(encoder.encode(": keepalive\n\n")), 15_000); // a silent stream is a dead one
@@ -133,6 +135,18 @@ export async function serve(options: ServerOptions): Promise<Server> {
 				if (typeof thinking !== "string" || !THINKING.has(thinking)) throw new Refusal(400, `thinking is one of: ${[...THINKING].join(", ")}.`);
 				await root.configure({ thinkingLevel: thinking as never }, context);
 			}
+			return { ok: true };
+		},
+		"POST /api/approve": async (request) => {
+			const { id, allow } = await bodyOf(request);
+			if (typeof id !== "string" || typeof allow !== "boolean") throw new Refusal(400, "id and allow are required.");
+			const answered = await answerApproval(root, id, allow, context);
+			if (!answered) throw new Refusal(409, "That request is no longer waiting."); // an approval answers once
+			current = { ...current, approvals: await approvals() };
+			send(frame());
+			// The person's answer reaches the agent as their message, at its next step.
+			const text = allow ? `Yes. Run it: \`${answered.command}\`` : `No. Do not run: \`${answered.command}\``;
+			await root.submit({ type: "input", content: text, requestId: `approval:${id}`, whenBusy: "steer" }, context);
 			return { ok: true };
 		},
 		"POST /api/cwd": async (request) => {

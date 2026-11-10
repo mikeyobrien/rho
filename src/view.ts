@@ -33,6 +33,8 @@ export interface StateView {
 	failure?: { reason: string; text: string; detail?: string };
 	model?: string;
 	thinking?: string;
+	/** Commands that wait for the person's yes. */
+	approvals: { id: string; tool: string; command: string; what: string }[];
 	/** The directory this conversation's tools work in. */
 	cwd?: string;
 }
@@ -102,7 +104,7 @@ interface Live {
 interface Inbox { items?: ({ id: unknown; mode: "steer" | "followUp"; content: { content?: Content } | Content } | { id: unknown; mode: "write" })[] }
 interface AgentDoc { model?: { provider: string; modelId: string }; thinkingLevel?: string; cwd?: string }
 
-export function stateView(view: ConversationView): StateView {
+export function stateView(view: ConversationView, approvals: StateView["approvals"] = []): StateView {
 	const live = (view.docs["pi.live"] ?? {}) as Live;
 	const inbox = (view.docs["pi.inbox"] ?? {}) as Inbox;
 	const agent = (view.docs["pi.agent"] ?? {}) as AgentDoc;
@@ -122,6 +124,7 @@ export function stateView(view: ConversationView): StateView {
 			return [{ id: String(item.id), mode: item.mode, text: textOf(typeof content === "object" && content !== null && !Array.isArray(content) && "content" in content ? content.content : (content as Content)) }];
 		}),
 		...(failure && failure.reason !== "reset" && failure.reason !== "nothing_to_answer" ? { failure: { reason: failure.reason, text: FAILURES[failure.reason] ?? "The run ended without an answer.", ...(failure.detail ? { detail: failure.detail.slice(0, 300) } : {}) } } : {}),
+		approvals,
 		...(agent.model ? { model: `${agent.model.provider}/${agent.model.modelId}` } : {}),
 		...(agent.thinkingLevel ? { thinking: agent.thinkingLevel } : {}),
 		...(agent.cwd ? { cwd: agent.cwd } : {}),
