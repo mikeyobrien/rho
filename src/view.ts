@@ -1,0 +1,100 @@
+// The wire view: what a client is shown of a conversation, and nothing else. The daemon's
+// event stream sends this whole object on every change, so a client that reconnects simply
+// takes the newest one. Storage paths, system prompts and bookkeeping entries stay out.
+import type { Message } from "@earendil-works/pi-ai";
+import type { ConversationView, EntryRecord } from "@earendil-works/pi-durable";
+
+export interface ToolCallView {
+	id: string;
+	name: string;
+	/** The call's arguments as the model gave them. */
+	args: Record<string, unknown>;
+}
+export type EntryView =
+	| { id: number; role: "user"; text: string }
+	| { id: number; role: "assistant"; text: string; calls: ToolCallView[]; model?: string; cut?: true }
+	| { id: number; role: "tool"; callId: string; name: string; text: string; error?: true }
+	| { id: number; role: "divider"; text: string };
+
+export interface StateView {
+	conversation: string;
+	entries: EntryView[];
+	/** Older entries exist before this window. */
+	more: boolean;
+	running: boolean;
+	/** The answer so far, while one is being written. */
+	partial: string;
+	/** Tools of the current round, with the output they have produced so far. */
+	tools: { id: string; name: string; status: "pending" | "running" | "done"; output: string }[];
+	retry?: { at: number; attempt: number; error: string };
+	queued: { id: string; mode: "steer" | "followUp"; text: string }[];
+	failure?: { reason: string; text: string; detail?: string };
+	model?: string;
+	thinking?: string;
+}
+
+type Content = Message["content"];
+export function textOf(content: Content | undefined): string {
+	if (typeof content === "string") return content;
+	return (content ?? []).map((part) => (part.type === "text" ? part.text : "")).join("");
+}
+
+const FAILURES: Record<string, string> = {
+	model_error: "The model call failed.",
+	no_model: "That model is not available.",
+	aborted: "Stopped.",
+	interrupted: "Rho was restarted too many times while answering.",
+	restart_limit: "Rho was restarted too many times while answering.",
+	faulted: "The run could not go on.",
+	orphaned: "The run could not go on.",
+	turn_limit: "The run reached its step limit.",
+};
+
+export function entryView(entry: EntryRecord): EntryView | undefined {
+	const id = Number(entry.id);
+	const message = entry.model?.[0];
+	if (entry.kind === "pi.user" && message?.role === "user") return { id, role: "user", text: textOf(message.content) };
+	if (entry.kind === "pi.assistant" && message?.role === "assistant") {
+		const calls = message.content.flatMap((part) => (part.type === "toolCall" ? [{ id: part.id, name: part.name, args: part.arguments as Record<string, unknown> }] : []));
+		const cut = message.stopReason === "aborted" || message.stopReason === "error";
+		return { id, role: "assistant", text: textOf(message.content), calls, model: message.model, ...(cut ? { cut: true as const } : {}) };
+	}
+	if (entry.kind === "pi.tool-result" && message?.role === "toolResult") return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text: textOf(message.content), ...(message.isError ? { error: true as const } : {}) };
+	if (entry.kind === "pi.reset") return { id, role: "divider", text: "New chat" };
+	if (entry.kind === "pi.compaction") return { id, role: "divider", text: "Earlier messages were summarized" };
+	return undefined;
+}
+
+interface Live {
+	run?: object;
+	generation?: { attempt: number; message?: { content?: Content }; retry?: { at: number; error: string } };
+	tools?: { callId: string; name: string; status: "pending" | "running" | "done"; output?: string }[];
+	runFailure?: { reason: string; detail?: string };
+}
+interface Inbox { items?: ({ id: unknown; mode: "steer" | "followUp"; content: { content?: Content } | Content } | { id: unknown; mode: "write" })[] }
+interface AgentDoc { model?: { provider: string; modelId: string }; thinkingLevel?: string }
+
+export function stateView(view: ConversationView): StateView {
+	const live = (view.docs["pi.live"] ?? {}) as Live;
+	const inbox = (view.docs["pi.inbox"] ?? {}) as Inbox;
+	const agent = (view.docs["pi.agent"] ?? {}) as AgentDoc;
+	const failure = live.runFailure;
+	const retry = live.generation?.retry;
+	return {
+		conversation: String(view.conversation.id),
+		entries: view.entries.flatMap((entry) => entryView(entry) ?? []),
+		more: view.before !== undefined,
+		running: live.run !== undefined,
+		partial: textOf(live.generation?.message?.content),
+		tools: (live.tools ?? []).map((tool) => ({ id: tool.callId, name: tool.name, status: tool.status, output: tool.output ?? "" })),
+		...(retry ? { retry: { at: retry.at, attempt: live.generation!.attempt, error: retry.error.slice(0, 300) } } : {}),
+		queued: (inbox.items ?? []).flatMap((item) => {
+			if (item.mode === "write") return [];
+			const content = item.content as { content?: Content } | Content;
+			return [{ id: String(item.id), mode: item.mode, text: textOf(typeof content === "object" && content !== null && !Array.isArray(content) && "content" in content ? content.content : (content as Content)) }];
+		}),
+		...(failure && failure.reason !== "reset" && failure.reason !== "nothing_to_answer" ? { failure: { reason: failure.reason, text: FAILURES[failure.reason] ?? "The run ended without an answer.", ...(failure.detail ? { detail: failure.detail.slice(0, 300) } : {}) } } : {}),
+		...(agent.model ? { model: `${agent.model.provider}/${agent.model.modelId}` } : {}),
+		...(agent.thinkingLevel ? { thinking: agent.thinkingLevel } : {}),
+	};
+}

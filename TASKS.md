@@ -1,7 +1,19 @@
 # Rho 2.0 tasks
 
-Rho 2.0 is written from scratch on pi-durable, in TypeScript on Bun. This file is the work
-list the agent reads when it builds itself. Written 2026-11-10; nothing below is built yet.
+The work list, and the record of what was verified and what was not. `AGENTS.md` has the rules.
+
+## What rho 2 is for
+
+One agent that belongs to one person and runs on their own machine: it stays up, survives
+being killed, remembers them, and reaches them when something needs them. It is built to be
+developed by itself, on a phone. Decisions follow from that:
+
+- A kill is a normal event, so pi-durable is the engine and every effect is committed first.
+- One process owns the state. Screens are remote controls over a narrow wire.
+- Memory is a provider, not a file format. The owner's Honcho is the first one.
+- It runs on the owner's Claude plan through Claude Code's own requests.
+- Small enough to hold in one context: a feature that rho 1 needed machinery for is taken
+  only in the form pi-durable gives it.
 
 ## Bootstrap: the least that lets rho build rho
 
@@ -19,8 +31,11 @@ In order. Each item ends in something that can be checked.
    provider works once the host registers it and a credential exists. Claude on the Max plan:
    DONE, `src/claude/` (below). Still to do in the daemon: register the built-in providers,
    read pi's login file for their credentials, model and thinking level per conversation.
-3. **HTTP and the event stream.** Loopback only, bearer token on every API call, one-time
-   pairing. Submit, stop, new chat, steer and queue, earlier entries, models.
+3. **HTTP and the event stream.** DONE 2026-11-10: `src/http.ts`, `src/view.ts`; `src/main.ts`
+   is now a daemon (port `RHO_PORT`, default 4780). Loopback only, bearer token, one-time
+   pairing, origin and host checks. Submit (with `requestId`, steer or follow-up), stop, new
+   chat, unqueue, model and thinking level, models, earlier entries, health. The stream sends a
+   whole `StateView` on each change and a keepalive every 15 s.
 4. **Web page.** Thread, composer, streaming answer, stop, queue, model picker. Markdown
    rendered without parsing markup.
 5. **Coding tools.** pi-durable's `read`, `write`, `edit`, `bash` over a Node environment, with
@@ -95,6 +110,15 @@ In order. Each item ends in something that can be checked.
     Rho 1's Telegram state, results, logs and package list are left alone and reported.
   - A real rho 1 directory exists on the owner's Mac (brain, vault, telegram, init.toml and more). None
     on the phone or the Linux machine. The Mac's was listed by name only; nothing in it was read.
+- HTTP, checked 2026-11-10: 12 tests on a real server with a scripted model. Once live on
+  Haiku: the daemon started, listed 13 models, took a question over HTTP, streamed the partial
+  answer then the stored one, and exited 0 on SIGTERM with no process left.
+  - A tool that ignores its abort signal holds Stop open: `abort()` waits for the tool to
+    return. Every rho tool must end when `context.abortSignal` fires. (Found when a test
+    tool did not, and Stop hung.)
+  - Not checked: the keepalive and a client's idle timeout over a long silence; many clients;
+    a slow client that stops reading; the server under a kill (only the core was killed).
+  - Not built: `rho open` (the pairing link), serving the page's files, a service.
 - **Rho's own Claude provider** (`src/claude/`; reworked 2026-11-10 to match pi's
   `pi-claude-code`, so requests are billed as Claude Code's own). The CLI builds and sends its
   own request: its headers (`claude-cli` user agent, `x-app: cli`), its billing and identity
