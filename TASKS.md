@@ -237,6 +237,39 @@ What this does not show:
 - Not exercised: a rollback under the real service (tested by hand in a scratch home only); a
   release while another conversation is working; a reboot of the phone.
 
+## Providers and first run (2026-11-10)
+
+Done in `src/providers.ts`, `rho key` in `src/cli.ts`, `test/providers.test.ts`.
+
+- The default is an API-key provider from pi-ai. With no `model` in the config, a new
+  conversation uses the first of these whose provider has a key: `anthropic/claude-sonnet-5-5`,
+  `openai/gpt-5.5`, `google/gemini-3.1-pro-preview`, `openrouter/anthropic/claude-sonnet-5.5`;
+  then any other provider with a key. All of pi-ai's providers are loaded.
+- A key comes from `rho key <provider>` (asked for without echo, stored in `keys.json` in the
+  data directory, mode 0600, never accepted as an argument, never printed) or from the
+  provider's own environment variable. The running rho reads a stored key on the next message.
+- `"providers": [{ "id", "baseUrl", "models" }]` in the config adds a server that speaks the
+  OpenAI chat API, such as a local model.
+- The Claude-plan provider is off unless the config has `"claudePlan": true`. When on, the
+  billing warning is written to the log at every start, and `rho key` shows it. An API key's
+  provider is still the default when both exist.
+- First run: rho starts with no key. `rho start` and `rho status` print "Not ready: Rho has no
+  model to use yet. Add an API key with: rho key anthropic", the page shows the same line, and
+  a question asked anyway fails with "Provider is not configured".
+- A conversation whose model can no longer be used moves to the default at the next start.
+- Checked by tests: the choice for each key and for two keys; stored and environment keys;
+  the key file's mode; a broken key file; the plan off, on, and beside a key; a config
+  provider answering through a stand-in server; bad provider entries left out; the first-run
+  lines in the CLI and the page; the key never in output or the log.
+- Checked live, once: a turn on a non-Claude model through pi-ai's OpenAI chat API (a local
+  `qwen3.8-27b` on the owner's network, added as a config provider). It called `read` and
+  answered from the file in 2.7 s.
+- **Not checked: a live turn on Anthropic, OpenAI, Google or OpenRouter with an API key.** No
+  API key exists on the phone or the Linux machine. The model ids are pi-ai's own catalogue
+  entries and a test checks each exists there, but no request was sent to those services.
+  Also not checked: `rho key` typed at a real terminal (the no-echo read was tested only
+  through the function the command calls); pi-ai's OAuth logins, which rho does not offer.
+
 ## Soon after: what makes dogfooding pleasant
 
 14. **Memory.** DONE 2026-11-10: `src/memory/`. One provider is active, named by the `memory`

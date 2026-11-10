@@ -352,8 +352,10 @@ export function start(env) {
 		if (connection === "live") text = state?.running ? (queued > 0 ? `Working · ${queued} waiting` : "Working") : (state?.model ?? "Ready");
 		el.status.textContent = flashText || text;
 		el.status.classList.toggle("warn", flashText !== "" || connection === "offline" || connection === "unpaired");
-		el.notice.hidden = connection !== "offline" && connection !== "unpaired";
-		el.noticeText.textContent = connection === "unpaired"
+		// Connected, but this conversation's model cannot answer: say what to do about it.
+		const setup = connection === "live" ? (state?.setup ?? "") : "";
+		el.notice.hidden = connection !== "offline" && connection !== "unpaired" && setup === "";
+		el.noticeText.textContent = setup !== "" ? setup : connection === "unpaired"
 			? "This browser is not paired. On the machine rho runs on, run: rho open"
 			: outbox.length > 0 ? "Can't reach rho. Your message is kept and sends when it is back." : "Can't reach rho.";
 		if (el.newChat) el.newChat.textContent = "Clear context";

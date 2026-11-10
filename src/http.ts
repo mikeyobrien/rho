@@ -6,16 +6,17 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, isAbsolute, join, resolve, sep } from "node:path";
-import type { Models } from "@earendil-works/pi-ai";
+import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { LiveDoc, type Conversation } from "@earendil-works/pi-durable";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
 import { answerApproval, Approvals } from "./tools/guard.ts";
+import { setupOf } from "./providers.ts";
 import { entryView, stateView, type StateView } from "./view.ts";
 
 export interface ServerOptions {
 	core: Core;
-	models: Models;
+	models: MutableModels;
 	dir: string;
 	port: number;
 	/** The commit this rho runs, when it runs from a git checkout. The release gate reads it. */
@@ -111,6 +112,21 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			}
 		}
 	};
+	// Whether a model can be used is asked at most once a second: a snapshot is sent per streamed token.
+	const checked = new Map<string, { at: number; note: string | undefined }>();
+	const setupNote = async (model: string | undefined): Promise<string | undefined> => {
+		const key = model ?? "";
+		const last = checked.get(key);
+		if (last && Date.now() - last.at < 1_000) return last.note;
+		const note = (await setupOf(models, model).catch(() => undefined))?.note;
+		checked.set(key, { at: Date.now(), note });
+		return note;
+	};
+	const ready = async (state: StateView): Promise<StateView> => {
+		const { setup: _old, ...rest } = state;
+		const note = await setupNote(state.model);
+		return note ? { ...rest, setup: note } : rest;
+	};
 	// A conversation is watched from the first call that names it; one watch feeds all its streams.
 	const channels = new Map<string, Promise<Channel>>();
 	const open = async (id: string): Promise<Channel> => {
@@ -121,17 +137,17 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		const channel: Channel = {
 			id,
 			conversation,
-			current: stateView(watch.value, await approvals()),
+			current: await ready(stateView(watch.value, await approvals())),
 			streams: new Set(),
 			refresh: async () => {
-				channel.current = { ...channel.current, approvals: await approvals() };
+				channel.current = await ready({ ...channel.current, approvals: await approvals() });
 				send(channel, frame(channel));
 			},
 			stop: () => watch.stop(),
 		};
 		watch.start(async (call) => {
 			if (call.kind !== "value") return;
-			channel.current = stateView(call.value, await approvals());
+			channel.current = await ready(stateView(call.value, await approvals()));
 			send(channel, frame(channel));
 		});
 		return channel;
@@ -226,6 +242,13 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		"POST /api/conversations": async (request) => {
 			const { cwd } = await bodyOf(request);
 			return { id: (await core.create(cwd === undefined ? {} : { cwd: directory(cwd) })).id };
+		},
+		// What the first conversation's model needs before it can answer, for `rho status`.
+		"GET /api/setup": async () => {
+			const agent = await core.root.agent(context);
+			const model = agent.model ? `${agent.model.provider}/${agent.model.modelId}` : undefined;
+			checked.clear();
+			return { ...(await setupOf(models, model)), available: (await models.getAvailable()).length };
 		},
 		"GET /api/reminders": async () => ({ items: (await core.reminders?.list()) ?? [] }),
 		"POST /api/reminders/remove": async (request) => {

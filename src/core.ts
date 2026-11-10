@@ -23,8 +23,12 @@ import { join } from "node:path";
 export const context = BACKGROUND_CONTEXT;
 
 export interface RhoConfig {
-	/** `provider/modelId`. Default: Claude Opus 5.5 on the person's plan. */
+	/** `provider/modelId`. Default: the first preferred model whose provider has an API key. */
 	model?: string;
+	/** Use the Claude Code login (the person's Claude plan) as a provider. Default: false. */
+	claudePlan?: boolean;
+	/** Servers that speak the OpenAI chat API: `[{ "id", "baseUrl", "models": [...] }]`. */
+	providers?: unknown;
 	/** The directory the first conversation works in. Default: the home directory. */
 	cwd?: string;
 	/** Memory: `{ "kind": "file" }` (default), `{ "kind": "honcho", "url": ... }` or `{ "kind": "off" }`. */
@@ -36,7 +40,8 @@ export interface RhoConfig {
 	/** Thinking level for new conversations. Default: medium. */
 	thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }
-export const DEFAULT_MODEL = "claude-code/claude-opus-5-5";
+/** The model named when none is configured and no key is set yet. */
+export const DEFAULT_MODEL = "anthropic/claude-sonnet-5-5";
 export const INSTRUCTIONS =
 	"You are rho, an agent that runs on the person's own machine. Answer the question first, in plain words. " +
 	"Keep answers short unless asked for depth. If something needs information or a tool you do not have, say so. " +
@@ -214,6 +219,19 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	for (const item of await listed()) {
 		const conversation = await find(item.id);
 		if (conversation && (await conversation.agent(context)).maxTurns !== maxTurns) await conversation.configure({ maxTurns }, context);
+	}
+	// A conversation whose model cannot be used any more (its key is gone, its provider is off)
+	// moves to the model of new conversations, when that one can be used.
+	const usable = new Set((await options.models.getAvailable().catch(() => [])).map((model) => `${model.provider}/${model.id}`));
+	const wanted = fresh(home).model;
+	if (usable.has(`${wanted.provider}/${wanted.modelId}`)) {
+		for (const item of await listed()) {
+			const conversation = await find(item.id);
+			const now = conversation && (await conversation.agent(context)).model;
+			if (!conversation || !now || usable.has(`${now.provider}/${now.modelId}`)) continue;
+			await conversation.configure({ model: wanted }, context);
+			log(`models: ${now.provider}/${now.modelId} cannot be used; "${item.title || "the first conversation"}" now uses ${wanted.provider}/${wanted.modelId}.`);
+		}
 	}
 	await reminders?.attach(harness, root, context); // before scheduling starts, so one task holds the book
 	harness.resume();

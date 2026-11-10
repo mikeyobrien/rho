@@ -6,7 +6,8 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
-import { openCore, type Core } from "../src/core.ts";
+import { context, openCore, type Core } from "../src/core.ts";
+import { openModels } from "../src/providers.ts";
 import { serve, type Server } from "../src/http.ts";
 import { start } from "../web/app.js";
 import { El, fakeDocument } from "./fixtures/dom.ts";
@@ -93,6 +94,29 @@ test("a browser with no pairing code is refused and told what to run", async () 
 	expect(page.$("notice-text").textContent).toContain("rho open");
 	expect(page.messages()).toEqual([]);
 });
+
+test("a first run with no key: the page says how to add one, and the notice goes when a model can be used", async () => {
+	await server.stop();
+	await core.close();
+	rmSync(dir, { recursive: true, force: true });
+	// A new person's rho: pi-ai's providers, no key anywhere.
+	const fresh = openModels({ dir, config: {}, env: { HOME: dir } });
+	models = fresh.models;
+	core = await openCore({ dir, models, config: { cwd: work }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })] });
+	server = await serve({ core, models, dir, port: 0 });
+	const page = await open();
+	await until("the setup notice", () => page.$("notice").hidden === false && page.$("notice-text").textContent.startsWith("Rho has no model"));
+	expect(page.$("notice-text").textContent).toBe("Rho has no model to use yet. Add an API key with: rho key anthropic");
+	// Asking anyway fails in words, not silently.
+	await page.send("hello?");
+	await until("the failure", () => page.messages().some((line) => line === "note failure|The model call failed. Provider is not configured: anthropic"));
+	expect(page.$("notice").hidden).toBe(false); // and what to do about it is still on the page
+	// The key arrives (as `rho key anthropic` stores it) and the notice goes with the next change.
+	await fresh.keys.modify("anthropic", async () => ({ type: "api_key", key: "sk-test-0123456789" }));
+	await Bun.sleep(1_100);
+	await core.root.configure({ thinkingLevel: "low" }, context);
+	await until("the notice to go", () => page.$("notice").hidden === true);
+}, 30_000);
 
 test("pairing works once, the code leaves the address, and the empty state shows", async () => {
 	const page = await open();

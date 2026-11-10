@@ -1,11 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, type CliEnv } from "../src/cli.ts";
 
-// The real command against a real daemon process in a scratch home. The Claude CLI is the fake
-// one, so starting asks it for its model list and calls no model.
+// The real command against a real daemon process in a scratch home, with no API key in its
+// environment: a new person's first run. The Claude CLI is the fake one, and it is used only by
+// the test that turns the Claude plan on.
+const KEY_VARS = /(_API_KEY|_TOKEN|_ACCESS_KEY.*|^AWS_.*|^GOOGLE_.*|^AZURE_.*|^CLOUDFLARE_.*)$/;
+const bare = (): Record<string, string | undefined> => Object.fromEntries(Object.entries(process.env).filter(([name]) => !KEY_VARS.test(name)));
 const homes: string[] = [];
 let port = 4900 + Math.floor(Math.random() * 500);
 function scratch(): { cli: CliEnv; lines: string[]; opened: string[]; dir: string } {
@@ -16,7 +19,7 @@ function scratch(): { cli: CliEnv; lines: string[]; opened: string[]; dir: strin
 	chmodSync(claude, 0o755);
 	const lines: string[] = [];
 	const opened: string[] = [];
-	return { lines, opened, dir: join(home, "v2"), cli: { env: { ...process.env, RHO_HOME: home, RHO_PORT: String(port++), RHO_CLAUDE: claude }, out: (line) => lines.push(line), openLink: (url) => (opened.push(url), true) } };
+	return { lines, opened, dir: join(home, "v2"), cli: { env: { ...bare(), RHO_HOME: home, RHO_PORT: String(port++), RHO_CLAUDE: claude }, out: (line) => lines.push(line), openLink: (url) => (opened.push(url), true) } };
 }
 afterEach(async () => {
 	for (const home of homes.splice(0)) {
@@ -32,7 +35,9 @@ test("start, status and stop; a second start changes nothing", async () => {
 	expect(await run(["logs"], cli)).toBe(0); // never started: there is no log, and that is not an error
 	expect(lines.at(-1)).toBe("No log yet, start rho first.");
 	expect(await run(["start"], cli)).toBe(0);
-	expect(lines.at(-1)).toMatch(/^Rho is running \(pid \d+\) at http:\/\/127\.0\.0\.1:\d+\.$/);
+	// A first run, with no key: rho starts all the same, and says what is missing and how to add it.
+	expect(lines.at(-2)).toMatch(/^Rho is running \(pid \d+\) at http:\/\/127\.0\.0\.1:\d+\.$/);
+	expect(lines.at(-1)).toBe("Not ready: Rho has no model to use yet. Add an API key with: rho key anthropic");
 	const pid = JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8")).pid as number;
 	expect(await run(["start"], cli)).toBe(0);
 	expect(lines.at(-1)).toContain(`already running (pid ${pid})`);
@@ -40,7 +45,9 @@ test("start, status and stop; a second start changes nothing", async () => {
 	// The daemon runs from this checkout, so the commit it names is this checkout's.
 	const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: import.meta.dir }).stdout.toString().trim();
 	const port = JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8")).port as number;
-	expect(lines.at(-1)).toBe(`Running (pid ${pid}) at http://127.0.0.1:${port}, commit ${head.slice(0, 7)}.`);
+	expect(lines.at(-2)).toBe(`Running (pid ${pid}) at http://127.0.0.1:${port}, commit ${head.slice(0, 7)}.`);
+	expect(lines.at(-1)).toBe("Not ready: Rho has no model to use yet. Add an API key with: rho key anthropic");
+	expect(readFileSync(join(dir, "daemon.log"), "utf8")).toContain("setup: Rho has no model to use yet.");
 	expect(await run(["logs", "5"], cli)).toBe(0);
 	expect(lines.at(-1)).toContain(`rho: pid ${pid}`);
 	expect(await run(["stop"], cli)).toBe(0);
@@ -117,3 +124,64 @@ test("version prints the commit of the checkout rho runs from", async () => {
 	expect(await run(["version"], cli)).toBe(0);
 	expect(lines.at(-1)).toBe(head); // not running, so nothing more to say
 });
+
+test("rho key stores a key the running rho uses at once; it is never an argument and never printed", async () => {
+	const { cli, lines, dir } = scratch();
+	const secret = "sk-test-0123456789abcdef";
+	expect(await run(["key"], cli)).toBe(0);
+	expect(lines.join("\n")).toContain("Rho has no API key yet.");
+	expect(lines.join("\n")).toContain("anthropic  Anthropic (or set ANTHROPIC_API_KEY)");
+	expect(lines.join("\n")).toContain('"claudePlan": true');
+	expect(await run(["start"], cli)).toBe(0);
+	expect(lines.at(-1)).toContain("Not ready");
+	// Refusals: as an argument, with nobody to ask, an unknown provider, an empty or malformed key.
+	expect(await run(["key", "anthropic", secret], { ...cli, readSecret: async () => secret })).toBe(2);
+	expect(lines.at(-1)).toContain("not given as an argument");
+	expect(await run(["key", "anthropic"], cli)).toBe(2);
+	expect(lines.at(-1)).toContain("nobody to ask");
+	expect(await run(["key", "nonesuch"], { ...cli, readSecret: async () => secret })).toBe(2);
+	expect(await run(["key", "claude-code"], { ...cli, readSecret: async () => secret })).toBe(2);
+	expect(lines.at(-1)).toContain("not a key");
+	expect(await run(["key", "anthropic"], { ...cli, readSecret: async () => "  " })).toBe(1);
+	expect(await run(["key", "anthropic"], { ...cli, readSecret: async () => "two words here" })).toBe(1);
+	expect(await run(["status"], cli)).toBe(0);
+	expect(lines.at(-1)).toContain("Not ready");
+	// The key, asked for and stored.
+	const asked: string[] = [];
+	expect(await run(["key", "anthropic"], { ...cli, readSecret: async (prompt) => (asked.push(prompt), `${secret}\n`) })).toBe(0);
+	expect(asked).toEqual(["Anthropic API key (not shown): "]);
+	expect(JSON.parse(readFileSync(join(dir, "keys.json"), "utf8"))).toEqual({ anthropic: { type: "api_key", key: secret } });
+	expect(statSync(join(dir, "keys.json")).mode & 0o777).toBe(0o600);
+	expect(lines.join("\n")).not.toContain(secret);
+	expect(readFileSync(join(dir, "daemon.log"), "utf8")).not.toContain(secret);
+	// The running rho needs no restart to see it.
+	expect(await run(["status"], cli)).toBe(0);
+	expect(lines.at(-1)).toBe("Model: anthropic/claude-sonnet-5-5.");
+	expect(await run(["key"], cli)).toBe(0);
+	expect(lines.join("\n")).toContain("  anthropic: key stored by rho");
+	expect(await run(["key", "anthropic", "--remove"], cli)).toBe(0);
+	expect(lines.at(-1)).toBe("Removed rho's stored key for anthropic.");
+	expect(await run(["key", "anthropic", "--remove"], cli)).toBe(0);
+	expect(lines.at(-1)).toBe("Rho has no stored key for anthropic.");
+	expect(await run(["status"], cli)).toBe(0);
+	expect(lines.at(-1)).toContain("Not ready");
+}, 40_000);
+
+test("a key in the environment is enough; the Claude plan is used only when the config turns it on, and then with its warning", async () => {
+	const keyed = scratch();
+	expect(await run(["start"], { ...keyed.cli, env: { ...keyed.cli.env, OPENAI_API_KEY: "sk-test-0123456789" } })).toBe(0);
+	expect(keyed.lines.at(-1)).toMatch(/^Rho is running/); // nothing is missing
+	expect(await run(["status"], keyed.cli)).toBe(0);
+	expect(keyed.lines.at(-1)).toBe("Model: openai/gpt-5.5.");
+	expect(readFileSync(join(keyed.dir, "daemon.log"), "utf8")).not.toContain("Claude plan");
+
+	const plan = scratch();
+	mkdirSync(plan.dir, { recursive: true });
+	writeFileSync(join(plan.dir, "config.json"), JSON.stringify({ claudePlan: true }));
+	expect(await run(["start"], plan.cli)).toBe(0);
+	expect(await run(["status"], plan.cli)).toBe(0);
+	expect(plan.lines.at(-1)).toMatch(/^Model: claude-code\/claude-opus/);
+	const log = readFileSync(join(plan.dir, "daemon.log"), "utf8");
+	expect(log).toContain("Claude plan: rho is using your Claude Code login. This is not an API key.");
+	expect(log).toContain("charged to usage credits");
+}, 60_000);

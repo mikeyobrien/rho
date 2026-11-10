@@ -17,7 +17,7 @@ const home = mkdtempSync(join(tmpdir(), "rho-e2e-"));
 const port = 4871;
 const host = `127.0.0.1:${port}`;
 mkdirSync(join(home, "v2"), { recursive: true });
-writeFileSync(join(home, "v2", "config.json"), JSON.stringify({ model: process.env.E2E_MODEL ?? "claude-code/claude-haiku-5-5", thinking: "low" }));
+writeFileSync(join(home, "v2", "config.json"), JSON.stringify({ claudePlan: true, model: process.env.E2E_MODEL ?? "claude-code/claude-haiku-5-5", thinking: "low" }));
 const links: string[] = [];
 const cli = { env: { ...process.env, RHO_HOME: home, RHO_PORT: String(port) }, out: (line: string) => console.log(`  rho: ${line}`), openLink: (url: string) => (links.push(url), true) };
 

@@ -38,6 +38,8 @@ export interface StateView {
 	approvals: { id: string; tool: string; command: string; what: string }[];
 	/** The directory this conversation's tools work in. */
 	cwd?: string;
+	/** What the person must do before this conversation's model can answer; absent when it can. */
+	setup?: string;
 }
 
 type Content = Message["content"];

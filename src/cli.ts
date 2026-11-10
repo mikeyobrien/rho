@@ -5,7 +5,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { preflight, release, type GateHost } from "./gate.ts";
+import { readConfig } from "./core.ts";
 import { rhoHome } from "./home.ts";
+import { CLAUDE_PLAN_WARNING, openModels, SUGGESTED } from "./providers.ts";
 import { installService, readService, serviceDown, serviceStatus, serviceUp, uninstallService } from "./service.ts";
 
 export interface CliEnv {
@@ -15,6 +17,8 @@ export interface CliEnv {
 	openLink(url: string): boolean;
 	/** The directory the command was run in. Default: the process's. */
 	cwd?: string;
+	/** Ask for a secret without showing it. Absent when there is nobody to ask. */
+	readSecret?(prompt: string): Promise<string>;
 }
 interface DaemonFile { pid: number; port: number; startedAt: number; commit?: string; /** The checkout the daemon runs from. */ root?: string }
 /** The checkout this rho runs from. */
@@ -67,12 +71,28 @@ async function start(dir: string, cli: CliEnv): Promise<DaemonFile | undefined> 
 	}
 	for (let i = 0; i < 80; i++) {
 		const now = await running(dir);
-		if (now && now.startedAt !== before) return cli.out(`Rho is running (pid ${now.pid}) at http://127.0.0.1:${now.port}.`), now;
+		if (now && now.startedAt !== before) {
+			cli.out(`Rho is running (pid ${now.pid}) at http://127.0.0.1:${now.port}.`);
+			const setup = await setupLine(dir, now);
+			if (setup.startsWith("Not ready")) cli.out(setup); // a first run says what is missing
+			return now;
+		}
 		if (child && child.exitCode !== null) break;
 		await sleep(250);
 	}
 	cli.out(`Rho did not start. Last lines of ${join(dir, "daemon.log")}:\n${tail(join(dir, "daemon.log"), 6)}`);
 	return undefined;
+}
+
+/** One line on whether the running rho has a model it can use. */
+async function setupLine(dir: string, now: DaemonFile): Promise<string> {
+	try {
+		const response = await fetch(`http://127.0.0.1:${now.port}/api/setup`, { headers: { authorization: `Bearer ${readFileSync(join(dir, "token"), "utf8").trim()}` }, signal: AbortSignal.timeout(5_000) });
+		const setup = (await response.json()) as { ready: boolean; model?: string; note?: string };
+		return setup.ready ? `Model: ${setup.model}.` : `Not ready: ${setup.note}`;
+	} catch {
+		return "Could not ask rho about its model.";
+	}
 }
 
 /** The gate's hands on the real rho: its command, its files and its door. */
@@ -120,7 +140,42 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			const now = await running(dir);
 			// The commit is the daemon's own word for what it runs; a rho outside git has none to give.
 			cli.out(now ? `Running (pid ${now.pid}) at http://127.0.0.1:${now.port}${now.commit ? `, commit ${now.commit.slice(0, 7)}` : ""}.` : "Not running.");
+			if (now) cli.out(await setupLine(dir, now));
 			return now ? 0 : 1;
+		}
+		case "key": {
+			// Keys are stored in the data directory, readable by the owner only. A key is never an
+			// argument: arguments are kept in shell history and shown to other processes.
+			const { models, keys } = openModels({ dir, config: readConfig(dir), env: cli.env });
+			const provider = args[1];
+			if (provider === undefined) {
+				const stored = new Set((await keys.list()).map((item) => item.providerId));
+				const lines: string[] = [];
+				for (const item of models.getProviders()) {
+					const check = await models.checkAuth(item.id).catch(() => undefined);
+					if (check) lines.push(`  ${item.id}: ${stored.has(item.id) ? "key stored by rho" : `from ${check.source ?? "the environment"}`}`);
+				}
+				cli.out(lines.length > 0 ? `Providers rho can use now:\n${lines.join("\n")}` : "Rho has no API key yet.");
+				cli.out(`Add one with: rho key <provider>\n${SUGGESTED.map((item) => `  ${item.id.padEnd(11)}${item.name} (or set ${item.env})`).join("\n")}\nOther providers rho knows: ${models.getProviders().map((item) => item.id).filter((id) => !SUGGESTED.some((item) => item.id === id) && id !== "claude-code").join(", ")}`);
+				cli.out(`To use a Claude plan instead of a key, set "claudePlan": true in ${join(dir, "config.json")}. ${CLAUDE_PLAN_WARNING.split(". ").slice(1, 3).join(". ")}.`);
+				return 0;
+			}
+			const known = models.getProvider(provider);
+			if (!known || provider === "claude-code") return cli.out(provider === "claude-code" ? `Claude on your plan uses your Claude Code login, not a key. Turn it on with "claudePlan": true in ${join(dir, "config.json")}.` : `Rho knows no provider called ${provider}. See them with: rho key`), 2;
+			if (args[2] === "--remove") {
+				const had = keys.has(provider);
+				await keys.delete(provider);
+				return cli.out(had ? `Removed rho's stored key for ${provider}.` : `Rho has no stored key for ${provider}.`), 0;
+			}
+			if (args[2] !== undefined) return cli.out("A key is not given as an argument, where it would be kept in your shell history. Run: rho key " + provider + "   and paste it when asked."), 2;
+			if (!known.auth.apiKey) return cli.out(`${provider} does not take an API key.`), 2;
+			if (!cli.readSecret) return cli.out("There is nobody to ask for the key here. Run this in a terminal, or pipe the key in: rho key " + provider + " < file"), 2;
+			const key = (await cli.readSecret(`${known.name ?? provider} API key (not shown): `)).trim();
+			if (key === "") return cli.out("No key was given; nothing changed."), 1;
+			if (/\s/.test(key) || key.length < 8) return cli.out("That does not look like a key (it is too short or has spaces); nothing changed."), 1;
+			await keys.modify(provider, async () => ({ type: "api_key", key }));
+			cli.out(`Stored the ${provider} key in ${keys.path} (readable by you only). Rho uses it from the next message; a new conversation starts on that provider after: rho stop && rho start`);
+			return 0;
 		}
 		case "open": {
 			const now = await start(dir, cli);
@@ -201,7 +256,7 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 		case "logs":
 			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet, start rho first."), 0;
 		default:
-			cli.out("Usage: rho start | stop | status | open | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
+			cli.out("Usage: rho start | stop | status | open | key [provider [--remove]] | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
 			return 2;
 	}
 }
@@ -216,5 +271,27 @@ export async function main(args: string[]): Promise<number> {
 		}
 		return false;
 	};
-	return run(args, { env: process.env, out: (line) => console.log(line), openLink });
+	// A secret is read without echo from a terminal, or as the first line of piped input.
+	const readSecret = async (prompt: string): Promise<string> => {
+		const tty = process.stdin.isTTY === true;
+		if (tty) {
+			process.stderr.write(prompt);
+			spawnSync("stty", ["-echo"], { stdio: "inherit" });
+		}
+		try {
+			let text = "";
+			for await (const chunk of process.stdin) {
+				text += String(chunk);
+				if (text.includes("\n")) break;
+			}
+			return text.split("\n")[0] ?? "";
+		} finally {
+			if (tty) {
+				spawnSync("stty", ["echo"], { stdio: "inherit" });
+				process.stderr.write("\n");
+			}
+			process.stdin.pause();
+		}
+	};
+	return run(args, { env: process.env, out: (line) => console.log(line), openLink, readSecret });
 }
