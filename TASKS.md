@@ -270,6 +270,14 @@ Done in `src/providers.ts`, `rho key` in `src/cli.ts`, `test/providers.test.ts`.
   Also not checked: `rho key` typed at a real terminal (the no-echo read was tested only
   through the function the command calls); pi-ai's OAuth logins, which rho does not offer.
 
+## Branch name on GitHub (2026-11-10)
+
+The work is on the local branch `v2`. GitHub already has a branch `v2/standalone-install`,
+and git cannot hold both `v2` and `v2/...` in one repository, so a push of `v2` as `v2` is
+refused. The README and the release checklist publish it as `rho2`
+(`git push origin v2:rho2`). The alternative is the owner's: delete or rename
+`v2/standalone-install` on GitHub first.
+
 ## Soon after: what makes dogfooding pleasant
 
 14. **Memory.** DONE 2026-11-10: `src/memory/`. One provider is active, named by the `memory`

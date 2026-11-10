@@ -43,7 +43,7 @@ with your package manager.
 Then, on either:
 
 ```sh
-git clone -b v2 https://github.com/mikeyobrien/rho.git ~/rho
+git clone -b rho2 https://github.com/mikeyobrien/rho.git ~/rho
 cd ~/rho
 bun install --frozen-lockfile
 mkdir -p ~/.local/bin && ln -sf ~/rho/bin/rho ~/.local/bin/rho
