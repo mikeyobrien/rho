@@ -1,0 +1,23 @@
+{
+	"name": "@rhobot-dev/rho",
+	"version": "2.0.0-dev.0",
+	"description": "An agent that stays running, remembers, and checks in. Built on pi-durable.",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"start": "bun src/main.ts",
+		"test": "bun test",
+		"typecheck": "tsc --noEmit -p .",
+		"check": "bun run typecheck && bun test"
+	},
+	"dependencies": {
+		"@earendil-works/chord": "1.5.1",
+		"@earendil-works/pi-ai": "1.5.1",
+		"@earendil-works/pi-durable": "1.5.1",
+		"@earendil-works/pi-schema": "1.5.1"
+	},
+	"devDependencies": {
+		"@types/bun": "1.4.4",
+		"typescript": "6.0.3"
+	}
+}

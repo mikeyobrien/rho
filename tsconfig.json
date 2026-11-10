@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"module": "preserve",
+		"moduleResolution": "bundler",
+		"target": "esnext",
+		"lib": ["esnext"],
+		"types": ["bun"],
+		"strict": true,
+		"noEmit": true,
+		"noUncheckedIndexedAccess": true,
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"skipLibCheck": true
+	},
+	"include": ["src", "test"]
+}
