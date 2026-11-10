@@ -26,6 +26,8 @@ export interface GateHost {
 	start(): Promise<void>;
 	/** True once the rho that is running is `commit`. */
 	healthy(commit: string): Promise<boolean>;
+	/** True when rho has a model it can use. Absent: not asked. */
+	ready?(): Promise<boolean>;
 	/** True when no run is working. Absent: do not wait. */
 	idle?(): Promise<boolean>;
 	/** Tell the conversation how it went. `key` is the same for a repeat of the same news. */
@@ -85,6 +87,7 @@ export async function preflight(releaseDir: string, source: string, ref: string)
 	return { commit: commit.out, previous: head.out, source: top.out };
 }
 
+const NO_MODEL = "Rho came up without a model it can use. An API key that was only in the environment of the shell that started rho is not there after a restart rho starts itself. Store it with: rho key <provider>";
 /** Release `ref` of the checkout at `source`. Resolves with what happened; it does not throw for a failed release. */
 export async function release(host: GateHost, source: string, ref = "HEAD"): Promise<Outcome> {
 	const done = async (outcome: Omit<Outcome, "at">, news?: string): Promise<Outcome> => {
@@ -162,8 +165,16 @@ export async function release(host: GateHost, source: string, ref = "HEAD"): Pro
 		if (back !== undefined) host.log(`release: could not restore the checkout: ${back}`);
 		return unchanged(`The checkout could not be switched: ${switched}`);
 	}
+	// A rho started by hand got its API keys from that shell's environment. The gate, started by
+	// rho, does not have them, so the rho it starts may come up with no model. Going back would
+	// not help: the old commit would be started the same way. So it is said, not undone.
+	const wasReady = host.ready ? await host.ready().catch(() => false) : false;
 	stage("restart");
-	if (await restart(commit)) return done({ status: "released", commit, previous }, `Rho now runs ${short(commit)} (it ran ${short(previous)}). Its checks passed and the restarted rho answered.`);
+	if (await restart(commit)) {
+		const lost = wasReady && !(await host.ready!().catch(() => true));
+		if (lost) host.log("release: rho had a model before the restart and has none now");
+		return done({ status: "released", commit, previous, ...(lost ? { reason: NO_MODEL } : {}) }, `Rho now runs ${short(commit)} (it ran ${short(previous)}). Its checks passed and the restarted rho answered.${lost ? ` ${NO_MODEL}` : ""}`);
+	}
 
 	// 4. It did not come up as the new commit: go back.
 	stage("roll back");

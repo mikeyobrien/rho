@@ -110,6 +110,8 @@ logging in, turn on lingering once: `loginctl enable-linger $USER`.
 The service does not get your shell's environment. It keeps `PATH`, `RHO_HOME`, `RHO_PORT`
 and `RHO_CLAUDE` from the shell that installed it, and nothing else. **An API key that is
 only in an environment variable is not seen by the service.** Store it with `rho key`.
+The same holds without a service when rho restarts itself, as a release does: the new rho
+does not have the variables of the shell you first started it from.
 
 A reboot has not been tested on either platform.
 

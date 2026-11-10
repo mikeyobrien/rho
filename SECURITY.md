@@ -62,8 +62,8 @@ Rho is an agent with a shell. This page states what protects you and what does n
 - A key in an environment variable is read when rho starts and then removed from rho's own
   environment, so the model's `bash` cannot print it with `env`. This covers the variables
   of the providers rho knows and `apiKeyEnv` of your own providers. It does not cover your
-  AWS variables, or any other secret in the environment rho was started with: `bash` sees
-  those. On Linux, a process running as you can still read the environment rho was started
+  AWS variables, `CLAUDE_CODE_OAUTH_TOKEN` (the Claude CLI needs it), or any other secret
+  in the environment rho was started with: `bash` sees those. On Linux, a process running as you can still read the environment rho was started
   with from `/proc`.
 - With `"claudePlan": true`, rho uses your Claude Code login by starting the `claude`
   command. Rho does not read or copy that login. Claude Code sends its own requests, and a

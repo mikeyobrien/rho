@@ -5,8 +5,8 @@
 // second mount of the same directory (Android shows an app's files under both /data/data and
 // /data/user/0, and realpath does not turn one into the other). So names are not compared alone:
 // the path is resolved, and every directory above it is compared by device and inode.
-import { realpathSync, statSync } from "node:fs";
-import { dirname, sep } from "node:path";
+import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 
 const names = new Set<string>();
 const ids = new Set<string>();
@@ -30,14 +30,29 @@ const named = (path: string): boolean => [...names].some((dir) => path === dir |
 /** Whether an absolute path is, or is inside, a protected directory, by any name. `seen` remembers directories across calls of one walk. */
 export function isProtected(path: string, seen?: Map<string, boolean>): boolean {
 	if (named(path)) return true;
+	// `..` and doubled slashes are taken out as text first: a part of the path that does not
+	// exist yet (`new/../.rho/v2`) must not hide where the rest of it points.
+	let real = resolve(path);
+	if (named(real)) return true;
 	// Where it really leads. A path that does not exist yet has no real path: resolve the nearest
-	// directory that does exist, which is where a write would land.
-	let real = path;
-	for (;;) {
+	// directory that does exist, which is where a write would land. A link whose target does not
+	// exist yet is followed to that target, because a write through it lands there.
+	for (let hops = 0; ; ) {
 		try {
 			real = realpathSync(real);
 			break;
 		} catch {
+			let target: string | undefined;
+			try {
+				if (lstatSync(real).isSymbolicLink() && hops++ < 40) target = resolve(dirname(real), readlinkSync(real));
+			} catch {
+				// not there at all
+			}
+			if (target !== undefined) {
+				if (named(target)) return true;
+				real = target;
+				continue;
+			}
 			const up = dirname(real);
 			if (up === real) return false;
 			real = up;

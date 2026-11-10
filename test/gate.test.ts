@@ -105,6 +105,21 @@ test("a good commit is checked, adopted, and the restarted program runs it", asy
 	expect(await t.running()).toBe(side);
 }, 40_000);
 
+test("a rho that had a model before the restart and has none after is released with the reason said", async () => {
+	const t = await setup();
+	t.commit({ "notes.txt": "second\n" }, "second");
+	let asked = 0;
+	const outcome = await release({ ...t.host, ready: async () => asked++ === 0 }, t.work); // ready before, not after
+	expect(outcome.status).toBe("released");
+	expect(outcome.reason).toContain("came up without a model");
+	expect(outcome.reason).toContain("rho key <provider>");
+	expect(t.record().reason).toContain("rho key");
+	expect(t.events).toContain("release: rho had a model before the restart and has none now");
+	// Ready both times: nothing is said.
+	t.commit({ "notes.txt": "third\n" }, "third");
+	expect((await release({ ...t.host, ready: async () => true }, t.work)).reason).toBeUndefined();
+});
+
 test("a commit whose checks fail is not adopted: nothing is switched and nothing is restarted", async () => {
 	const t = await setup();
 	const bad = t.commit({ "check.sh": "echo 'expected 2, got 3'; exit 1\n", "notes.txt": "must not appear\n" }, "breaks the checks");

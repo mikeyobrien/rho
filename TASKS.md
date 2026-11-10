@@ -386,12 +386,30 @@ Known issues, not fixed:
 - The pairing code does not expire; it is valid until used or until rho restarts.
 - A setting with a bad value (`thinking: "hgih"`) is not caught at start.
 - The bash guard still matches text for everything else; see `SECURITY.md`.
-- The owner's AWS variables and any other secret in the environment rho was started with
-  are visible to `bash`.
+- The owner's AWS variables, `CLAUDE_CODE_OAUTH_TOKEN`, and any other secret in the
+  environment rho was started with are visible to `bash`.
+- API keys that are only in the environment are lost when rho restarts itself. The gate
+  says so; it does not prevent it.
 
-Not covered by the review: the web page's script beyond a search for HTML injection, the
-tests themselves, `e2e/`, and a second read of anything after these fixes. The fixes
-themselves were reviewed by nobody but their author.
+**Second review, of the fixes.** A second reviewer read the code at `70d7d2b` and delivered a
+report: "OK to release with notes", no blockers. It had no shell, so every finding was
+inferred from reading; each was then given a test here.
+
+| Finding | Fix |
+| --- | --- |
+| Removing key variables from the daemon means a rho that restarts itself (a release, or `rho stop && rho start` run by the agent) comes up without keys that were only in the first shell's environment, and the gate still said "released" | the gate asks whether rho has a model before and after; when it had one and lost it, the result and the notice say so and name `rho key`. It does not roll back, because the old commit would start the same way. README says it. |
+| A path through a directory that does not exist yet (`n/../.rho/v2/...`) skipped the resolved-path check | `..` and doubled slashes are removed as text before resolving |
+| A link to a file that does not exist yet inside the data directory let `write` create it | such a link is followed to its target |
+| `CLAUDE_CODE_OAUTH_TOKEN` stays visible to `bash` | left, because the Claude CLI needs it; named in `SECURITY.md` |
+
+The reviewer found nothing wrong in the token replacement, the body limits, the gate's
+systemd unit, the check-in refusal, or the `seen` cache. Its answer to "would you release
+with the known issues as they stand": yes; the one it most wants fixed soon is the release
+killed part-way.
+
+Not covered by either review: the web page's script beyond a search for HTML injection, the
+tests themselves, `e2e/`, and the fixes to the second review's own findings, which were read
+by nobody but their author.
 
 ## Release preparation (2026-11-10)
 
