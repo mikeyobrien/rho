@@ -154,7 +154,7 @@ export function openModels(options: ModelsOptions): { models: MutableModels; key
 	}
 	const claudePlan = options.config.claudePlan === true;
 	if (claudePlan) {
-		models.setProvider(claudeCodeProvider());
+		models.setProvider(claudeCodeProvider(env.RHO_CLAUDE ? { command: env.RHO_CLAUDE } : {}));
 		log(CLAUDE_PLAN_WARNING);
 	}
 	return { models, keys, claudePlan };

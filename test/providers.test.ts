@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
@@ -18,8 +18,11 @@ afterEach(async () => {
 const scratch = () => (dirs.push(mkdtempSync(join(tmpdir(), "rho-providers-test-"))), dirs.at(-1)!);
 function open(config: RhoConfig = {}, env: Record<string, string> = {}, dir = scratch()) {
 	const logged: string[] = [];
-	// The fake Claude CLI path is never run here: these tests ask for no model list.
-	return { dir, logged, ...openModels({ dir, config, env: { HOME: dir, ...env }, log: (line) => logged.push(line) }) };
+	// The Claude CLI is always the fake one: a test never runs a real `claude` that happens to be installed.
+	const claude = join(dir, "fake-claude");
+	writeFileSync(claude, `#!/usr/bin/env bash\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(import.meta.dir, "fixtures", "fake-claude.ts"))} "$@"\n`);
+	chmodSync(claude, 0o755);
+	return { dir, logged, ...openModels({ dir, config, env: { HOME: dir, RHO_CLAUDE: claude, ...env }, log: (line) => logged.push(line) }) };
 }
 
 test("with nothing set up there is no model, and the note says how to add a key", async () => {

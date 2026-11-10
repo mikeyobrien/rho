@@ -123,6 +123,13 @@ export function claudeCodeProvider(options: RelayOptions = {}) {
 		((model: unknown, context: unknown, request?: { sessionId?: string; cacheRetention?: string }) =>
 			stream({ ...(model as Model<"anthropic-messages">), id: routeFor((model as Model<"anthropic-messages">).id) }, context, { ...request, fetch: relayFetch(options, { sessionId: request?.cacheRetention === "none" ? undefined : request?.sessionId }), maxRetries: 0 })) as F;
 	const api: ProviderStreams = { ...inner, stream: withRelay(inner.stream), streamSimple: withRelay(inner.streamSimple) };
+	// The login is asked of the CLI, which costs a process. The answer is kept for half a minute:
+	// rho asks which models can be used far more often than a login changes.
+	let last: { at: number; status: Promise<ClaudeStatus> } | undefined;
+	const status = (): Promise<ClaudeStatus> => {
+		if (!last || Date.now() - last.at > 30_000) last = { at: Date.now(), status: claudeStatus(options) };
+		return last.status;
+	};
 	return createProvider({
 		id: CLAUDE_CODE,
 		name: "Claude (through Claude Code)",
@@ -130,9 +137,9 @@ export function claudeCodeProvider(options: RelayOptions = {}) {
 		auth: {
 			apiKey: {
 				name: "Claude Code login",
-				async check({ signal }) {
-					const status = await claudeStatus(options, signal);
-					return status.available && status.loggedIn ? { type: "oauth", source: `Claude Code ${status.plan ?? "login"}` } : undefined;
+				async check() {
+					const now = await status();
+					return now.available && now.loggedIn ? { type: "oauth", source: `Claude Code ${now.plan ?? "login"}` } : undefined;
 				},
 				// A placeholder: the CLI makes the request with its own login.
 				async resolve() {
