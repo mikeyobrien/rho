@@ -68,27 +68,38 @@ In order. Each item ends in something that can be checked.
 
 - Bun 1.4.4 on Termux runs pi-durable 1.5.1 with SQLite storage; Bun and Node read each
   other's databases. TypeScript 6.0.3 type-checks here; TypeScript 7 has no Android build.
-- **Rho's own Claude provider** (`src/claude/relay.ts`, `provider.ts`; 2026-11-10). pi-ai's
-  Anthropic adapter builds the request and parses the response. A `fetch` it is given starts
-  the Claude Code CLI for one turn with a placeholder prompt, pointed at a loopback relay on a
-  random port behind a random path. The relay replaces the CLI's request with rho's, keeping
-  the CLI's login headers and its two leading system lines (billing, "You are a Claude
-  agent..."), forwards it, and hands the response to rho. One request per turn; anything else
-  the CLI sends is refused. The CLI is killed (whole process group) once rho has the response.
-  - Checked live (about 12 requests, Claude Code 2.1.322): a plain answer; a tool request under
-    rho's own tool name; the conversation continued with rho's tool result; a thinking turn
-    whose signed thinking was replayed and accepted; effort reaches the request; cancel ends
-    the upstream request within 2 ms and leaves no process. Nothing the CLI adds (account
-    email reminder, environment block) reached upstream. About 1.2 to 2.1 s per short turn.
-  - 10 tests with a fake CLI and a fake upstream, no model calls.
-  - Not checked: a usage-credits turn (the detection reads rate-limit headers and is a guess
-    at their overage form; every observed turn was on the plan); images; the 1M context
-    beta; a long run of turns; what happens when Claude Code updates and changes its request.
-  - Each turn starts a new CLI process (no reuse), and the login's headers pass through rho's
-    process in memory for that request. They are not logged or stored.
+- **Rho's own Claude provider** (`src/claude/`; reworked 2026-11-10 to match pi's
+  `pi-claude-code`, so requests are billed as Claude Code's own). The CLI builds and sends its
+  own request: its headers (`claude-cli` user agent, `x-app: cli`), its billing and identity
+  system lines, its environment message, tools through an inert MCP inventory. Rho supplies
+  the system prompt, the history as frames, and thinking/effort/output limit through
+  `CLAUDE_CODE_EXTRA_BODY`. A loopback relay changes only: user messages are put back to rho's
+  (dropping the CLI's reminders, the account email among them); the environment messages keep
+  their first-request place when history is replayed, with the cache marks moved as pi does;
+  one request per turn. pi-ai's Anthropic adapter converts to and from pi messages.
+  - Brought over from pi-claude-code: usage-credits detection from Claude Code's own
+    `rate_limit_event`, and its wording for Anthropic refusing the plan; warm process reuse (2
+    processes, 5 minutes, plain continuations only); tool schema simplification; scaled-image
+    copies and their size notes kept; model list and selection names from the CLI's own
+    catalog; conflicting auth settings removed from the CLI's environment.
+  - Not brought over: Windows launching, mid-conversation tool additions and removals (a
+    change replays with the current tools), pi's status command and diagnostics.
+  - Checked live (Claude Code 2.1.322, about 25 requests): Opus 5.5 at medium through a tool
+    round and two follow-ups; the warm process reused; prompt cache read on every later turn;
+    signed thinking replayed; an image; effort low and xhigh reach the request; cancel stops
+    upstream and the process. Every request: status 200, plan usage (overage "rejected",
+    claim "seven_day"), no email or reminder in a user message, no process left.
+  - 18 tests with a fake CLI and fake upstream, no model calls.
+  - Not checked: a turn actually charged to usage credits (the detection is pi's, but no such
+    turn occurred); the large-context `[1m]` route (this login is not offered one); a long
+    session; a Claude Code update that changes its request.
+  - Opus turns took 4.6 to 5.5 s here against 1.5 to 2.2 s for Sonnet; reuse saved little.
+  - The model sees Claude Code's environment block (working directory, OS, date) and
+    "You are a Claude agent, built on Anthropic's Claude Agent SDK." before rho's prompt.
+  - The login's headers pass through rho's process in memory for each request; not stored.
   - The CLI must be on `PATH` (`~/.pi/agent/bin/claude` here) or named in `RHO_CLAUDE`.
-  - Anthropic may change how this kind of use is billed (see pi-claude-code's README).
-  - pi-claude-code is no longer a dependency.
+  - pi-claude-code is not a dependency; it is MIT, by Armin Ronacher, and was read for the
+    protocol.
 - Claude Code provider spike, 2026-11-10 (14 real requests, Claude Code 2.1.322, harness in
   `~/.cache/rho-spike/`). No relay was used; a pass-through proxy only observed.
   - Works: a plain answer; a tool request through an inert MCP inventory (tool names arrive
