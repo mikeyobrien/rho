@@ -329,6 +329,21 @@ shapes (`sk-`, `ghp_`, `github_pat_`, `xox`, `AKIA`, `AIza`, JWTs, private-key h
 - The pre-rewrite branch is kept outside the repository, in
   `~/.cache/rho-backup/` on the phone, and must not be pushed.
 
+## Release preparation (2026-11-10)
+
+- `package.json`: version `2.0.0`, name `@rhobot-dev/rho` (rho 1's name, kept), licence MIT,
+  `files` limited to `bin`, `src`, `web` and the documents, `private` removed so it can be
+  published.
+- `RELEASE.md` lists the owner's steps: move the branch by bundle, check, try a real API
+  key, push as `rho2`, tag `v2.0.0`, GitHub release, npm with the `next` tag, announce.
+- Checked: `bun pm pack` gives 35 files, 84 kB. The tarball was installed in a scratch
+  project on the phone: `rho start`, `rho status` and the page worked; `rho version` prints
+  the package version there.
+- Not checked: every command in `RELEASE.md` that pushes, tags, publishes or creates a
+  release, because none may be run before the owner does. `gh` and `npm` flags were taken
+  from their help text, not from a run.
+- Nothing has been pushed, tagged or published.
+
 ## Branch name on GitHub (2026-11-10)
 
 The work is on the local branch `v2`. GitHub already has a branch `v2/standalone-install`,

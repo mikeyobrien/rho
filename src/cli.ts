@@ -247,7 +247,8 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 		case "version": {
 			// The checkout's commit is what the next start runs; the running daemon says its own.
 			const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: RELEASE_DIR });
-			if (head.exitCode !== 0) return cli.out(`The commit of ${RELEASE_DIR} is not known: it is not a git checkout.`), 1;
+			// Installed from a package there is no commit: the package's version is what it is.
+			if (head.exitCode !== 0) return cli.out(`${(JSON.parse(readFileSync(join(RELEASE_DIR, "package.json"), "utf8")) as { version: string }).version} (installed from a package, not a git checkout)`), 0;
 			const commit = head.stdout.toString().trim();
 			const now = await running(dir);
 			const differs = now?.commit && now.commit !== commit ? ` The running rho is still ${now.commit.slice(0, 7)}; it runs ${commit.slice(0, 7)} after a restart.` : "";

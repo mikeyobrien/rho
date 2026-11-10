@@ -1,12 +1,13 @@
 {
 	"name": "@rhobot-dev/rho",
-	"version": "2.0.0-dev.0",
+	"version": "2.0.0",
 	"description": "An agent that stays running, remembers, and checks in. Built on pi-durable.",
 	"type": "module",
 	"bin": { "rho": "bin/rho" },
 	"license": "MIT",
 	"repository": { "type": "git", "url": "git+https://github.com/mikeyobrien/rho.git" },
-	"private": true,
+	"files": ["bin", "src", "web", "README.md", "SECURITY.md", "CHANGELOG.md", "MIGRATION.md", "LICENSE"],
+	"engines": { "bun": ">=1.4.0" },
 	"scripts": {
 		"start": "bun src/main.ts",
 		"test": "bun test",
