@@ -4,6 +4,10 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, type Conversation, type Extension } from "@earendil-works/pi-durable";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { CodingTools } from "@earendil-works/pi-durable/tools";
+import { homedir } from "node:os";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +17,8 @@ export const context = BACKGROUND_CONTEXT;
 export interface RhoConfig {
 	/** `provider/modelId`. Default: Claude Opus 5.5 on the person's plan. */
 	model?: string;
+	/** The directory the first conversation works in. Default: the home directory. */
+	cwd?: string;
 	/** Thinking level for new conversations. Default: medium. */
 	thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }
@@ -50,6 +56,8 @@ export interface CoreOptions {
 	models: Models;
 	config?: RhoConfig;
 	extensions?: readonly Extension[];
+	/** Where tools touch files and run commands. Default: this machine, in the conversation's directory. Tests change it. */
+	env?: (cwd: string) => ExecutionEnv;
 	log?: (line: string) => void;
 	/** Called once if storage fails; the host should exit non-zero so its service runner reopens it. */
 	onFailed?: (error: unknown) => void;
@@ -106,7 +114,10 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	const log = options.log ?? (() => {});
 	mkdirSync(options.dir, { recursive: true, mode: 0o700 });
 	const release = own(options.dir);
+	const config = options.config ?? {};
+	const home = config.cwd ?? homedir();
 	const registry = createRegistry();
+	registry.install(CodingTools); // read, write, edit, bash
 	for (const extension of options.extensions ?? []) registry.install(extension);
 	const harness = await Harness.open(
 		await openNodeSqliteStorage(join(options.dir, "rho.sqlite")),
@@ -116,6 +127,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 			identity: { attribution: { name: "rho", url: "https://rhobot.dev" } },
 			// A run that fails does not strand the messages queued behind it: the next run takes them.
 			settings: { afterFailedRun: "continue" },
+			// Each conversation's tools work in that conversation's own directory.
+			env: ({ cwd }) => (options.env ?? ((dir: string) => new NodeExecutionEnv({ cwd: dir })))(cwd ?? home),
 			onReport: (report) => {
 				log(`report: ${report.kind}: ${String((report.error as Error | undefined)?.message ?? report.error ?? "").slice(0, 300)}`);
 				if (report.kind === "storage_failed") options.onFailed?.(report.error);
@@ -126,9 +139,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 		release();
 		throw error;
 	});
-	const config = options.config ?? {};
 	// The agent choices are stored with the conversation on first use; later starts keep them.
-	const root = await harness.root(context, { agent: { model: parseModel(config.model ?? DEFAULT_MODEL), thinkingLevel: config.thinking ?? "medium", instructions: INSTRUCTIONS } });
+	const root = await harness.root(context, { agent: { model: parseModel(config.model ?? DEFAULT_MODEL), thinkingLevel: config.thinking ?? "medium", instructions: INSTRUCTIONS, cwd: home } });
 	harness.resume();
 	return { harness, root, close: () => harness.close(context).finally(release) };
 }

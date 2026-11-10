@@ -41,8 +41,9 @@ In order. Each item ends in something that can be checked.
    cards, stop, steer and queue with a flip, model and thinking pickers, new chat, earlier
    messages, a kept "Not sent yet" outbox, safe Markdown with tables. `bin/rho` and
    `src/cli.ts`: start, stop, status, open (the pairing link), logs.
-5. **Coding tools.** pi-durable's `read`, `write`, `edit`, `bash` over a Node environment, with
-   a working directory per conversation. Unverified: that environment under Bun.
+5. **Coding tools.** DONE 2026-11-10: pi-durable's `read`, `write`, `edit`, `bash` installed in
+   the core over its Node environment. Each conversation's tools work in that conversation's
+   directory (`config.cwd`, default home; `POST /api/cwd` changes it; shown in `StateView`).
 6. **Search tools.** `grep`, `find`, `ls` as tools of their own, so searching does not go
    through `bash`.
 7. **Tidy tools.** Every tool takes a short `reasoning` argument; the page shows each call as
@@ -187,6 +188,17 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
   - Chrome's accessibility tree gives the thread as one run of text, so the check proves the
     question and answer each appear once, not that they are separate bubbles; the screenshot
     shows they are.
+- Coding tools, checked 2026-11-10 under Bun (`test/tools.test.ts`): write, read (whole and a
+  range), edit and bash in the conversation's directory; a missing file, an edit with no
+  match, a non-zero exit and a timeout each come back as an error that says why; Stop ends a
+  running `bash` and what it started within 3 s; read, write and edit end on Stop while they
+  wait on a stalled file system, and change nothing. Live on Haiku in a scratch directory:
+  asked to fix a typo in a script and run it, the model read, edited, ran it, and reported
+  "hello world"; the file was changed. 6.2 s for four model requests.
+  - Paths are not confined: a tool can read and write anywhere the user can. `bash` makes any
+    confinement of the others moot; the guard-rails task covers what is refused.
+  - Not checked: images through `read` (no image processor is installed, so large images are
+    refused), binary files, very large outputs and their spill files, Windows.
 - **Rho's own Claude provider** (`src/claude/`; reworked 2026-11-10 to match pi's
   `pi-claude-code`, so requests are billed as Claude Code's own). The CLI builds and sends its
   own request: its headers (`claude-cli` user agent, `x-app: cli`), its billing and identity

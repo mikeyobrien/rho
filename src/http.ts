@@ -2,8 +2,8 @@
 // exception is trading a one-time pairing code for it. State reaches a client as server-sent
 // events, each a whole snapshot (view.ts), so a reconnect needs no replay.
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { extname, join, resolve, sep } from "node:path";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { extname, isAbsolute, join, resolve, sep } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
@@ -133,6 +133,13 @@ export async function serve(options: ServerOptions): Promise<Server> {
 				if (typeof thinking !== "string" || !THINKING.has(thinking)) throw new Refusal(400, `thinking is one of: ${[...THINKING].join(", ")}.`);
 				await root.configure({ thinkingLevel: thinking as never }, context);
 			}
+			return { ok: true };
+		},
+		"POST /api/cwd": async (request) => {
+			const { path } = await bodyOf(request);
+			if (typeof path !== "string" || !isAbsolute(path)) throw new Refusal(400, "path is an absolute directory.");
+			if (!existsSync(path) || !statSync(path).isDirectory()) throw new Refusal(400, "That directory does not exist.");
+			await root.configure({ cwd: resolve(path) }, context);
 			return { ok: true };
 		},
 		"GET /api/models": async () => ({ items: (await models.getAvailable()).map((model) => ({ id: `${model.provider}/${model.id}`, name: model.name ?? model.id, provider: model.provider })) }),

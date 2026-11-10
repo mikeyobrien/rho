@@ -208,3 +208,12 @@ test("two clients see the same state, and one leaving does not disturb the other
 	expect((await watching).at(-1)!.entries.at(-1)!.text).toBe("shared");
 	expect((await follow(() => true))[0]!.entries.length).toBe(2); // a late joiner starts from the current snapshot
 });
+
+test("the working directory is shown and can be changed to a directory that exists", async () => {
+	const first = (await follow(() => true))[0]!;
+	expect(first.cwd).toBeTruthy();
+	expect((await call("/api/cwd", { path: "relative/path" })).status).toBe(400);
+	expect(await (await call("/api/cwd", { path: join(dir, "missing") })).json()).toEqual({ error: "That directory does not exist." });
+	expect((await call("/api/cwd", { path: dir })).status).toBe(200);
+	expect((await follow((state) => state.cwd === dir)).at(-1)!.cwd).toBe(dir);
+});

@@ -31,6 +31,8 @@ export interface StateView {
 	failure?: { reason: string; text: string; detail?: string };
 	model?: string;
 	thinking?: string;
+	/** The directory this conversation's tools work in. */
+	cwd?: string;
 }
 
 type Content = Message["content"];
@@ -72,7 +74,7 @@ interface Live {
 	runFailure?: { reason: string; detail?: string };
 }
 interface Inbox { items?: ({ id: unknown; mode: "steer" | "followUp"; content: { content?: Content } | Content } | { id: unknown; mode: "write" })[] }
-interface AgentDoc { model?: { provider: string; modelId: string }; thinkingLevel?: string }
+interface AgentDoc { model?: { provider: string; modelId: string }; thinkingLevel?: string; cwd?: string }
 
 export function stateView(view: ConversationView): StateView {
 	const live = (view.docs["pi.live"] ?? {}) as Live;
@@ -96,5 +98,6 @@ export function stateView(view: ConversationView): StateView {
 		...(failure && failure.reason !== "reset" && failure.reason !== "nothing_to_answer" ? { failure: { reason: failure.reason, text: FAILURES[failure.reason] ?? "The run ended without an answer.", ...(failure.detail ? { detail: failure.detail.slice(0, 300) } : {}) } } : {}),
 		...(agent.model ? { model: `${agent.model.provider}/${agent.model.modelId}` } : {}),
 		...(agent.thinkingLevel ? { thinking: agent.thinkingLevel } : {}),
+		...(agent.cwd ? { cwd: agent.cwd } : {}),
 	};
 }
