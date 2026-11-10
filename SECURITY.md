@@ -1,0 +1,77 @@
+# Security
+
+Rho is an agent with a shell. This page states what protects you and what does not.
+
+## What rho can do
+
+- The model runs commands with `bash` and changes files **as you**. It has your files, your
+  SSH keys, your logins and your network. There is no sandbox.
+- Rho is for one person on a machine they trust. Do not run it for other people or expose it
+  to them.
+
+## The door
+
+- Rho listens on `127.0.0.1` only. It does not listen on your network.
+- Every API call needs a bearer token. The token is made on first start and kept in
+  `~/.rho/v2/token`, readable only by you.
+- A browser gets the token by trading a one-use pairing code, which `rho open` puts in the
+  link it opens. A used code is refused. The page removes the code from the address.
+- Requests from another web origin, or with a host name other than `127.0.0.1` or
+  `localhost`, are refused. This stops other web pages from driving rho.
+- Any program running as you on the same machine can read the token file and use rho. So
+  can anyone who can read your home directory.
+- The page's own files (HTML, scripts, styles) are served without the token. They hold no
+  secrets.
+
+## Guard rails on tools
+
+- These wait for you to press Allow in the page: `git push`, publishing a package (`npm`,
+  `bun`, `pnpm`, `yarn`), merging, releasing or deleting on GitHub with `gh`, and
+  `rho release`. Allow grants that exact command once.
+- These are refused: deleting a `.git` directory, and reading or writing rho's own data
+  directory (its token, keys and storage) with any tool.
+- **The guard reads the command's text. It is a seatbelt, not a boundary.** A command that
+  hides what it does, through a variable, a script file or another interpreter, passes it.
+  A model that is tricked or mistaken can still do harm that the guard does not name, such
+  as deleting your files.
+- A run stops after 200 tool rounds by default. A check-in stops after 20.
+- A check-in runs with nobody watching. An action that needs your Allow is refused there
+  and reported.
+
+## Text from the web
+
+- `web_search` and `fetch_content` mark what they return as untrusted text, and the model is
+  told not to follow instructions inside it. This lowers the risk of prompt injection. It
+  does not remove it.
+- `fetch_content` refuses addresses that are private, loopback or link-local, so the model
+  cannot be sent to services on your own network. It checks the name before connecting and
+  does not defend against a name that changes its address between the check and the
+  connection (DNS rebinding).
+- `web_search` sends your query to Exa's public search service.
+
+## Keys and logins
+
+- API keys given to `rho key` are stored in `~/.rho/v2/keys.json`, readable only by you,
+  as plain text. They are never accepted as command arguments and never printed or logged.
+- With `"claudePlan": true`, rho uses your Claude Code login by starting the `claude`
+  command. Rho does not read or copy that login. Claude Code sends its own requests, and a
+  relay on loopback puts your conversation into them. Anthropic may refuse such use of a
+  plan or charge it to usage credits; see the README.
+- Your conversations are sent to the model provider you chose. With the Honcho memory
+  provider, each turn is also sent to your Honcho server.
+
+## Memory
+
+- The local memory provider refuses to store text that looks like an instruction to the
+  model, a secret, or hidden characters. This is a pattern check and can be evaded.
+- Memory is added to every request. Anything stored there is sent to the model provider.
+
+## Data on disk
+
+- Everything rho 2 writes is under `~/.rho/v2/`: conversations, memory, keys, token, logs.
+  It is not encrypted. Deleting that directory removes rho 2's state.
+
+## Reporting a problem
+
+Open an issue at https://github.com/mikeyobrien/rho/issues. For something that should not
+be public, use GitHub's private vulnerability reporting on that repository.

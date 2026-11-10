@@ -4,6 +4,8 @@
 	"description": "An agent that stays running, remembers, and checks in. Built on pi-durable.",
 	"type": "module",
 	"bin": { "rho": "bin/rho" },
+	"license": "MIT",
+	"repository": { "type": "git", "url": "git+https://github.com/mikeyobrien/rho.git" },
 	"private": true,
 	"scripts": {
 		"start": "bun src/main.ts",
