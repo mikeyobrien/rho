@@ -6,6 +6,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join, resolve } from "node:path";
 import { preflight, release, type GateHost } from "./gate.ts";
 import { rhoHome } from "./home.ts";
+import { installService, readService, serviceDown, serviceStatus, serviceUp, uninstallService } from "./service.ts";
 
 export interface CliEnv {
 	env: Record<string, string | undefined>;
@@ -48,15 +49,26 @@ async function start(dir: string, cli: CliEnv): Promise<DaemonFile | undefined> 
 	const already = await running(dir);
 	if (already) return cli.out(`Rho is already running (pid ${already.pid}) at http://127.0.0.1:${already.port}.`), already;
 	mkdirSync(dir, { recursive: true, mode: 0o700 });
-	const log = openSync(join(dir, "daemon.log"), "a", 0o600);
 	const before = daemonFile(dir)?.startedAt;
-	const child = spawn(process.execPath, [resolve(import.meta.dir, "main.ts")], { env: cli.env as NodeJS.ProcessEnv, detached: true, stdio: ["ignore", log, log] });
-	child.unref();
-	closeSync(log);
+	const service = readService(dir);
+	let child: ReturnType<typeof spawn> | undefined;
+	if (service) {
+		// Installed as a service: the service runs rho, and starts it again when it dies.
+		try {
+			await serviceUp(service, cli.env);
+		} catch (error) {
+			return cli.out(`Rho's service could not be started: ${(error as Error).message}`), undefined;
+		}
+	} else {
+		const log = openSync(join(dir, "daemon.log"), "a", 0o600);
+		child = spawn(process.execPath, [resolve(import.meta.dir, "main.ts")], { env: cli.env as NodeJS.ProcessEnv, detached: true, stdio: ["ignore", log, log] });
+		child.unref();
+		closeSync(log);
+	}
 	for (let i = 0; i < 80; i++) {
 		const now = await running(dir);
 		if (now && now.startedAt !== before) return cli.out(`Rho is running (pid ${now.pid}) at http://127.0.0.1:${now.port}.`), now;
-		if (child.exitCode !== null) break;
+		if (child && child.exitCode !== null) break;
 		await sleep(250);
 	}
 	cli.out(`Rho did not start. Last lines of ${join(dir, "daemon.log")}:\n${tail(join(dir, "daemon.log"), 6)}`);
@@ -96,8 +108,10 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			return (await start(dir, cli)) ? 0 : 1;
 		case "stop": {
 			const now = await running(dir);
+			const service = readService(dir);
+			if (service) serviceDown(service, cli.env); // told to stay down, also when rho is between restarts
 			if (!now) return cli.out("Rho is not running."), 0;
-			process.kill(now.pid, "SIGTERM");
+			if (!service) process.kill(now.pid, "SIGTERM");
 			for (let i = 0; i < 80 && alive(now.pid); i++) await sleep(250);
 			if (alive(now.pid)) return cli.out(`Rho (pid ${now.pid}) did not stop.`), 1;
 			return cli.out("Rho is stopped."), 0;
@@ -143,10 +157,33 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			const outcome = await release(gateHost(dir, cli), args[1] ?? "", args[2] ?? "HEAD");
 			return outcome.status === "released" ? 0 : 1;
 		}
+		case "service": {
+			const service = readService(dir);
+			if (args[1] === "status") return cli.out(service ? serviceStatus(service, cli.env) : "Rho is not installed as a service. Install it with: rho service install"), service ? 0 : 1;
+			if (args[1] === "uninstall") {
+				if (!service) return cli.out("Rho is not installed as a service."), 0;
+				await uninstallService(dir, cli.env);
+				return cli.out("Rho's service is removed, and rho is stopped."), 0;
+			}
+			if (args[1] !== "install") return cli.out("Usage: rho service install | uninstall | status"), 2;
+			// A rho started by hand gives way to the one the service runs.
+			const byHand = service ? undefined : await running(dir);
+			if (byHand) {
+				process.kill(byHand.pid, "SIGTERM");
+				for (let i = 0; i < 80 && alive(byHand.pid); i++) await sleep(250);
+			}
+			try {
+				const made = installService(dir, cli.env, RELEASE_DIR);
+				cli.out(`Installed as a ${made.kind} service named ${made.name}: it starts at boot and is started again if it dies.${made.kind === "runit" ? " Starting at boot needs the Termux:Boot app, opened once." : ""}`);
+			} catch (error) {
+				return cli.out((error as Error).message), 1;
+			}
+			return (await start(dir, cli)) ? 0 : 1;
+		}
 		case "logs":
 			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet."), 0;
 		default:
-			cli.out("Usage: rho start | stop | status | open | logs [lines] | release [commit] | release --status");
+			cli.out("Usage: rho start | stop | status | open | logs [lines] | service install|uninstall|status | release [commit] | release --status");
 			return 2;
 	}
 }
