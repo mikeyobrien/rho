@@ -314,3 +314,4 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
 - An idle Bun server woke about three times a second in one 20-second sample; Node almost
   never. Unexplained.
 - Research notes behind the memory and check-in items are in `~/TASKS.md` on the phone.
+

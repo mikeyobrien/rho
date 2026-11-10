@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 # A commit goes in only when the type-check and the tests pass (AGENTS.md, "Working here").
 # Turn it on once per checkout: git config core.hooksPath .githooks
+#
+# Git hands a hook its own variables (GIT_DIR, GIT_INDEX_FILE, ...). Tests that run git in
+# scratch repositories must not inherit them, or they act on this repository's index.
+unset $(git rev-parse --local-env-vars)
 exec bun run check
