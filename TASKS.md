@@ -36,8 +36,11 @@ In order. Each item ends in something that can be checked.
    pairing, origin and host checks. Submit (with `requestId`, steer or follow-up), stop, new
    chat, unqueue, model and thinking level, models, earlier entries, health. The stream sends a
    whole `StateView` on each change and a keepalive every 15 s.
-4. **Web page.** Thread, composer, streaming answer, stop, queue, model picker. Markdown
-   rendered without parsing markup.
+4. **Web page.** BUILT 2026-11-10, not yet opened in a real browser: `web/` (plain JavaScript,
+   no build), served by the daemon without a token under a strict content policy. Thread,
+   composer, streaming answer, tool cards, stop, steer and queue with a flip, model and
+   thinking pickers, new chat, earlier messages, a kept "Not sent yet" outbox, safe Markdown
+   with tables. 16 tests run the page's real script against a real daemon on a stand-in DOM.
 5. **Coding tools.** pi-durable's `read`, `write`, `edit`, `bash` over a Node environment, with
    a working directory per conversation. Unverified: that environment under Bun.
 6. **Search tools.** `grep`, `find`, `ls` as tools of their own, so searching does not go
@@ -75,6 +78,57 @@ In order. Each item ends in something that can be checked.
 24. Memory page with review.
 25. Vault, Termux tools, channels (Telegram, email) with effect records.
 26. The phone agent becomes a host for this core.
+
+## Taken from dobo and mov-agent
+
+Asked by the owner 2026-11-10: include the best of pi-dobo (`~/Projects/pi-dobo` on the Linux machine,
+`027da28e`) and mov-agent (`dsh-mov-agent`, same host). Read for this: dobo's philosophy,
+invariants (first 180 lines), heartbeat, asks, steer arbiter (as-built part), memory, principles,
+secrets and notices; mov-agent's README, ingress gate and the head of VERIFICATION.md. Most of
+dobo's source and all of mov-agent's `index.js` were not read.
+
+Built now:
+- A message sent while rho works is a **steer**: it joins the work at its next step and the
+  model decides what it means. The person can make it wait ("Wait for the answer") or bring it
+  forward ("Steer now"); the row says which, once. Alt+Enter queues. (dobo's arbiter as built
+  with no decision model; mov-agent's explicit `/steer` and `/queue`.)
+- **One process owns the data** (dobo I7): `rho.lock` names its owner's pid and start time; a
+  second rho on the directory is refused, and a dead owner's lock is taken over. Tested.
+- **A failed run does not strand what is queued behind it** (dobo I135): `afterFailedRun:
+  "continue"`.
+- Dobo's core rule is in rho's instructions: spend attention only where it changes the outcome;
+  a report is a claim; reversible work goes on and irreversible work waits for a yes.
+
+Already the same, arrived at separately: commit before show; `requestId` makes a resend one
+message; the stream is whole snapshots with a 15 s keepalive; loopback and a token; an
+interrupted tool is not run again; the wire is narrower than the engine.
+
+Goes into tasks already planned:
+- tidy tools: the `reasoning` argument is optional and the tool never reads it (dobo I11).
+- memory: dobo's provider contract; the sticky section; a fact about the person is saved only
+  from the person's own words; a full file is refused, never cut; new entries are scanned for
+  instructions and secrets; every save is said in the reply.
+- check-ins: dobo's heartbeat shape. A pure check in code decides, with no model call while
+  nothing is due; the run is hidden beside the main conversation; "no action" shows nothing;
+  the person's message always goes first and Stop pauses it; off until turned on.
+- guard rails: irreversible actions wait for a yes.
+- self-build gate: the gate checks the commit and the live state itself, not the agent's word.
+- docs: an invariants table where each rule names the test that holds it (dobo); acceptance
+  checks written before the work and "unverified" said plainly (mov-agent's VERIFICATION.md).
+
+New tasks for 2.0 (proposed to the owner as goal tasks):
+- `ask_person`: decisions that wait on the person, durable across restarts and compaction. Ids
+  come from the store; a reversible decision names its default; an irreversible one has none.
+- Notices: one pure rule decides what interrupts (needs you, failed, looks stuck; never a
+  finished reply), sent through `termux-notification` or `notify-send`.
+- `request_secret`: a credential goes from the person to a private file; the agent gets the
+  file's name. This is also how a new user gives rho an API key.
+- A decision log (mov-agent): one bounded line per steer/queue choice and per guard refusal,
+  with no message text.
+
+Not taken for 2.0: compute providers and remote work trees, delegations and workers, the pulse
+feed, the Telegram host, the arbiter's heuristics and judge model, the backlog, review gates,
+principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone app, TLA+ models.
 
 ## Decisions
 

@@ -3,7 +3,7 @@
 // events, each a whole snapshot (view.ts), so a reconnect needs no replay.
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
@@ -24,6 +24,23 @@ export interface Server {
 }
 
 const MAX_BODY = 256 * 1024;
+/** The page's own files. They hold no secrets, so they are served without the token. */
+const WEB_ROOT = resolve(import.meta.dir, "..", "web");
+const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
+const PAGE_HEADERS = {
+	"cache-control": "no-cache",
+	// The page runs only its own scripts and styles and talks only to this server.
+	"content-security-policy": "default-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+	"x-content-type-options": "nosniff",
+	"referrer-policy": "no-referrer",
+};
+async function pageFile(pathname: string): Promise<Response | undefined> {
+	const file = resolve(WEB_ROOT, `.${pathname === "/" ? "/index.html" : pathname}`);
+	if (!file.startsWith(WEB_ROOT + sep) || TYPES[extname(file)] === undefined) return undefined;
+	const blob = Bun.file(file);
+	if (!(await blob.exists())) return undefined;
+	return new Response(blob, { headers: { ...PAGE_HEADERS, "content-type": TYPES[extname(file)]! } });
+}
 const THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 class Refusal extends Error {
 	constructor(readonly status: number, message: string) {
@@ -142,7 +159,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 				if (origin !== null && !origins.has(origin)) return json(403, { error: "This origin is not allowed." });
 				// Only these host names are served, so a DNS name pointed at 127.0.0.1 gets nothing.
 				if (!origins.has(`http://${request.headers.get("host")}`)) return json(403, { error: "This host is not allowed." });
-				if (!url.pathname.startsWith("/api/")) return json(404, { error: "Not found." });
+				if (!url.pathname.startsWith("/api/")) return (request.method === "GET" ? await pageFile(url.pathname) : undefined) ?? json(404, { error: "Not found." });
 
 				if (request.method === "POST" && url.pathname === "/api/pair") {
 					const { code } = await bodyOf(request);

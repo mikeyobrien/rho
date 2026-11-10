@@ -115,6 +115,19 @@ test("a finished tool call is not run again by a restart", async () => {
 	expect(lines(dir, "effects.log")).toEqual(["once"]);
 });
 
+test("one process owns the data: a second rho on the same directory is refused, and a dead owner's lock is taken over", async () => {
+	const dir = scratch([{ tool: "effect", args: { label: "hold" } }, { text: "ok" }]);
+	const first = start(dir, ["req-5", "Hold."], { TOOL_MS: "30000" });
+	await first.until("tool-started");
+	await expect(start(dir).until("open")).rejects.toThrow(/Another rho \(pid \d+\) already runs/);
+	await first.kill(); // its lock stays behind, naming a pid that is gone
+	const idle = await start(dir, undefined, { TOOL_MS: "0" }).until("idle", 40_000);
+	expect(idle.entries.at(-1).text).toBe("ok");
+	// A lock whose pid now belongs to something else (this test) with another start time is stale too.
+	writeFileSync(join(dir, "rho.lock"), `${process.pid} 1`);
+	await start(dir).until("idle");
+}, 60_000);
+
 test("config", () => {
 	expect(parseModel("claude-code/claude-opus-5-5")).toEqual({ provider: "claude-code", modelId: "claude-opus-5-5" });
 	expect(parseModel("openrouter/anthropic/claude")).toEqual({ provider: "openrouter", modelId: "anthropic/claude" });
