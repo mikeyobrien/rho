@@ -237,6 +237,7 @@ export function start(env) {
 		if (existing) return existing;
 		let node;
 		if (entry.role === "divider") node = make("div", { className: "divider", textContent: entry.text });
+		else if (entry.role === "notice") node = make("div", { className: "notice-entry", textContent: entry.text });
 		else if (entry.role === "user") node = make("div", { className: "msg user", textContent: entry.text });
 		else if (entry.role === "tool") node = toolCard(entry.name, calls.get(entry.callId), entry.summary, entry.text, entry.error, entry.diff);
 		else {

@@ -9,6 +9,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { homedir } from "node:os";
 import { projectExtension, type ContextOptions } from "./context.ts";
+import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { guard } from "./tools/guard.ts";
 import { excludeFromSearch, SearchTools } from "./tools/search.ts";
 import { tidy } from "./tools/tidy.ts";
@@ -24,6 +25,8 @@ export interface RhoConfig {
 	model?: string;
 	/** The directory the first conversation works in. Default: the home directory. */
 	cwd?: string;
+	/** Memory: `{ "kind": "file" }` (default), `{ "kind": "honcho", "url": ... }` or `{ "kind": "off" }`. */
+	memory?: unknown;
 	/** Most tool rounds one run takes before it stops and says so. Default: 200. */
 	maxTurns?: number;
 	/** Thinking level for new conversations. Default: medium. */
@@ -63,6 +66,8 @@ export interface CoreOptions {
 	models: Models;
 	config?: RhoConfig;
 	extensions?: readonly Extension[];
+	/** The memory provider to use instead of the configured one; `null` for none. Tests set it. */
+	memory?: MemoryProvider | null;
 	/** The project-context section's clock. Tests change it. */
 	context?: ContextOptions;
 	/** How the web tools reach the web. Tests change it. */
@@ -88,6 +93,8 @@ export interface Core {
 	conversation(id: string): Promise<Conversation | undefined>;
 	/** A new conversation with the configured model, working in `cwd` (default: the configured directory). */
 	create(options?: { cwd?: string }): Promise<ConversationInfo>;
+	/** Put a message the person did not write into a conversation: a gate report, a check-in. The model reads it; memory never takes it as the person's words. */
+	notice(conversation: Conversation, text: string, requestId: string, from: string): Promise<string>;
 	/** Name a conversation that has no name yet, from its first message. */
 	title(id: string, text: string): Promise<void>;
 	close(): Promise<void>;
@@ -145,6 +152,11 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
 	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir)]) registry.install(tidy(extension));
 	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
+	const memory = options.memory === undefined ? openMemory(config, { dir: options.dir, log }) : (options.memory ?? undefined);
+	// Only the person's own conversations are mirrored to memory, not rho's side work.
+	let persons: (id: string) => Promise<boolean> = async () => false;
+	if (memory) registry.install(tidy(memoryExtension(memory, { log, capture: (id) => persons(id) })));
+	log(`memory: ${memory?.label ?? "off"}`);
 	// The person's standing instructions live beside rho's data, where the agent cannot rewrite them.
 	registry.install(projectExtension(home, { personal: join(options.dir, "AGENTS.md"), ...options.context }));
 	const harness = await Harness.open(
@@ -181,6 +193,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 			return { id: info.id, title: info.title, createdAt: info.createdAt };
 		}, context);
 	if (!(await listed()).some((item) => item.id === rootId)) await add(root);
+	persons = async (id) => (await listed()).some((item) => item.id === id);
 	const find = async (id: string): Promise<Conversation | undefined> => {
 		const item = (await listed()).find((candidate) => candidate.id === id);
 		return item ? harness.conversation(item.ref as unknown as ConversationId, context) : undefined;
@@ -199,6 +212,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 		conversation: find,
 		// Two commits: a kill between them leaves a conversation nothing lists, which is harmless.
 		create: async (made = {}) => add(await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { ...fresh(made.cwd ?? home), maxTurns } }, context)),
+		notice: async (conversation, text, requestId, from) =>
+			String((await conversation.submit({ type: "input", content: text, requestId, whenBusy: "followUp", entry: { kind: NOTICE, data: { from } } }, context)).id),
 		title: async (id, text) => {
 			const words = (text.trim().split("\n")[0] ?? "").slice(0, 60);
 			if (words === "" || (await listed()).find((item) => item.id === id)?.title !== "") return;

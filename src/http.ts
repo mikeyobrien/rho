@@ -155,9 +155,14 @@ export async function serve(options: ServerOptions): Promise<Server> {
 	const routes: Record<string, (request: Request, url: URL) => Promise<unknown>> = {
 		"POST /api/submit": async (request, url) => {
 			const { conversation, id } = await channelOf(url);
-			const { text, requestId, whenBusy } = await bodyOf(request);
+			const { text, requestId, whenBusy, from } = await bodyOf(request);
 			if (typeof text !== "string" || text.trim() === "") throw new Refusal(400, "Write a message first.");
 			if (typeof requestId !== "string" || requestId.length < 8 || requestId.length > 100) throw new Refusal(400, "requestId is required: 8 to 100 characters, the same on a resend.");
+			// `from` marks a message the person did not write (the release gate's report).
+			if (from !== undefined) {
+				if (typeof from !== "string" || !/^[a-z-]{1,20}$/.test(from)) throw new Refusal(400, "from is a short lower-case name.");
+				return { ok: true, submissionId: await core.notice(conversation, text, requestId, from) };
+			}
 			const submission = await conversation.submit({ type: "input", content: text, requestId, whenBusy: whenBusy === "steer" ? "steer" : "followUp" }, context);
 			await core.title(id, text);
 			return { ok: true, submissionId: String(submission.id) };

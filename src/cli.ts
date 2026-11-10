@@ -95,7 +95,7 @@ function gateHost(dir: string, cli: CliEnv): GateHost {
 		start: async () => void (await run(["start"], quiet)),
 		healthy: async (commit) => (await running(dir))?.commit === commit,
 		idle: async () => ((await call("/api/conversations")).items as { running: boolean }[]).every((item) => !item.running),
-		notify: async (text, key) => void (await call("/api/submit", { text, requestId: key, whenBusy: "followUp" })),
+		notify: async (text, key) => void (await call("/api/submit", { text, requestId: key, from: "gate" })),
 		log,
 	};
 }

@@ -239,8 +239,41 @@ What this does not show:
 
 ## Soon after: what makes dogfooding pleasant
 
-14. Memory provider contract and the Honcho provider (rewrite of the phone agent's, in
-    TypeScript). Person `<person peer>`, agent `phone-agent`, workspace `<workspace>`.
+14. **Memory.** DONE 2026-11-10: `src/memory/`. One provider is active, named by the `memory`
+    config key; none named means files on this machine.
+    - Contract (`provider.ts`, the same shape as pi-dobo's): `label`, `load()`, optional
+      `observe(turn)`, optional `tools`. The memory section is sticky: read when a conversation
+      starts and after a compaction, then repeated byte for byte. After a run answers, the
+      person's own messages and the final answer go to `observe`; tool rounds do not.
+    - Fail open: a provider that throws, times out or returns nothing costs a log line and an
+      absent section, never a run, and the next request asks again.
+    - `honcho.ts`: reads the person's context (3 s timeout; newest conclusions kept within
+      6,000 characters, the cut said), mirrors turns into session `<agent>-<conversation>`.
+    - `file.ts`: `user.md` and `notes.md` under `<data dir>/memory`, plain Markdown the person
+      can edit. The `memory` tool adds, edits and removes entries, all or nothing. A fact about
+      the person is saved only straight after the person's own message; after a file, a page,
+      a command or a notice it is refused. A save over the cap is refused, never cut. Entries
+      that read as instructions, hold a secret (rho's token included) or hide characters are
+      refused.
+    - Notices: a message the person did not write (the gate's report) is now its own entry
+      kind, `rho.notice`. The model reads it; memory never takes it as the person's words; the
+      page draws it apart. The gate sends its reports this way.
+    Checked: 14 tests (`test/memory.test.ts`) through a real core: byte-identical system
+    messages while the store changes; fail-open three ways; capture of a run; provenance
+    refusals after `read`, `bash` and a notice; caps; the scan; Honcho read and capture
+    against a fake server on loopback, including down, slow and empty.
+    One live read from the owner's Honcho (on another machine of theirs),
+    capture off, nothing written: loaded in 186 ms, 6,020 characters, 20 conclusions dated
+    2026-10-17 to 2026-11-10, with the "older conclusions left out" note. Only sizes and
+    dates were printed.
+    Not checked: capture into the real Honcho (deliberately; it would write to the owner's
+    memory); a live model actually choosing to save, or obeying a refusal; the section's
+    re-read after a real compaction; an answer that lands after a restart is mirrored only
+    if its run-end hook runs again.
+    Open, for the owner: the rho installed on the phone uses the file provider. Pointing it
+    at Honcho is a config change (`"memory": {"kind": "honcho", "url": ..., "user":
+    "<your peer name>", "agent": <a peer name for rho>}`) and starts writing to that workspace.
+    Not built: an external-module provider (dobo has one); migrating rho 1's `brain.jsonl`.
 15. Skills: `SKILL.md` directories listed in a prompt section and loaded with `read`.
 16. A question tool: the model asks the person a structured question and waits.
 17. Notices through `termux-notification`: needs you, failed, looks stuck. Not on done.

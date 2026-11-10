@@ -16,6 +16,7 @@ export type EntryView =
 	| { id: number; role: "user"; text: string }
 	| { id: number; role: "assistant"; text: string; calls: ToolCallView[]; model?: string; cut?: true }
 	| { id: number; role: "tool"; callId: string; name: string; text: string; /** The result in a few words. */ summary: string; /** What an edit changed. */ diff?: string; error?: true }
+	| { id: number; role: "notice"; text: string; /** Who sent it: "gate", "check-in". */ from: string }
 	| { id: number; role: "divider"; text: string };
 
 export interface StateView {
@@ -90,6 +91,7 @@ export function entryView(entry: EntryRecord): EntryView | undefined {
 		const diff = typeof details?.diff === "string" ? details.diff : undefined;
 		return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text, summary: summarize(text, message.isError, diff), ...(diff !== undefined ? { diff } : {}), ...(message.isError ? { error: true as const } : {}) };
 	}
+	if (entry.kind === "rho.notice") return { id, role: "notice", text: textOf(message?.content), from: String((entry.data as { from?: unknown } | undefined)?.from ?? "rho") };
 	if (entry.kind === "pi.reset") return { id, role: "divider", text: "Context cleared" };
 	if (entry.kind === "pi.compaction") return { id, role: "divider", text: "Earlier messages were summarized" };
 	return undefined;

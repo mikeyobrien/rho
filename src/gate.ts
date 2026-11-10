@@ -91,7 +91,7 @@ export async function release(host: GateHost, source: string, ref = "HEAD"): Pro
 		const result = { ...outcome, at: Date.now() };
 		writeFileSync(join(host.dataDir, "release.json"), `${JSON.stringify(result, null, "\t")}\n`, { mode: 0o600 });
 		host.log(`release: ${result.status}${result.reason ? `: ${result.reason.split("\n")[0]}` : ""}`);
-		if (news) await host.notify(`[release gate] ${news}\nThe person did not send this; it is the gate's report.`, `release:${short(result.commit)}:${result.status}`).catch((error) => host.log(`release: could not report: ${(error as Error).message}`));
+		if (news) await host.notify(`[release gate] ${news}`, `release:${short(result.commit)}:${result.status}`).catch((error) => host.log(`release: could not report: ${(error as Error).message}`));
 		return result;
 	};
 	const checked = await preflight(host.releaseDir, source, ref);
