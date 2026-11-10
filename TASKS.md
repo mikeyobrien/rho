@@ -17,6 +17,8 @@ developed by itself, on a phone. Decisions follow from that:
 
 ## Bootstrap: the least that lets rho build rho
 
+All 13 items are done, and the proof at the end of this section was run on 2026-11-10.
+
 Done when: from the web page on the phone, rho makes a commit to this branch that passes
 `bun run check`, restarts onto it, and is still answering.
 
@@ -176,6 +178,64 @@ In order. Each item ends in something that can be checked.
     no service here.
     The wake lock is held for as long as the phone is up. That is the phone agent's design
     debt carried over, not a decision that it should be so.
+
+## The self-build proof (2026-11-10): bootstrap done
+
+Rho is installed on the phone for real: it runs from `~/.rho/v2/release` as the runit service
+`rho` on port 4780, `~/.local/bin/rho` is its command, and its first conversation works in
+`~/projects/rho` on Claude Opus 5.5 through the Claude Code provider.
+
+**From the page in Chrome on the phone** (`bun e2e/selfbuild.ts`, which types into the page
+and taps its buttons through Shizuku):
+
+    19:36:36 page is live: claude-code/claude-opus-5-5
+    19:36:54 asked; waiting for the release to need a yes
+    19:38:38 rho asks: Needs your yes: putting new code into the running rho cd ~/projects/rho && bin/rho release
+    19:38:38 work checkout is at 4eaab82 rho logs with no log yet says to start rho first
+    19:38:38 tapped Allow
+    19:38:46 gate: running (check)
+    19:39:24 gate: running (restart)
+    19:39:26 gate: released
+    19:39:26 rho now runs 4eaab82 (pid 22925); it ran 4ec7e2a (pid 32417)
+    19:40:01 answered after the release: "... rho status ... says the running rho (pid 22925) is on 4eaab82 too."
+
+- The request typed into the page: "When there is no log yet make rho logs print No log yet,
+  start rho first and update the tests, then run bun run check, commit it on v2, and run rho
+  release from this checkout".
+- Rho's commit: `4eaab82` "rho logs with no log yet says to start rho first" (`src/cli.ts`,
+  `test/cli.test.ts`; 3 lines added, 1 removed). It ran `bun run check` and committed through
+  the pre-commit hook, which runs the check again.
+- The gate (`~/.rho/v2/release.log`): check 19:38:45, switch 19:39:24, "Rho is stopped"
+  19:39:24.8, "Rho is running (pid 22925)" 19:39:26.1, released 19:39:26.1.
+- After the restart the page was asked "Run rho version and tell me which commit you run now"
+  and the new rho answered with `4eaab82` and its new pid.
+- `bun run check` run again on `4eaab82` afterwards: 120 pass, 0 fail.
+
+The same loop had run twice before that over HTTP (`bun e2e/selfbuild-http.ts`), while the
+phone's screen was locked: commits `347b24d` (`rho version`) and `4ec7e2a` (`rho status` names
+its commit) are rho's own too, the second released through the gate the same way.
+
+What the first try found, and what was changed:
+- Rho ran `bin/rho release` from its work checkout, whose own gate saw itself as "the checkout
+  rho runs from" and refused. Fixed in `e27239f`: a release typed in any checkout is handed to
+  the rho that is running, and its gate. The work checkout's code is the candidate, not the judge.
+- The phone's keyboard capitalised a word after a full stop, so the page proof now types one
+  sentence and checks the box holds exactly what it typed before it sends.
+- When told its release needed a yes, rho stopped and said what the release would do, as the
+  guard asks. When the release was refused it tried to read rho's data directory to find out
+  why, and the guard refused that; it then reported the refusal plainly.
+
+What this does not show:
+- The person's part was two taps and a typed sentence, done by a script. The script watched
+  for the Allow card and tapped it without reading the diff. A person should read it.
+- The changes were small (1 to 13 lines of code). Nothing here says how rho does on a change
+  that takes many files or a design decision.
+- The answer after the restart came about 35 s after the release: the restarted rho first read
+  the gate's report and the yes that had been queued, then the question.
+- Each Opus turn took several seconds; the whole loop took about three and a half minutes, of
+  which the gate's check was 39 s.
+- Not exercised: a rollback under the real service (tested by hand in a scratch home only); a
+  release while another conversation is working; a reboot of the phone.
 
 ## Soon after: what makes dogfooding pleasant
 
