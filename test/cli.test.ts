@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, type CliEnv } from "../src/cli.ts";
@@ -81,6 +81,21 @@ test("a daemon that cannot start says why", async () => {
 	expect(lines.at(-1)).toContain("Another rho");
 	writeFileSync(join(dir, "daemon.json"), saved); // so the first one can be stopped
 }, 40_000);
+
+test("a release typed in the work checkout is handed to the rho that runs, with the directory it was typed in", async () => {
+	const { cli, lines, dir } = scratch();
+	// A stand-in for the checkout the daemon runs from: its command says what it was given.
+	const running = join(dir, "..", "running-checkout");
+	mkdirSync(join(running, "bin"), { recursive: true });
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(running, "bin", "rho"), 'console.log(`handed: ${process.argv.slice(2).join(" ")} in ${process.cwd()}`); process.exit(7);');
+	writeFileSync(join(dir, "daemon.json"), JSON.stringify({ pid: 1, port: 1, startedAt: 1, root: running }));
+	const typedIn = realpathSync(join(dir, ".."));
+	expect(await run(["release", "abc123"], { ...cli, cwd: typedIn })).toBe(7);
+	expect(lines.at(-1)).toBe(`handed: release abc123 in ${typedIn}`);
+	expect(await run(["release", "--status"], { ...cli, cwd: typedIn })).toBe(7);
+	expect(lines.at(-1)).toBe(`handed: release --status in ${typedIn}`);
+});
 
 test("the installed command runs", async () => {
 	const { cli } = scratch();

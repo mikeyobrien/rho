@@ -1,8 +1,8 @@
 // The `rho` command: start, stop, status, open, logs, version. It talks to the daemon only through its
 // files (daemon.json, pair-code, daemon.log) and its health route, so it works the same whether
 // rho was started by hand or by a service.
-import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { preflight, release, type GateHost } from "./gate.ts";
 import { rhoHome } from "./home.ts";
@@ -16,7 +16,7 @@ export interface CliEnv {
 	/** The directory the command was run in. Default: the process's. */
 	cwd?: string;
 }
-interface DaemonFile { pid: number; port: number; startedAt: number; commit?: string }
+interface DaemonFile { pid: number; port: number; startedAt: number; commit?: string; /** The checkout the daemon runs from. */ root?: string }
 /** The checkout this rho runs from. */
 const RELEASE_DIR = resolve(import.meta.dir, "..");
 
@@ -130,6 +130,14 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			return 0;
 		}
 		case "release": {
+			// A release is done by the rho that runs, with its gate, whichever checkout's command was typed:
+			// the work checkout has a `bin/rho` too, and its code is the candidate, not the judge.
+			const root = daemonFile(dir)?.root;
+			if (root && existsSync(join(root, "bin", "rho")) && realpathSync(root) !== realpathSync(RELEASE_DIR)) {
+				const handed = spawnSync(process.execPath, [join(root, "bin", "rho"), ...args], { cwd: cli.cwd ?? process.cwd(), env: cli.env as NodeJS.ProcessEnv, encoding: "utf8" });
+				cli.out(`${handed.stdout}${handed.stderr}`.trim());
+				return handed.status ?? 1;
+			}
 			const file = join(dir, "release.json");
 			if (args[1] === "--status") return cli.out(existsSync(file) ? readFileSync(file, "utf8").trim() : "No release yet."), 0;
 			const cwd = cli.cwd ?? process.cwd();
