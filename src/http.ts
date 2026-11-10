@@ -167,7 +167,8 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			await core.title(id, text);
 			return { ok: true, submissionId: String(submission.id) };
 		},
-		"POST /api/stop": async (_request, url) => (await (await channelOf(url)).conversation.abort(context), { ok: true }),
+		// Stop also stops a check-in that is running unseen beside the conversations.
+		"POST /api/stop": async (_request, url) => (await Promise.all([(await channelOf(url)).conversation.abort(context), core.reminders?.stop()]), { ok: true }),
 		"POST /api/new": async (_request, url) => (await (await channelOf(url)).conversation.reset(undefined, context), { ok: true }),
 		"POST /api/unqueue": async (request) => {
 			const { id } = await bodyOf(request);
@@ -225,6 +226,12 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		"POST /api/conversations": async (request) => {
 			const { cwd } = await bodyOf(request);
 			return { id: (await core.create(cwd === undefined ? {} : { cwd: directory(cwd) })).id };
+		},
+		"GET /api/reminders": async () => ({ items: (await core.reminders?.list()) ?? [] }),
+		"POST /api/reminders/remove": async (request) => {
+			const { id } = await bodyOf(request);
+			if (typeof id !== "string" || !(await core.reminders?.remove(id))) throw new Refusal(404, "No such reminder.");
+			return { ok: true };
 		},
 		"GET /api/models": async () => ({ items: (await models.getAvailable()).map((model) => ({ id: `${model.provider}/${model.id}`, name: model.name ?? model.id, provider: model.provider })) }),
 		"GET /api/earlier": async (_request, url) => {

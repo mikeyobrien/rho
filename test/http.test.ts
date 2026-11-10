@@ -83,7 +83,7 @@ async function follow(done: (state: StateView, all: StateView[]) => boolean, ms 
 const idleWith = (count: number) => (state: StateView) => !state.running && state.entries.length >= count;
 
 test("every API call needs the token; the files that hold secrets are private", async () => {
-	for (const path of ["/api/health", "/api/events", "/api/models", "/api/earlier?before=5"]) expect((await call(path, undefined, {})).status).toBe(401);
+	for (const path of ["/api/health", "/api/events", "/api/models", "/api/reminders", "/api/earlier?before=5"]) expect((await call(path, undefined, {})).status).toBe(401);
 	expect((await call("/api/submit", { text: "hi", requestId: "12345678" }, {})).status).toBe(401);
 	expect((await call("/api/health", undefined, { authorization: "Bearer wrong" })).status).toBe(401);
 	expect((await call("/api/health")).status).toBe(200);
@@ -216,4 +216,15 @@ test("the working directory is shown and can be changed to a directory that exis
 	expect(await (await call("/api/cwd", { path: join(dir, "missing") })).json()).toEqual({ error: "That directory does not exist." });
 	expect((await call("/api/cwd", { path: dir })).status).toBe(200);
 	expect((await follow((state) => state.cwd === dir)).at(-1)!.cwd).toBe(dir);
+});
+
+test("reminders are listed and removed over the API", async () => {
+	expect(await (await call("/api/reminders")).json()).toEqual({ items: [] });
+	const added = await core.reminders!.add({ text: "Check the build", every: "2h" });
+	const { items } = (await (await call("/api/reminders")).json()) as { items: { id: string; text: string }[] };
+	expect(items.map((item) => [item.id, item.text])).toEqual([[added.id, "Check the build"]]);
+	expect((await call("/api/reminders/remove", { id: "nope" })).status).toBe(404);
+	expect((await call("/api/reminders/remove", {})).status).toBe(404);
+	expect((await call("/api/reminders/remove", { id: added.id })).status).toBe(200);
+	expect(await (await call("/api/reminders")).json()).toEqual({ items: [] });
 });

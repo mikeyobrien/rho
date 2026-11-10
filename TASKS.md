@@ -284,7 +284,37 @@ What this does not show:
 
 ## Rho's own features, after it can build itself
 
-22. Check-ins: a sleeping task, due-ness decided in code, a missed one fires once.
+22. Check-ins: a sleeping task, due-ness decided in code, a missed one fires once. **Done**
+    (`src/checkins.ts`, `test/checkins.test.ts`).
+    - The agent keeps reminders with the `reminder` tool (add with `every`, `daily` or `at`;
+      remove; list). They are stored in a session document. `GET /api/reminders` and
+      `POST /api/reminders/remove` let a client see and remove them. `"checkins": false` in the
+      config turns the feature off; `"checkins": {"maxTurns": n}` sets the limit (default 20).
+    - One durable task sleeps until the earliest reminder is due. `dueReminders` and `nextDue`
+      are pure functions; no model is called while nothing is due.
+    - A due reminder moves to its next time in the commit that starts the run, past every time
+      it missed, so a missed check-in fires once.
+    - The run happens in a conversation of its own with a turn limit. Its answer reaches the
+      first conversation as a `rho.notice` the model reads on its next turn. An answer of
+      "nothing to report" is shown to nobody. Stop ends a running check-in quietly.
+    - Checked by 16 tests on a clock the test moves, with real durable sleeps: nothing runs one
+      minute early; a due one runs once; several due together run as one; a reminder added
+      later and due sooner fires at its own time; the turn limit ends a looping run and says so;
+      a clean restart starts no extra run. Two tests kill a second process with SIGKILL: asleep
+      and down for six of its hours (one model call after the restart, next time is the seventh
+      hour), and mid-answer (the next process finishes that one check-in and starts no other).
+    - Checked by hand on Haiku, twice: a log with a failed backup was reported in 124
+      characters; a clean log gave "nothing to report" and no notice (7–9 s each).
+    - Not checked: a real sleep of hours on the phone under Android's battery limits; a
+      daylight-saving change for `daily`; `daily` uses the machine's time zone and a move
+      between zones is not handled; many reminders (the cap is 50); the model actually setting
+      a sensible reminder when asked in conversation; the kill tests failed once in an early
+      run, before a sign error in the test fixture's clock was fixed, and have passed in every
+      run since (nine runs under load).
+    - Not built: the page does not list reminders yet (the agent lists them when asked); a
+      check-in cannot ask for approval, so a guarded action in a check-in is refused and
+      reported; check-ins report only to the first conversation; no phone notification
+      (the notices task).
 23. Transcript search tool over stored entries.
 24. Memory page with review.
 25. Vault, Termux tools, channels (Telegram, email) with effect records.

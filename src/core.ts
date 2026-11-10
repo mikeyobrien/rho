@@ -5,9 +5,11 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
 import { createRegistry, defineDoc, Harness, type Conversation, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import type { HarnessOptions } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { homedir } from "node:os";
+import { checkins as checkinFeature, type Reminder, type ReminderSpec } from "./checkins.ts";
 import { projectExtension, type ContextOptions } from "./context.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { guard } from "./tools/guard.ts";
@@ -27,6 +29,8 @@ export interface RhoConfig {
 	cwd?: string;
 	/** Memory: `{ "kind": "file" }` (default), `{ "kind": "honcho", "url": ... }` or `{ "kind": "off" }`. */
 	memory?: unknown;
+	/** Check-ins (reminders rho runs unattended). `false` turns them off. */
+	checkins?: boolean | { maxTurns?: number };
 	/** Most tool rounds one run takes before it stops and says so. Default: 200. */
 	maxTurns?: number;
 	/** Thinking level for new conversations. Default: medium. */
@@ -68,6 +72,8 @@ export interface CoreOptions {
 	extensions?: readonly Extension[];
 	/** The memory provider to use instead of the configured one; `null` for none. Tests set it. */
 	memory?: MemoryProvider | null;
+	/** The clock and timers everything durable runs on. Tests change it. */
+	clock?: { now: () => number; setTimer?: HarnessOptions["setTimer"] };
 	/** The project-context section's clock. Tests change it. */
 	context?: ContextOptions;
 	/** How the web tools reach the web. Tests change it. */
@@ -85,6 +91,8 @@ const Conversations = defineDoc<{ items: (ConversationInfo & { ref: string | num
 
 export interface Core {
 	harness: Harness;
+	/** The reminder book; undefined when check-ins are off. */
+	reminders?: { list(): Promise<Reminder[]>; add(spec: ReminderSpec): Promise<Reminder>; remove(id: string): Promise<Reminder | undefined>; stop(): Promise<boolean> };
 	/** The first conversation; it always exists. */
 	root: Conversation;
 	rootId: string;
@@ -157,6 +165,9 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	let persons: (id: string) => Promise<boolean> = async () => false;
 	if (memory) registry.install(tidy(memoryExtension(memory, { log, capture: (id) => persons(id) })));
 	log(`memory: ${memory?.label ?? "off"}`);
+	const now = options.clock?.now ?? Date.now;
+	const reminders = config.checkins === false ? undefined : checkinFeature({ now, log, noticeKind: NOTICE, maxTurns: typeof config.checkins === "object" ? config.checkins.maxTurns : undefined });
+	if (reminders) registry.install(tidy(reminders.extension));
 	// The person's standing instructions live beside rho's data, where the agent cannot rewrite them.
 	registry.install(projectExtension(home, { personal: join(options.dir, "AGENTS.md"), ...options.context }));
 	const harness = await Harness.open(
@@ -167,6 +178,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 			identity: { attribution: { name: "rho", url: "https://rhobot.dev" } },
 			// A run that fails does not strand the messages queued behind it: the next run takes them.
 			settings: { afterFailedRun: "continue" },
+			...(options.clock ? { now: options.clock.now, ...(options.clock.setTimer ? { setTimer: options.clock.setTimer } : {}) } : {}),
 			// Each conversation's tools work in that conversation's own directory.
 			env: ({ cwd }) => (options.env ?? ((dir: string) => new NodeExecutionEnv({ cwd: dir })))(cwd ?? home),
 			onReport: (report) => {
@@ -203,9 +215,11 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 		const conversation = await find(item.id);
 		if (conversation && (await conversation.agent(context)).maxTurns !== maxTurns) await conversation.configure({ maxTurns }, context);
 	}
+	await reminders?.attach(harness, root, context); // before scheduling starts, so one task holds the book
 	harness.resume();
 	return {
 		harness,
+		reminders: reminders ? { list: reminders.list, add: reminders.add, remove: reminders.remove, stop: reminders.stop } : undefined,
 		root,
 		rootId,
 		conversations: async () => (await listed()).map(({ id, title, createdAt }) => ({ id, title, createdAt })),

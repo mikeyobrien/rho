@@ -64,7 +64,7 @@ test("write, read, edit and bash work in the conversation's directory", async ()
 test("every tool takes an optional reasoning argument, and the wire view carries it apart from the arguments", async () => {
 	const { core, work, turn, entries } = await open();
 	const tools = (await core.root.agent(context)).tools;
-	expect(tools.map((tool) => tool.name).sort()).toEqual(["bash", "edit", "fetch_content", "find", "grep", "ls", "memory", "read", "web_search", "write"]);
+	expect(tools.map((tool) => tool.name).sort()).toEqual(["bash", "edit", "fetch_content", "find", "grep", "ls", "memory", "read", "reminder", "web_search", "write"]);
 	for (const tool of tools) {
 		const schema = tool.parameters as { properties: Record<string, { type?: string }>; required?: string[] };
 		expect([tool.name, schema.properties.reasoning?.type]).toEqual([tool.name, "string"]);
