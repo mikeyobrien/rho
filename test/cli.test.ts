@@ -29,6 +29,8 @@ test("start, status and stop; a second start changes nothing", async () => {
 	const { cli, lines, dir } = scratch();
 	expect(await run(["status"], cli)).toBe(1);
 	expect(lines.at(-1)).toBe("Not running.");
+	expect(await run(["logs"], cli)).toBe(0); // never started: there is no log, and that is not an error
+	expect(lines.at(-1)).toBe("No log yet, start rho first.");
 	expect(await run(["start"], cli)).toBe(0);
 	expect(lines.at(-1)).toMatch(/^Rho is running \(pid \d+\) at http:\/\/127\.0\.0\.1:\d+\.$/);
 	const pid = JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8")).pid as number;

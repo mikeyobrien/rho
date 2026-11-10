@@ -199,7 +199,7 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			return cli.out(`${commit}${differs}`), 0;
 		}
 		case "logs":
-			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet."), 0;
+			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet, start rho first."), 0;
 		default:
 			cli.out("Usage: rho start | stop | status | open | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
 			return 2;
