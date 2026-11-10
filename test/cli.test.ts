@@ -88,3 +88,11 @@ test("the installed command runs", async () => {
 	expect(result.stdout.toString().trim()).toBe("Not running.");
 	expect(result.exitCode).toBe(1);
 });
+
+test("version prints the commit of the checkout rho runs from", async () => {
+	const { cli, lines } = scratch();
+	const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: join(import.meta.dir, "..") }).stdout.toString().trim();
+	expect(head).toMatch(/^[0-9a-f]{40}$/);
+	expect(await run(["version"], cli)).toBe(0);
+	expect(lines.at(-1)).toBe(head); // not running, so nothing more to say
+});

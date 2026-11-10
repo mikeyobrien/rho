@@ -1,4 +1,4 @@
-// The `rho` command: start, stop, status, open, logs. It talks to the daemon only through its
+// The `rho` command: start, stop, status, open, logs, version. It talks to the daemon only through its
 // files (daemon.json, pair-code, daemon.log) and its health route, so it works the same whether
 // rho was started by hand or by a service.
 import { spawn } from "node:child_process";
@@ -180,10 +180,19 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			}
 			return (await start(dir, cli)) ? 0 : 1;
 		}
+		case "version": {
+			// The checkout's commit is what the next start runs; the running daemon says its own.
+			const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: RELEASE_DIR });
+			if (head.exitCode !== 0) return cli.out(`The commit of ${RELEASE_DIR} is not known: it is not a git checkout.`), 1;
+			const commit = head.stdout.toString().trim();
+			const now = await running(dir);
+			const differs = now?.commit && now.commit !== commit ? ` The running rho is still ${now.commit.slice(0, 7)}; it runs ${commit.slice(0, 7)} after a restart.` : "";
+			return cli.out(`${commit}${differs}`), 0;
+		}
 		case "logs":
 			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet."), 0;
 		default:
-			cli.out("Usage: rho start | stop | status | open | logs [lines] | service install|uninstall|status | release [commit] | release --status");
+			cli.out("Usage: rho start | stop | status | open | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
 			return 2;
 	}
 }
