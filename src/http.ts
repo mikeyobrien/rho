@@ -8,9 +8,11 @@ import { existsSync, readFileSync, statSync, writeFileSync, renameSync } from "n
 import { extname, isAbsolute, join, resolve, sep } from "node:path";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { LiveDoc, type Conversation } from "@earendil-works/pi-durable";
+import type { ImageProcessor } from "@earendil-works/pi-durable/tools";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
 import { answerApproval, Approvals } from "./tools/guard.ts";
+import { MAX_PHOTO_BYTES, PhotoRefused, takePhotos } from "./photos.ts";
 import { setupOf } from "./providers.ts";
 import { entryView, stateView, type StateView } from "./view.ts";
 
@@ -21,6 +23,8 @@ export interface ServerOptions {
 	port: number;
 	/** The commit this rho runs, when it runs from a git checkout. The release gate reads it. */
 	commit?: string;
+	/** Scales a photo that is larger than a model takes. Without one, such a photo is refused. */
+	images?: ImageProcessor;
 	log?: (line: string) => void;
 }
 export interface Server {
@@ -31,6 +35,8 @@ export interface Server {
 }
 
 const MAX_BODY = 256 * 1024;
+/** The most a message with photos may weigh, as sent: two full-size photos in base64, or more smaller ones. */
+const MAX_UPLOAD = Math.ceil(MAX_PHOTO_BYTES / 3) * 4 * 2 + MAX_BODY;
 /** The page's own files. They hold no secrets, so they are served without the token. */
 const WEB_ROOT = resolve(import.meta.dir, "..", "web");
 const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json" };
@@ -61,11 +67,18 @@ const same = (a: string, b: string): boolean => {
 };
 const json = (status: number, value: unknown) => Response.json(value, { status, headers: { "cache-control": "no-store" } });
 
-async function bodyOf(request: Request): Promise<Record<string, unknown>> {
-	// Refused by its declared size before it is read; the server's own limit bounds a body that declares none.
-	if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY * 4) throw new Refusal(413, "The message is too long.");
-	const text = await request.text();
-	if (text.length > MAX_BODY) throw new Refusal(413, "The message is too long.");
+async function bodyOf(request: Request, limit: { bytes: number; chars: number; words: string } = { bytes: MAX_BODY * 4, chars: MAX_BODY, words: "The message is too long." }): Promise<Record<string, unknown>> {
+	// Refused by its declared size before it is read; one that declares none is cut off as it is read.
+	if (Number(request.headers.get("content-length") ?? 0) > limit.bytes) throw new Refusal(413, limit.words);
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for await (const chunk of (request.body ?? []) as AsyncIterable<Uint8Array>) {
+		size += chunk.length;
+		if (size > limit.bytes) throw new Refusal(413, limit.words);
+		chunks.push(chunk);
+	}
+	const text = Buffer.concat(chunks).toString("utf8");
+	if (text.length > limit.chars) throw new Refusal(413, limit.words);
 	try {
 		const value = JSON.parse(text || "{}") as unknown;
 		if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
@@ -181,16 +194,32 @@ export async function serve(options: ServerOptions): Promise<Server> {
 	const routes: Record<string, (request: Request, url: URL) => Promise<unknown>> = {
 		"POST /api/submit": async (request, url) => {
 			const { conversation, id } = await channelOf(url);
-			const { text, requestId, whenBusy, from } = await bodyOf(request);
-			if (typeof text !== "string" || text.trim() === "") throw new Refusal(400, "Write a message first.");
+			const { text = "", requestId, whenBusy, from, images } = await bodyOf(request, { bytes: MAX_UPLOAD, chars: MAX_UPLOAD, words: "Those photos are too large to send together. Send fewer at a time." });
+			// A photo may go without words; nothing else may.
+			if (typeof text !== "string" || (text.trim() === "" && (images === undefined || from !== undefined))) throw new Refusal(400, "Write a message first.");
+			if (text.length > MAX_BODY) throw new Refusal(413, "The message is too long.");
 			if (typeof requestId !== "string" || requestId.length < 8 || requestId.length > 100) throw new Refusal(400, "requestId is required: 8 to 100 characters, the same on a resend.");
 			// `from` marks a message the person did not write (the release gate's report).
 			if (from !== undefined) {
 				if (typeof from !== "string" || !/^[a-z-]{1,20}$/.test(from)) throw new Refusal(400, "from is a short lower-case name.");
 				return { ok: true, submissionId: await core.notice(conversation, text, requestId, from) };
 			}
-			const submission = await conversation.submit({ type: "input", content: text, requestId, whenBusy: whenBusy === "steer" ? "steer" : "followUp" }, context);
-			await core.title(id, text);
+			let content: string | ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = text;
+			if (images !== undefined) {
+				// Said now, in words, rather than by a provider's error after the photo is in the thread.
+				const ref = (await conversation.agent(context)).model;
+				const model = ref && (await models.getAvailable()).find((known) => known.provider === ref.provider && known.id === ref.modelId);
+				if (model && !model.input.includes("image")) throw new Refusal(400, "This conversation's model does not take photos. Choose another model in the menu.");
+				try {
+					// Pictures first, then the words about them.
+					content = [...(await takePhotos(images, options.images)), ...(text.trim() === "" ? [] : [{ type: "text" as const, text }])];
+				} catch (error) {
+					if (error instanceof PhotoRefused) throw new Refusal(400, error.message);
+					throw error;
+				}
+			}
+			const submission = await conversation.submit({ type: "input", content, requestId, whenBusy: whenBusy === "steer" ? "steer" : "followUp" }, context);
+			await core.title(id, text.trim() === "" ? "Photo" : text);
 			return { ok: true, submissionId: String(submission.id) };
 		},
 		// Stop also stops a check-in that is running unseen beside the conversations.
@@ -273,12 +302,25 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			const page = await (await channelOf(url)).conversation.entries({ maxEntryId: (before - 1) as never, order: "descending" }, 40, undefined, context);
 			return { entries: page.items.flatMap((entry) => entryView(entry) ?? []).reverse(), more: page.items.length === 40 };
 		},
+		// One photo of one of the person's own messages. The stream names how many there are; the
+		// picture itself is sent only when asked for, to a client that holds the token.
+		"GET /api/image": async (_request, url) => {
+			const entry = Number(url.searchParams.get("entry"));
+			const n = Number(url.searchParams.get("n") ?? 0);
+			if (!Number.isSafeInteger(entry) || entry < 1 || !Number.isSafeInteger(n) || n < 0) throw new Refusal(400, "entry and n are required: the message's id and the photo's place in it.");
+			const page = await (await channelOf(url)).conversation.entries({ minEntryId: entry as never, maxEntryId: entry as never, order: "ascending" }, 1, undefined, context);
+			const found = page.items[0];
+			const message = found?.kind === "pi.user" ? found.model?.[0] : undefined;
+			const photo = message?.role === "user" && Array.isArray(message.content) ? message.content.filter((part) => part.type === "image")[n] : undefined;
+			if (!photo) throw new Refusal(404, "No such photo.");
+			return { mimeType: photo.mimeType, data: photo.data };
+		},
 		"GET /api/health": async () => ({ ok: true, pid: process.pid, startedAt }),
 	};
 
 	const startedAt = Date.now();
 	const server = Bun.serve({
-		maxRequestBodySize: MAX_BODY * 4,
+		maxRequestBodySize: MAX_UPLOAD,
 		hostname: "127.0.0.1",
 		port: options.port,
 		idleTimeout: 0,

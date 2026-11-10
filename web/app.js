@@ -4,10 +4,22 @@ import { renderMarkdown } from "./markdown.js";
 
 const IDLE_MS = 30_000; // the daemon sends a keepalive every 15 s; this long with nothing is a dead path
 const THINKING = ["low", "medium", "high", "xhigh", "max"];
+// Photos. The daemon checks all of this again; here it only saves a refused upload.
+const MAX_PHOTOS = 4;
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_CHARS = 26 * 1024 * 1024; // base64 of all photos of one message together
+const PHOTO_TYPE = /^image\/(jpeg|png|gif|webp)$/;
+const count = (n) => (n === 1 ? "1 photo" : `${n} photos`);
+function toBase64(bytes) {
+	const parts = [];
+	for (let i = 0; i < bytes.length; i += 8192) parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 8192))); // in pieces: megabytes of arguments overflow the stack
+	return btoa(parts.join(""));
+}
 
 /**
  * Start the page. `env` is what it touches of the browser: `document`, `storage` (localStorage),
- * `location`, `history`, `fetch`, and optionally `touch` and `visible()`. Returns `stop()`.
+ * `location`, `history`, `fetch`, and optionally `touch`, `visible()` and `shrink(file)`, which
+ * makes a large photo smaller before it is sent. Returns `stop()`.
  */
 export function start(env) {
 	const { document, storage, location, history } = env;
@@ -18,6 +30,7 @@ export function start(env) {
 		notice: $("notice"), noticeText: $("notice-text"), queue: $("queue"), composer: $("composer"), input: $("input"), send: $("send"),
 		menuButton: $("menu-button"), menu: $("menu"), model: $("model"), thinking: $("thinking"), newChat: $("new-chat"),
 		conversations: $("conversations"), newConversation: $("new-conversation"),
+		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -41,7 +54,18 @@ export function start(env) {
 	let conversation = store.get("conversation", ""); // the open conversation; "" is the first one
 	let state; // the newest snapshot from the daemon
 	let connection = "connecting"; // connecting | live | offline | unpaired
-	let outbox = store.get("outbox", []); // [{ requestId, text }] not yet accepted by the daemon
+	let outbox = store.get("outbox", []); // [{ requestId, text, images? }] not yet accepted by the daemon
+	// Photos are too large for the browser's storage, so a kept message is stored without them and
+	// says how many it had. One found that way after a reload is not sent short: its words go back in the box.
+	const keepOutbox = () => store.set("outbox", outbox.map(({ images, ...item }) => (images ? { ...item, photos: images.length } : item)));
+	const lostPhotos = outbox.filter((item) => item.photos);
+	if (lostPhotos.length > 0) {
+		outbox = outbox.filter((item) => !item.photos);
+		keepOutbox();
+		if (store.get("draft", "") === "") store.set("draft", lostPhotos.map((item) => item.text).filter(Boolean).join("\n\n"));
+	}
+	let chosen = []; // [{ type, data }] photos picked for the next message; in memory only
+	let reading = 0; // photos still being read from the device
 	const known = new Map(); // entry id -> entry, including older pages
 	let moreEarlier = false;
 	let sending = false;
@@ -74,7 +98,7 @@ export function start(env) {
 			if (token !== "" && token !== data.token && outbox.length > 0) {
 				store.set("draft", outbox.map((item) => item.text).join("\n\n"));
 				outbox = [];
-				store.set("outbox", outbox);
+				keepOutbox();
 			}
 			if (token !== data.token) {
 				conversation = ""; // another rho has other conversations
@@ -171,15 +195,19 @@ export function start(env) {
 				const item = outbox[0];
 				try {
 					// A kept message goes to the conversation it was written in, whichever is open now.
-					await api("submit", { text: item.text, requestId: item.requestId, whenBusy: item.mode ?? "steer" }, item.c ?? "");
+					await api("submit", { text: item.text, requestId: item.requestId, whenBusy: item.mode ?? "steer", ...(item.images ? { images: item.images.map((photo) => ({ data: photo.data })) } : {}) }, item.c ?? "");
 				} catch (error) {
 					if (error.status === undefined) return; // not reached: it stays "Not sent yet" and goes again later
-					// The daemon refused it: give the words back instead of losing them.
+					// The daemon refused it: give the words and the photos back instead of losing them.
 					if (el.input.value.trim() === "") setDraft(item.text);
+					if (item.images && chosen.length === 0) {
+						chosen = item.images;
+						renderChosen();
+					}
 					flash(error.message);
 				}
 				outbox = outbox.slice(1);
-				store.set("outbox", outbox);
+				keepOutbox();
 				render();
 			}
 		} finally {
@@ -189,9 +217,9 @@ export function start(env) {
 
 	// A message sent while rho works joins the work in hand at its next step ("steer"); the
 	// person can make it wait for the answer instead ("followUp"). Idle, both start a run.
-	function submit(text, mode = "steer") {
-		outbox = [...outbox, { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`, text, mode, c: conversation }];
-		store.set("outbox", outbox);
+	function submit(text, mode = "steer", images = []) {
+		outbox = [...outbox, { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`, text, mode, c: conversation, ...(images.length > 0 ? { images } : {}) }];
+		keepOutbox();
 		stick = true;
 		render();
 		void flushOutbox();
@@ -232,13 +260,39 @@ export function start(env) {
 		return card;
 	}
 
+	const picture = (n, src) => make("img", { className: "photo", alt: `Photo ${n + 1}`, ...(src ? { src } : {}) });
+	const sourceOf = (photo) => `data:${photo.type};base64,${photo.data}`;
+	/** A message of the person's: its photos, then its words. */
+	function bubble(className, text, pictures) {
+		if (pictures.length === 0) return make("div", { className, textContent: text });
+		const node = make("div", { className });
+		const row = make("div", { className: "photos" });
+		row.append(...pictures);
+		node.append(row);
+		if (text !== "") node.append(make("div", { textContent: text }));
+		return node;
+	}
+	/** A sent photo. The stream says only that it exists; the picture is asked for once, with the token. */
+	function sentPhoto(entry, n) {
+		const img = picture(n);
+		api(`image?entry=${entry.id}&n=${n}`).then(
+			(photo) => {
+				if (PHOTO_TYPE.test(photo.mimeType)) img.src = `data:${photo.mimeType};base64,${photo.data}`;
+			},
+			() => {
+				img.alt = `Photo ${n + 1} could not be loaded`;
+			},
+		);
+		return img;
+	}
+
 	function nodeFor(entry, calls) {
 		const existing = rendered.get(entry.id);
 		if (existing) return existing;
 		let node;
 		if (entry.role === "divider") node = make("div", { className: "divider", textContent: entry.text });
 		else if (entry.role === "notice") node = make("div", { className: "notice-entry", textContent: entry.text });
-		else if (entry.role === "user") node = make("div", { className: "msg user", textContent: entry.text });
+		else if (entry.role === "user") node = bubble("msg user", entry.text, Array.from({ length: entry.images ?? 0 }, (_, n) => sentPhoto(entry, n)));
 		else if (entry.role === "tool") node = toolCard(entry.name, calls.get(entry.callId), entry.summary, entry.text, entry.error, entry.diff);
 		else {
 			node = make("div", { className: "msg assistant" });
@@ -263,7 +317,7 @@ export function start(env) {
 
 		const live = [];
 		for (const item of outbox.filter((kept) => (kept.c ?? "") === conversation)) {
-			live.push(make("div", { className: "msg user unsent", textContent: item.text }));
+			live.push(bubble("msg user unsent", item.text, (item.images ?? []).map((photo, n) => picture(n, sourceOf(photo)))));
 			live.push(note(connection === "live" ? "Sending" : "Not sent yet", "note unsent-note"));
 		}
 		for (const ask of state?.approvals ?? []) {
@@ -301,7 +355,8 @@ export function start(env) {
 				const row = make("li", {});
 				const steer = item.mode === "steer";
 				row.append(make("span", { className: "chip", textContent: steer ? "Steer · next step" : "Queued · after the answer" }));
-				row.append(make("span", { className: "queued-text", textContent: item.text }));
+				const words = [item.images ? count(item.images) : "", item.text].filter(Boolean).join(" · ");
+				row.append(make("span", { className: "queued-text", textContent: words }));
 				const flip = make("button", { type: "button", textContent: steer ? "Wait for the answer" : "Steer now" });
 				flip.addEventListener("click", async () => {
 					try {
@@ -312,16 +367,19 @@ export function start(env) {
 					}
 				});
 				const remove = make("button", { type: "button", textContent: "Remove" });
-				remove.setAttribute("aria-label", `Remove waiting message: ${item.text.slice(0, 60)}`);
+				remove.setAttribute("aria-label", `Remove waiting message: ${words.slice(0, 60)}`);
 				remove.addEventListener("click", async () => {
 					try {
 						const { result } = await api("unqueue", { id: item.id });
-						if (result === "aborted" && el.input.value.trim() === "") setDraft(item.text); // give the words back
+						if (result !== "aborted") return;
+						if (el.input.value.trim() === "") setDraft(item.text); // give the words back
+						if (item.images) flash(`Removed. Its ${count(item.images)} would need adding again.`);
 					} catch (error) {
 						flash(error.message);
 					}
 				});
-				row.append(remove, flip);
+				// The page no longer holds a waiting message's photos, so it cannot take it back and send it another way.
+				row.append(...(item.images ? [remove] : [remove, flip]));
 				return row;
 			}),
 		);
@@ -362,13 +420,75 @@ export function start(env) {
 	}
 
 	function renderSend() {
-		const hasWords = el.input.value.trim() !== "";
+		const hasWords = el.input.value.trim() !== "" || chosen.length > 0 || reading > 0;
 		const stop = Boolean(state?.running) && !hasWords;
 		el.send.textContent = stop ? "Stop" : "Send";
 		el.send.setAttribute("aria-label", stop ? "Stop" : state?.running ? "Send to the work in hand" : "Send");
 		el.send.classList.toggle("stop", stop);
-		el.send.disabled = !stop && !hasWords;
+		el.send.disabled = reading > 0 || (!stop && !hasWords); // a photo still being read would be left behind
 	}
+
+	// --- photos ----------------------------------------------------------------------------------
+	function renderChosen() {
+		el.photos.replaceChildren(
+			...chosen.map((photo, n) => {
+				const row = make("li", {});
+				const remove = make("button", { type: "button", textContent: "Remove" });
+				remove.setAttribute("aria-label", `Remove photo ${n + 1}`);
+				remove.addEventListener("click", () => {
+					chosen = chosen.filter((kept) => kept !== photo);
+					renderChosen();
+				});
+				row.append(picture(n, sourceOf(photo)), remove);
+				return row;
+			}),
+		);
+		renderSend();
+	}
+	async function addPhotos(files) {
+		for (const file of files) {
+			if (chosen.length + reading >= MAX_PHOTOS) {
+				flash(`A message takes up to ${MAX_PHOTOS} photos.`);
+				break;
+			}
+			// A picker that names no type is believed; the daemon reads the bytes either way.
+			if (file.type !== "" && !PHOTO_TYPE.test(file.type)) {
+				flash("That is not a JPEG, PNG, GIF or WebP picture.");
+				continue;
+			}
+			reading++;
+			renderSend();
+			try {
+				// A camera photo is made smaller here, where the device does it in a moment; the daemon
+				// can do it too, but slowly. If that fails the photo goes as it is.
+				const ready = (await env.shrink?.(file).catch(() => undefined)) ?? file;
+				if (ready.size > MAX_PHOTO_BYTES) {
+					flash(`That photo is too large: the most is ${MAX_PHOTO_BYTES / 1024 / 1024} MB.`);
+					continue;
+				}
+				const data = toBase64(new Uint8Array(await ready.arrayBuffer()));
+				if (chosen.reduce((sum, photo) => sum + photo.data.length, data.length) > MAX_UPLOAD_CHARS) flash("Those photos are too large to send together. Send fewer at a time.");
+				else chosen = [...chosen, { type: ready.type || file.type || "image/jpeg", data }];
+			} catch {
+				flash("That photo could not be read.");
+			} finally {
+				reading--;
+			}
+		}
+		renderChosen();
+	}
+	el.attach.addEventListener("click", () => el.photoInput.click());
+	el.photoInput.addEventListener("change", async () => {
+		const files = [...(el.photoInput.files ?? [])];
+		el.photoInput.value = ""; // so the same photo can be picked again
+		await addPhotos(files);
+	});
+	el.input.addEventListener("paste", async (event) => {
+		const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
+		if (files.length === 0) return; // pasted words go the usual way
+		event.preventDefault();
+		await addPhotos(files);
+	});
 
 	// --- composer --------------------------------------------------------------------------------
 	let nextMode = "steer";
@@ -397,7 +517,8 @@ export function start(env) {
 	el.composer.addEventListener("submit", async (event) => {
 		event.preventDefault();
 		const text = el.input.value.trim();
-		if (text === "") {
+		if (reading > 0) return;
+		if (text === "" && chosen.length === 0) {
 			if (!state?.running) return;
 			try {
 				await api("stop", {});
@@ -406,8 +527,11 @@ export function start(env) {
 			}
 			return;
 		}
+		const images = chosen;
+		chosen = [];
+		renderChosen();
 		setDraft("");
-		submit(text, nextMode);
+		submit(text, nextMode, images);
 		nextMode = "steer";
 	});
 
@@ -532,6 +656,7 @@ export function start(env) {
 	renderStatus();
 	const ready = pair().then(() => {
 		setDraft(store.get("draft", ""));
+		if (lostPhotos.length > 0) flash("A message with photos was not sent before the page closed. Add the photos again.");
 		void stream();
 	});
 	return {

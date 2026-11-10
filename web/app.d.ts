@@ -7,5 +7,7 @@ export interface PageEnv {
 	fetch(path: string, init?: RequestInit): Promise<Response>;
 	touch?: boolean;
 	visible?(): boolean;
+	/** A smaller copy of a photo, or the photo itself when it needs none. */
+	shrink?(file: Blob): Promise<Blob>;
 }
 export function start(env: PageEnv): { ready: Promise<void>; stop(): void };

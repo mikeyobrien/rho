@@ -17,6 +17,8 @@ Rho 1 is on the `main` branch; see [MIGRATION.md](MIGRATION.md) if you use it.
   reboot, rho continues the answer or the tool call it was in.
 - **Works on code.** Tools: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`,
   `web_search`, `fetch_content`. Each conversation has its own working directory.
+- **Sees photos.** Add up to four photos to a message with the + button, or paste a
+  screenshot. Large ones are made smaller before they are sent to the model.
 - **Asks before what cannot be undone.** `git push`, publishing a package, and merging or
   releasing on GitHub wait for you to press Allow.
 - **Remembers.** A small memory of facts about you and your projects is put in front of the

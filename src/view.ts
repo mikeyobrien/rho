@@ -13,7 +13,7 @@ export interface ToolCallView {
 	args: Record<string, unknown>;
 }
 export type EntryView =
-	| { id: number; role: "user"; text: string }
+	| { id: number; role: "user"; text: string; /** How many photos came with it. The pictures are not in the view: a client asks for each (`GET /api/image`). */ images?: number }
 	| { id: number; role: "assistant"; text: string; calls: ToolCallView[]; model?: string; cut?: true }
 	| { id: number; role: "tool"; callId: string; name: string; text: string; /** The result in a few words. */ summary: string; /** What an edit changed. */ diff?: string; error?: true }
 	| { id: number; role: "notice"; text: string; /** Who sent it: "gate", "check-in". */ from: string }
@@ -30,7 +30,7 @@ export interface StateView {
 	/** Tools of the current round, with the output they have produced so far. */
 	tools: { id: string; name: string; status: "pending" | "running" | "done"; output: string }[];
 	retry?: { at: number; attempt: number; error: string };
-	queued: { id: string; mode: "steer" | "followUp"; text: string }[];
+	queued: { id: string; mode: "steer" | "followUp"; text: string; images?: number }[];
 	failure?: { reason: string; text: string; detail?: string };
 	model?: string;
 	thinking?: string;
@@ -47,6 +47,12 @@ export function textOf(content: Content | undefined): string {
 	if (typeof content === "string") return content;
 	return (content ?? []).map((part) => (part.type === "text" ? part.text : "")).join("");
 }
+
+/** How many pictures a message carries. */
+export function imagesOf(content: Content | undefined): number {
+	return typeof content === "string" ? 0 : (content ?? []).filter((part) => part.type === "image").length;
+}
+const photos = (content: Content | undefined): { images?: number } => (imagesOf(content) > 0 ? { images: imagesOf(content) } : {});
 
 const FAILURES: Record<string, string> = {
 	model_error: "The model call failed.",
@@ -77,7 +83,7 @@ export function summarize(text: string, isError: boolean, diff?: string): string
 export function entryView(entry: EntryRecord): EntryView | undefined {
 	const id = Number(entry.id);
 	const message = entry.model?.[0];
-	if (entry.kind === "pi.user" && message?.role === "user") return { id, role: "user", text: textOf(message.content) };
+	if (entry.kind === "pi.user" && message?.role === "user") return { id, role: "user", text: textOf(message.content), ...photos(message.content) };
 	if (entry.kind === "pi.assistant" && message?.role === "assistant") {
 		const calls = message.content.flatMap((part) => {
 			if (part.type !== "toolCall") return [];
@@ -125,7 +131,8 @@ export function stateView(view: ConversationView, approvals: StateView["approval
 		queued: (inbox.items ?? []).flatMap((item) => {
 			if (item.mode === "write") return [];
 			const content = item.content as { content?: Content } | Content;
-			return [{ id: String(item.id), mode: item.mode, text: textOf(typeof content === "object" && content !== null && !Array.isArray(content) && "content" in content ? content.content : (content as Content)) }];
+			const said = typeof content === "object" && content !== null && !Array.isArray(content) && "content" in content ? content.content : (content as Content);
+			return [{ id: String(item.id), mode: item.mode, text: textOf(said), ...photos(said) }];
 		}),
 		...(failure && failure.reason !== "reset" && failure.reason !== "nothing_to_answer" ? { failure: { reason: failure.reason, text: FAILURES[failure.reason] ?? "The run ended without an answer.", ...(failure.detail ? { detail: failure.detail.slice(0, 300) } : {}) } } : {}),
 		approvals,

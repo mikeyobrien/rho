@@ -257,3 +257,85 @@ test("reminders are listed and removed over the API", async () => {
 	expect((await call("/api/reminders/remove", { id: added.id })).status).toBe(200);
 	expect(await (await call("/api/reminders")).json()).toEqual({ items: [] });
 });
+
+// A real 1x1 PNG. Its bytes are what is checked, so it must be one.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+const sendPhotos = (body: object) => call("/api/submit", body);
+
+test("a photo reaches the model with its words; the stream names it and the picture is fetched apart", async () => {
+	let seen: unknown;
+	faux.setResponses([(asked) => ((seen = asked.messages.at(-1)), fauxAssistantMessage("A white dot."))]);
+	expect((await sendPhotos({ text: "What is this?", requestId: "req-photo-1", images: [{ data: PNG }] })).status).toBe(200);
+	const states = await follow(idleWith(2));
+	// The model was given the picture, then the words.
+	expect(seen).toMatchObject({ role: "user", content: [{ type: "image", mimeType: "image/png", data: PNG }, { type: "text", text: "What is this?" }] });
+	// A client is told there is one photo. The picture is not in the stream.
+	const mine = states.at(-1)!.entries[0]!;
+	expect(mine).toEqual({ id: mine.id, role: "user", text: "What is this?", images: 1 });
+	expect(JSON.stringify(states)).not.toContain(PNG);
+	expect(await (await call(`/api/image?entry=${mine.id}&n=0`)).json()).toEqual({ mimeType: "image/png", data: PNG });
+	// It is asked for with the token, and only where there is one.
+	expect((await call(`/api/image?entry=${mine.id}&n=0`, undefined, {})).status).toBe(401);
+	expect((await call(`/api/image?entry=${mine.id}&n=1`)).status).toBe(404);
+	expect((await call(`/api/image?entry=${states.at(-1)!.entries[1]!.id}&n=0`)).status).toBe(404); // the answer has none
+	expect((await call("/api/image?entry=nope")).status).toBe(400);
+});
+
+test("a photo may go without words, and names the conversation", async () => {
+	let seen: unknown;
+	faux.setResponses([(asked) => ((seen = asked.messages.at(-1)), fauxAssistantMessage("A dot."))]);
+	expect((await sendPhotos({ requestId: "req-photo-2", images: [{ data: PNG }, { data: PNG }] })).status).toBe(200);
+	const states = await follow(idleWith(2));
+	expect(seen).toMatchObject({ content: [{ type: "image" }, { type: "image" }] });
+	expect(states.at(-1)!.entries[0]).toMatchObject({ role: "user", text: "", images: 2 });
+	expect(((await (await call("/api/conversations")).json()) as { items: { title: string }[] }).items[0]!.title).toBe("Photo");
+});
+
+test("what is not a photo is refused in words, and nothing is put in the thread", async () => {
+	const refused = async (body: object) => {
+		const response = await sendPhotos({ requestId: `req-bad-photo-${Math.random()}`, text: "look", ...body });
+		return [response.status, ((await response.json()) as { error: string }).error];
+	};
+	const text = Buffer.from("<svg onload=alert(1)>").toString("base64");
+	expect(await refused({ images: [{ data: text }] })).toEqual([400, "That photo is not a JPEG, PNG, GIF or WebP picture."]);
+	expect(await refused({ images: [{ data: PNG }, { data: text }] })).toEqual([400, "Photo 2 is not a JPEG, PNG, GIF or WebP picture."]);
+	expect(await refused({ images: [{ data: "not base64!" }] })).toEqual([400, "That photo did not arrive whole. Try it again."]);
+	expect(await refused({ images: [{ mimeType: "image/png" }] })).toEqual([400, "That photo did not arrive whole. Try it again."]);
+	expect(await refused({ images: [] })).toEqual([400, "Send one to 4 photos with a message."]);
+	expect(await refused({ images: Array.from({ length: 5 }, () => ({ data: PNG })) })).toEqual([400, "Send one to 4 photos with a message."]);
+	expect(await refused({ images: "photo" })).toEqual([400, "Send one to 4 photos with a message."]);
+	// A PNG too large to go as it is, where nothing can scale it (this server was given no processor).
+	const big = Buffer.concat([Buffer.from(PNG, "base64"), Buffer.alloc(4 * 1024 * 1024)]).toString("base64");
+	expect(await refused({ images: [{ data: big }] })).toEqual([400, "That photo is too large to send as it is, and this rho cannot make pictures smaller."]);
+	// A gate's report carries no photo, and words are still needed without one.
+	expect((await sendPhotos({ requestId: "req-bad-photo-from", from: "gate", images: [{ data: PNG }] })).status).toBe(400);
+	expect((await sendPhotos({ requestId: "req-bad-photo-none" })).status).toBe(400);
+	// Far too much is refused before it is read; words alone keep their own small limit.
+	expect((await sendPhotos({ requestId: "req-bad-photo-huge", images: [{ data: "A".repeat(30 * 1024 * 1024) }] })).status).toBe(413);
+	expect((await sendPhotos({ requestId: "req-bad-photo-words", text: "x".repeat(300 * 1024), images: [{ data: PNG }] })).status).toBe(413);
+	expect((await follow(() => true))[0]!.entries).toEqual([]);
+}, 20_000);
+
+test("a large photo is scaled by the processor, and one it cannot read is refused; a model without sight says so", async () => {
+	await server.stop();
+	const asked: [number, string][] = [];
+	const images = { prepare: async (bytes: Uint8Array, mimeType: string) => (asked.push([bytes.length, mimeType]), bytes.length > 1000 ? undefined : { data: "c21hbGxlcg==", mimeType: "image/jpeg" }) };
+	const blind = fauxProvider({ provider: "blind", models: [{ id: "words-only", input: ["text"] }] });
+	const models = createModels();
+	models.setProvider(faux.provider);
+	models.setProvider(blind.provider);
+	server = await serve({ core, models, dir, port: 0, images });
+	base = `http://127.0.0.1:${server.port}`;
+	let seen: unknown;
+	faux.setResponses([(context) => ((seen = context.messages.at(-1)), fauxAssistantMessage("Seen."))]);
+	expect((await sendPhotos({ text: "and this", requestId: "req-scaled-1", images: [{ data: PNG }] })).status).toBe(200);
+	await follow(idleWith(2));
+	expect(asked).toEqual([[Buffer.from(PNG, "base64").length, "image/png"]]); // the type is the bytes' own
+	expect(seen).toMatchObject({ content: [{ type: "image", data: "c21hbGxlcg==", mimeType: "image/jpeg" }, { type: "text", text: "and this" }] });
+	const broken = Buffer.concat([Buffer.from(PNG, "base64"), Buffer.alloc(2000)]).toString("base64");
+	expect(await (await sendPhotos({ requestId: "req-scaled-2", images: [{ data: broken }] })).json()).toEqual({ error: "That photo could not be read as a picture." });
+	// A model that takes only words: said before the photo is in the thread.
+	expect((await call("/api/model", { model: "blind/words-only" })).status).toBe(200);
+	expect(await (await sendPhotos({ text: "look", requestId: "req-scaled-3", images: [{ data: PNG }] })).json()).toEqual({ error: "This conversation's model does not take photos. Choose another model in the menu." });
+	expect((await sendPhotos({ text: "words are fine", requestId: "req-scaled-4" })).status).toBe(200);
+});

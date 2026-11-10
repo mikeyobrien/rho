@@ -22,6 +22,9 @@ Rho is an agent with a shell. This page states what protects you and what does n
   can anyone who can read your home directory.
 - The page's own files (HTML, scripts, styles) are served without the token. They hold no
   secrets.
+- A photo you send is checked by its bytes: only JPEG, PNG, GIF and WebP are taken, whatever
+  the file is called. The event stream says only how many photos a message has. The page
+  asks for each picture with the token, and shows it as an image, never as markup.
 
 ## Guard rails on tools
 
@@ -71,7 +74,9 @@ Rho is an agent with a shell. This page states what protects you and what does n
   command. Rho does not read or copy that login. Claude Code sends its own requests, and a
   relay on loopback puts your conversation into them. Anthropic may refuse such use of a
   plan or charge it to usage credits; see the README.
-- Your conversations are sent to the model provider you chose. With the Honcho memory
+- Your conversations, and the photos in them, are sent to the model provider you chose. A
+  photo that rho had to make smaller loses its EXIF data on the way. A small one is sent as
+  it is, and a camera photo's EXIF data can say where it was taken. With the Honcho memory
   provider, each turn is also sent to your Honcho server.
 
 ## Memory
@@ -84,6 +89,7 @@ Rho is an agent with a shell. This page states what protects you and what does n
 
 - Everything rho 2 writes is under `~/.rho/v2/`: conversations, memory, keys, token, logs.
   It is not encrypted. Deleting that directory removes rho 2's state.
+- Photos you send are kept inside the conversations, in the same database.
 
 ## Reporting a problem
 

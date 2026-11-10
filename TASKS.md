@@ -510,7 +510,38 @@ is used only through Claude Code.
 16. A question tool: the model asks the person a structured question and waits.
 17. Notices through `termux-notification`: needs you, failed, looks stuck. Not on done.
 18. Usage and cost per conversation, shown in the page.
-19. Image input: a pasted or shared screenshot reaches the model.
+19. Image input: a pasted or picked photo reaches the model. **Done** 2026-11-10
+    (`src/photos.ts`, `POST /api/submit` takes `images`, `GET /api/image`, the page's + button).
+    - Up to 4 photos a message, 10 MB each, with or without words. JPEG, PNG, GIF and WebP,
+      told by the bytes and not by the name or type the client gave. A photo is stored in the
+      conversation's entry as base64, like the words; nothing is written as a file.
+    - `StateView` carries only a count (`images`) on a user entry and a queued message. The
+      picture leaves through `GET /api/image?entry=&n=`, with the token, when a client asks.
+    - Scaling happens twice. The page makes a photo at most 2000 px a side on a canvas before
+      sending. The daemon then runs pi-durable's Photon processor, which passes a photo that
+      already fits and scales one that does not. Measured on the phone: a 3000x4000 camera
+      JPEG (1.8 MB) took 10 to 18 s in the daemon, and the same photo already at 1500x2000
+      took 0.15 s. So the browser step is what makes it usable; the daemon step is the rule.
+    - A model that takes only words is refused at submit, in words, before the photo is stored.
+    - The page keeps an unsent photo in memory only (the browser's storage is too small). A
+      message with photos that was not sent before a reload is not sent short: its words go
+      back in the box and the page says to add the photos again.
+    - Checked: 4 server tests and 6 page tests on the stand-in DOM, no model. By hand against a
+      scratch daemon: the real camera photo was accepted and stored as a 234 KB JPEG with its
+      EXIF data gone; the event frame was 362 bytes with the photo in the thread. Once live on
+      Haiku through the Claude plan, with a made-up 2600x1200 picture, half red and half blue:
+      stored as 2000x923, answered "Left: red. Right: blue." in 2.0 s.
+    - Not checked: anything in a real browser. The canvas step (`web/main.js`: its sizes, EXIF
+      turning, quality), the file picker, the camera, and paste on Android are untested; the
+      page tests give the script a stand-in for all of them. HEIC is not taken: Chrome on
+      Android hands over JPEG, other browsers may not. An animated GIF over the limits is
+      refused by the daemon, not scaled. Memory use of Photon on a very large photo sent by
+      a client that skips the browser step. The `read` tool still has no processor.
+    - Known: a photo that needs no scaling (at most 2000 px a side and 1 MB) is stored and
+      sent to the model as it is, EXIF data included; a camera photo's can say where it was
+      taken.
+    - Not built: sharing a photo to rho from another app; a waiting message's photos cannot be
+      taken back into the composer (Remove says so); photos in a check-in or a notice.
 20. Subagents: a task-owned child conversation with its own model.
 21. A terminal client over the same API.
 

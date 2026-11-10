@@ -27,7 +27,9 @@ const setup = await setupOf(models, model);
 if (!setup.ready) log(`setup: ${setup.note}`);
 const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: import.meta.dir, stderr: "ignore" });
 const commit = head.exitCode === 0 ? head.stdout.toString().trim() : undefined;
-const server = await serve({ core, models, dir, port, commit, log });
+// Scales a photo the person sends to what a model takes. Without it rho still runs, and a large photo is refused.
+const images = await import("@earendil-works/pi-durable/images/node").then((module) => module.createNodePhotonImages()).catch((error: Error) => (log(`photos: no image scaling here, so a large photo is refused: ${error.message}`), undefined));
+const server = await serve({ core, models, dir, port, commit, images, log });
 log(`rho: pid ${process.pid} on http://127.0.0.1:${server.port}, data in ${dir}${commit ? `, commit ${commit.slice(0, 7)}` : ""}`);
 const notice = rho1Notice(home);
 if (notice) log(notice);

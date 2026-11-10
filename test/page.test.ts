@@ -59,7 +59,7 @@ afterEach(async () => {
 });
 
 interface Page { $(id: string): El; stored: Map<string, string>; location: { hash: string; pathname: string; search: string }; document: ReturnType<typeof fakeDocument>; messages(): string[]; type(words: string): Promise<void>; send(words: string): Promise<void> }
-async function open(options: { pair?: boolean; stored?: Map<string, string>; touch?: boolean } = {}): Promise<Page> {
+async function open(options: { pair?: boolean; stored?: Map<string, string>; touch?: boolean; shrink?: (file: any) => Promise<any> } = {}): Promise<Page> {
 	const document = fakeDocument();
 	const stored = options.stored ?? new Map<string, string>();
 	const location = { hash: options.pair === false ? "" : `#pair=${server.pairCode()}`, pathname: "/", search: "" };
@@ -70,6 +70,7 @@ async function open(options: { pair?: boolean; stored?: Map<string, string>; tou
 		history: { replaceState: () => void (location.hash = "") },
 		fetch: (path: string, init?: RequestInit) => (down ? Promise.reject(new TypeError("fetch failed")) : fetch(`http://127.0.0.1:${server.port}${path}`, init)),
 		touch: options.touch ?? true,
+		...(options.shrink ? { shrink: options.shrink } : {}),
 	});
 	pages.push(page);
 	await page.ready;
@@ -324,4 +325,157 @@ test("the daemon serves the page's files without a token, with a strict policy, 
 	for (const file of ["/app.js", "/markdown.js", "/main.js", "/style.css"]) expect((await fetch(`${base}${file}`)).status).toBe(200);
 	for (const path of ["/../src/http.ts", "/%2e%2e/package.json", "/..%2f..%2fpackage.json", "/token", "/nope.js", "/index.html.bak"]) expect((await fetch(`${base}${path}`)).status).toBe(404);
 	expect((await fetch(`${base}/`, { method: "POST" })).status).toBe(404);
+});
+
+// A real 1x1 PNG, and a stand-in for the File a picker or the clipboard gives.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+const file = (type = "image/png", data = PNG, size?: number) => ({ type, size: size ?? Buffer.from(data, "base64").length, arrayBuffer: async () => new Uint8Array(Buffer.from(data, "base64")).buffer });
+const pick = async (page: Page, ...files: object[]) => { Object.assign(page.$("photo-input"), { files }); await page.$("photo-input").fire("change"); };
+const imgs = (node: El) => node.all().filter((child) => child.tag === "img") as (El & { src?: string; alt?: string })[];
+
+test("a photo is picked, shown before it is sent, and reaches the model; the thread shows it", async () => {
+	let seen: any;
+	faux.setResponses([(asked) => ((seen = asked.messages.at(-1)), fauxAssistantMessage("A white dot."))]);
+	const page = await open();
+	await until("live", () => idle(page));
+	expect(page.$("send").disabled).toBe(true);
+	// The button opens the device's picker.
+	let opened = 0;
+	page.$("photo-input").addEventListener("click", () => void opened++);
+	await page.$("attach").fire("click");
+	expect(opened).toBe(1);
+	await pick(page, file());
+	expect(page.$("photo-input").value).toBe(""); // so the same photo can be picked again
+	expect(imgs(page.$("photos")).map((img) => [img.alt, img.src])).toEqual([["Photo 1", `data:image/png;base64,${PNG}`]]);
+	expect(page.$("send").disabled).toBe(false); // a photo alone can be sent
+	expect(page.$("send").textContent).toBe("Send");
+	await page.send("What is this?");
+	expect(page.$("photos").children).toEqual([]);
+	await until("the answer", () => page.messages().includes("msg assistant|A white dot.") && idle(page));
+	expect(seen.content).toEqual([{ type: "image", data: PNG, mimeType: "image/png" }, { type: "text", text: "What is this?" }]);
+	expect(page.messages()[0]).toBe("msg user|What is this?");
+	// The sent photo is fetched with the token and drawn in the message.
+	const sent = imgs(page.$("entries").children[0] as El);
+	await until("the photo in the thread", () => sent[0]?.src !== undefined);
+	expect(sent.map((img) => [img.alt, img.src])).toEqual([["Photo 1", `data:image/png;base64,${PNG}`]]);
+	// The browser's storage never held the picture.
+	expect([...page.stored.values()].join("")).not.toContain(PNG);
+});
+
+test("photos: one can be removed, pasted ones are added, and what cannot be sent is said at once", async () => {
+	let seen: any;
+	faux.setResponses([(asked) => ((seen = asked.messages.at(-1)), fauxAssistantMessage("Two dots."))]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await pick(page, file("application/pdf"));
+	expect(page.$("status").textContent).toBe("That is not a JPEG, PNG, GIF or WebP picture.");
+	await pick(page, file("image/jpeg", PNG, 11 * 1024 * 1024));
+	expect(page.$("status").textContent).toBe("That photo is too large: the most is 10 MB.");
+	expect(page.$("photos").children).toEqual([]);
+	expect(page.$("send").disabled).toBe(true);
+	await pick(page, file(), file(), file(), file(), file());
+	expect(imgs(page.$("photos")).length).toBe(4);
+	expect(page.$("status").textContent).toBe("A message takes up to 4 photos.");
+	// Remove takes one away.
+	const remove = (page.$("photos").children[0] as El).all().find((node) => node.tag === "button")!;
+	expect(remove.attrs["aria-label"]).toBe("Remove photo 1");
+	for (let i = 0; i < 3; i++) await (page.$("photos").children[0] as El).all().find((node) => node.tag === "button")!.fire("click");
+	expect(imgs(page.$("photos")).length).toBe(1);
+	// A pasted screenshot is added; pasted words are left to the browser.
+	let prevented = 0;
+	await page.$("input").fire("paste", { clipboardData: { files: [] }, preventDefault: () => void prevented++ });
+	expect(prevented).toBe(0);
+	await page.$("input").fire("paste", { clipboardData: { files: [file()] }, preventDefault: () => void prevented++ });
+	expect(prevented).toBe(1);
+	expect(imgs(page.$("photos")).length).toBe(2);
+	// Sent with no words at all.
+	await page.$("composer").requestSubmit();
+	await until("the answer", () => page.messages().includes("msg assistant|Two dots.")); // the status line still holds the notice
+	expect(seen.content.map((part: { type: string }) => part.type)).toEqual(["image", "image"]);
+	expect(imgs(page.$("entries").children[0] as El).length).toBe(2);
+});
+
+test("a photo the daemon refuses comes back to the composer with its words", async () => {
+	const page = await open();
+	await until("live", () => idle(page));
+	// The page believes the picker; the daemon reads the bytes.
+	await pick(page, file("image/png", Buffer.from("not a picture").toString("base64")));
+	await page.send("look at this");
+	await until("the refusal", () => page.$("status").textContent === "That photo is not a JPEG, PNG, GIF or WebP picture.");
+	expect(page.$("input").value).toBe("look at this");
+	expect(imgs(page.$("photos")).length).toBe(1);
+	expect(page.messages()).toEqual([]);
+	expect(JSON.parse(page.stored.get("outbox")!)).toEqual([]);
+});
+
+test("with the daemon unreachable a photo is kept in the page and sent once; a reload loses the photo and says so", async () => {
+	faux.setResponses([fauxAssistantMessage("A dot.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	down = true;
+	await page.document.fire("visibilitychange");
+	await until("the offline notice", () => page.$("status").textContent === "Can't reach rho");
+	await pick(page, file());
+	await page.send("And this?");
+	expect(page.messages()).toEqual(["msg user unsent|And this?", "note unsent-note|Not sent yet"]);
+	expect(imgs(page.$("live")).map((img) => img.src)).toEqual([`data:image/png;base64,${PNG}`]);
+	// Stored without the picture, with a count of what it had.
+	expect(JSON.parse(page.stored.get("outbox")!)).toMatchObject([{ text: "And this?", photos: 1 }]);
+	expect(page.stored.get("outbox")).not.toContain(PNG);
+	const kept = new Map(page.stored);
+	down = false;
+	await until("the kept message to be answered", () => page.messages().includes("msg assistant|A dot.") && idle(page), 15_000);
+	expect(page.messages().filter((line) => line === "msg user|And this?").length).toBe(1);
+	expect(imgs(page.$("entries").children[0] as El).length).toBe(1);
+	// The same storage in a page opened afresh, as after a reload before it was sent: the photo
+	// is gone, so the message is not sent short. Its words go back in the box.
+	kept.delete("token");
+	const reloaded = await open({ stored: kept });
+	await until("the thread", () => reloaded.messages().includes("msg assistant|A dot.")); // the status line holds the notice below
+	expect(reloaded.$("input").value).toBe("And this?");
+	expect(JSON.parse(reloaded.stored.get("outbox")!)).toEqual([]);
+	expect(reloaded.$("status").textContent).toBe("A message with photos was not sent before the page closed. Add the photos again.");
+	await Bun.sleep(200);
+	expect(reloaded.messages().filter((line) => line.includes("And this?")).length).toBe(1); // still the one that was sent
+}, 25_000);
+
+test("a waiting message with a photo says so, and can be removed but not moved", async () => {
+	faux.setResponses([fauxAssistantMessage(fauxToolCall("wait", { why: "test" }), { stopReason: "toolUse" }), fauxAssistantMessage("Done."), fauxAssistantMessage("Next.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("wait please");
+	await gate.started;
+	await pick(page, file());
+	await page.type("and look");
+	await page.$("input").fire("keydown", { key: "Enter", altKey: true }); // touch: no send; set the mode by hand below
+	await page.$("composer").requestSubmit();
+	await until("the waiting message", () => page.$("queue").children.length === 1);
+	const row = page.$("queue").children[0] as El;
+	expect(row.all().find((node) => node.className === "queued-text")!.textContent).toBe("1 photo · and look");
+	expect(row.all().filter((node) => node.tag === "button").map((node) => node.textContent)).toEqual(["Remove"]);
+	await row.all().find((node) => node.tag === "button")!.fire("click");
+	await until("the queue to empty", () => page.$("queue").children.length === 0);
+	expect(page.$("input").value).toBe("and look");
+	expect(page.$("status").textContent).toBe("Removed. Its 1 photo would need adding again.");
+	gate.release();
+	await until("the answer", () => page.messages().includes("msg assistant|Done."));
+});
+
+test("a photo is made smaller in the browser before it is sent; if that fails it goes as it is", async () => {
+	const SMALL = Buffer.from(PNG, "base64").toString("base64");
+	let fail = false;
+	const asked: number[] = [];
+	// Stands in for the browser's canvas: a 12 MB camera photo comes back as a small picture.
+	const page = await open({ shrink: async (given) => (asked.push(given.size), fail ? Promise.reject(new Error("no canvas")) : file("image/jpeg", SMALL)) });
+	await until("live", () => idle(page));
+	await pick(page, file("image/jpeg", PNG, 12 * 1024 * 1024)); // over the limit as taken, under it once smaller
+	expect(asked).toEqual([12 * 1024 * 1024]);
+	expect(imgs(page.$("photos")).map((img) => img.src)).toEqual([`data:image/jpeg;base64,${SMALL}`]);
+	fail = true;
+	await pick(page, file("image/png"));
+	expect(imgs(page.$("photos")).map((img) => img.src)).toEqual([`data:image/jpeg;base64,${SMALL}`, `data:image/png;base64,${PNG}`]);
+	await pick(page, file("image/jpeg", PNG, 12 * 1024 * 1024)); // cannot be made smaller, so the limit holds
+	expect(page.$("status").textContent).toBe("That photo is too large: the most is 10 MB.");
+	expect(imgs(page.$("photos")).length).toBe(2);
+	expect(page.$("send").disabled).toBe(false);
 });

@@ -45,7 +45,10 @@
 
 <footer>
 	<ul id="queue" aria-label="Waiting messages"></ul>
+	<ul id="photos" aria-label="Photos to send"></ul>
 	<form id="composer">
+		<button id="attach" type="button" class="icon" aria-label="Add a photo">+</button>
+		<input id="photo-input" type="file" accept="image/*" multiple hidden>
 		<textarea id="input" rows="1" placeholder="Message" aria-label="Message" enterkeyhint="enter"></textarea>
 		<button id="send" type="submit" aria-label="Send">Send</button>
 	</form>

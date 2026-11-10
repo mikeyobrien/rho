@@ -28,6 +28,7 @@ export class El {
 	contains(other: unknown): boolean { return this === other || this.children.some((child) => child instanceof El && child.contains(other)); }
 	async fire(type: string, event: object = {}) { for (const listener of this.listeners[type] ?? []) await listener({ preventDefault() {}, target: this, ...event }); }
 	requestSubmit() { return this.fire("submit"); }
+	click() { return this.fire("click"); }
 	/** Every element below this one, in order. */
 	all(): El[] { return this.children.flatMap((child) => (child instanceof El ? [child, ...child.all()] : [])); }
 }
