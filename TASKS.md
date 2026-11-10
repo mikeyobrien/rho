@@ -36,11 +36,11 @@ In order. Each item ends in something that can be checked.
    pairing, origin and host checks. Submit (with `requestId`, steer or follow-up), stop, new
    chat, unqueue, model and thinking level, models, earlier entries, health. The stream sends a
    whole `StateView` on each change and a keepalive every 15 s.
-4. **Web page.** BUILT 2026-11-10, not yet opened in a real browser: `web/` (plain JavaScript,
-   no build), served by the daemon without a token under a strict content policy. Thread,
-   composer, streaming answer, tool cards, stop, steer and queue with a flip, model and
-   thinking pickers, new chat, earlier messages, a kept "Not sent yet" outbox, safe Markdown
-   with tables. 16 tests run the page's real script against a real daemon on a stand-in DOM.
+4. **Web page.** DONE 2026-11-10: `web/` (plain JavaScript, no build), served by the daemon
+   without a token under a strict content policy. Thread, composer, streaming answer, tool
+   cards, stop, steer and queue with a flip, model and thinking pickers, new chat, earlier
+   messages, a kept "Not sent yet" outbox, safe Markdown with tables. `bin/rho` and
+   `src/cli.ts`: start, stop, status, open (the pairing link), logs.
 5. **Coding tools.** pi-durable's `read`, `write`, `edit`, `bash` over a Node environment, with
    a working directory per conversation. Unverified: that environment under Bun.
 6. **Search tools.** `grep`, `find`, `ls` as tools of their own, so searching does not go
@@ -173,6 +173,20 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
   - Not checked: the keepalive and a client's idle timeout over a long silence; many clients;
     a slow client that stops reading; the server under a kill (only the core was killed).
   - Not built: `rho open` (the pairing link), serving the page's files, a service.
+- Page and command, checked 2026-11-10: 16 tests run the page's real script against a real
+  daemon on a stand-in DOM; 6 run the command against a real daemon process. In Chrome on the
+  phone (`bun e2e/page.ts`, driven through Shizuku, one Haiku request): `rho open`'s link
+  opened the page paired and empty with the code gone from the address; Send, the message
+  box and the menu button measured at least 44 css px and inside the page; a typed question
+  was answered "Tokyo" and drawn once; the menu showed the model and thinking pickers.
+  Screenshots were looked at by eye.
+  - Not checked in the browser: a tool card, the queue row and its flip, the offline notice,
+    earlier messages, a long thread's scrolling, a narrow (folded) screen, Markdown tables,
+    any browser but Chrome. The stand-in DOM tests cover their logic, not their look.
+  - The browser check leaves its tab open in Chrome each time it runs (four were left today).
+  - Chrome's accessibility tree gives the thread as one run of text, so the check proves the
+    question and answer each appear once, not that they are separate bubbles; the screenshot
+    shows they are.
 - **Rho's own Claude provider** (`src/claude/`; reworked 2026-11-10 to match pi's
   `pi-claude-code`, so requests are billed as Claude Code's own). The CLI builds and sends its
   own request: its headers (`claude-cli` user agent, `x-app: cli`), its billing and identity

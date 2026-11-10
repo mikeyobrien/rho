@@ -1,3 +1,4 @@
 node_modules/
 *.sqlite*
 .rho/
+e2e/out/
