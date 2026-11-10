@@ -442,6 +442,33 @@ refused. The README and the release checklist publish it as `rho2`
 (`git push origin v2:rho2`). The alternative is the owner's: delete or rename
 `v2/standalone-install` on GitHub first.
 
+## Sign-in with a subscription, and the first hosted request (2026-11-10)
+
+`rho login <provider>` and `rho logout <provider>` (`src/cli.ts`) run pi-ai's own sign-in
+flow and store the login in `keys.json`. Anthropic is refused there: a Claude subscription
+is used only through Claude Code.
+
+- Checked live, by the owner and then by one request: the owner ran `rho login openai` in
+  Termux on the installed rho and signed in with a ChatGPT account in the browser; the login
+  was stored (mode 600, with a refresh token). A new conversation on the installed rho was
+  set to `openai/gpt-5.6-sol`, asked to run `uname -o`, called `bash`, and answered
+  "`uname -o` printed `Android`." in about 6 s. **This is the first request rho has sent to
+  a hosted provider through pi-ai.**
+- Found by that run and fixed: `openai/gpt-5.5`, the default for an OpenAI key, is refused
+  to a ChatGPT account ("not supported when using Codex with a ChatGPT account"). A
+  signed-in OpenAI now defaults to `openai/gpt-5.6-sol`.
+- Not checked: the model list still offers all 44 OpenAI models to a ChatGPT account,
+  though some are refused; which ones was not mapped beyond those two. A token refresh (the
+  login expires about an hour after sign-in) has not been seen to happen. Sign-in with any
+  other provider. A machine with no browser (pasting the address back was not tried).
+- **Still not checked: any provider with an API key.** The sign-in uses the same pi-ai
+  OpenAI adapter a key would, but a different credential, so the documented default path
+  (`rho key anthropic`) remains untried against the real service.
+- The installed rho was moved to the current code by its own gate (`rho release`,
+  `4eaab82` to `084383a`): fetch, check, switch, restart, released in 58 s. That also made
+  the "after the release" step of `RELEASE.md` unnecessary on this phone.
+- The live request left one extra conversation in the installed rho's list.
+
 ## Soon after: what makes dogfooding pleasant
 
 14. **Memory.** DONE 2026-11-10: `src/memory/`. One provider is active, named by the `memory`

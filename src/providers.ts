@@ -21,6 +21,8 @@ type Env = Record<string, string | undefined>;
 
 /** The first of these that has a key is the model of a new conversation. */
 export const PREFERRED = ["anthropic/claude-sonnet-5-5", "openai/gpt-5.5", "google/gemini-3.1-pro-preview", "openrouter/anthropic/claude-sonnet-5.5"] as const;
+/** The first choice for a provider that is signed in to with a subscription instead of a key. */
+export const SIGNED_IN: Record<string, string> = { openai: "openai/gpt-5.6-sol" };
 /** The providers the first-run text names, with where a key comes from. */
 export const SUGGESTED = [
 	{ id: "anthropic", name: "Anthropic", env: "ANTHROPIC_API_KEY" },
@@ -206,7 +208,11 @@ const idOf = (model: { provider: string; id: string }): string => `${model.provi
 export async function chooseModel(models: MutableModels, config: RhoConfig): Promise<string | undefined> {
 	if (typeof config.model === "string" && config.model !== "") return config.model;
 	const available = (await models.getAvailable()).map(idOf);
-	const preferred = PREFERRED.find((id) => available.includes(id));
+	// A sign-in with a subscription is not offered every model a key is: OpenAI refuses gpt-5.5
+	// to a ChatGPT account. So a signed-in provider has its own first choice.
+	const signedIn = new Set<string>();
+	for (const provider of new Set(available.map((id) => id.slice(0, id.indexOf("/"))))) if ((await models.checkAuth(provider).catch(() => undefined))?.type === "oauth") signedIn.add(provider);
+	const preferred = PREFERRED.map((id) => (signedIn.has(id.slice(0, id.indexOf("/"))) ? (SIGNED_IN[id.slice(0, id.indexOf("/"))] ?? id) : id)).find((id) => available.includes(id));
 	if (preferred) return preferred;
 	if (config.claudePlan === true) {
 		const plan = available.filter((id) => id.startsWith(`${CLAUDE_CODE}/`));

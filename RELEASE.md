@@ -111,10 +111,8 @@ Say also: macOS is untested, and it gives a model a shell on your machine
 
 ## 7. After the release
 
-- The rho installed on the phone runs commit `4eaab82` from before the history rewrite. Its
-  release checkout must be moved to the pushed history once: in `~/.rho/v2/release`, run
-  `git fetch ~/projects/rho v2 && rho stop && git checkout --detach FETCH_HEAD &&
-  bun install --frozen-lockfile && rho start`. Check with `rho status`.
+- The rho installed on the phone was moved to the rewritten history on 2026-11-10 by its
+  own gate. To bring it to the released commit: `cd ~/projects/rho && rho release`.
 - Delete `~/.cache/rho-backup/` on the phone when you no longer want the old history.
 - Changing the default branch to `rho2`, and what happens to `main`, are later decisions.
 

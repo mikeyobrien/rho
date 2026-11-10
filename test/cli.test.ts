@@ -254,7 +254,7 @@ test("rho login: what it refuses, a stored login makes the provider usable, and 
 	expect(lines.join("\n")).not.toContain("token-not-real");
 	expect(await run(["start"], cli)).toBe(0);
 	expect(await run(["status"], cli)).toBe(0);
-	expect(lines.at(-1)).toBe("Model: openai/gpt-5.5.");
+	expect(lines.at(-1)).toBe("Model: openai/gpt-5.6-sol."); // not gpt-5.5, which OpenAI refuses to a ChatGPT account
 	expect(await run(["logout", "openai"], cli)).toBe(0);
 	expect(lines.at(-1)).toBe("Removed rho's stored login for openai.");
 	expect(JSON.parse(readFileSync(join(dir, "keys.json"), "utf8"))).toEqual({});
