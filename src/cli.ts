@@ -2,7 +2,7 @@
 // files (daemon.json, pair-code, daemon.log) and its health route, so it works the same whether
 // rho was started by hand or by a service.
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { preflight, release, type GateHost } from "./gate.ts";
 import { rhoHome } from "./home.ts";
@@ -130,8 +130,11 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			mkdirSync(dir, { recursive: true, mode: 0o700 });
 			// The gate runs apart from this command and from rho: the restart must not end it.
 			const log = openSync(join(dir, "release.log"), "a", 0o600);
-			spawn(process.execPath, [resolve(RELEASE_DIR, "bin", "rho"), "release-run", checked.source, checked.commit], { env: cli.env as NodeJS.ProcessEnv, cwd: RELEASE_DIR, detached: true, stdio: ["ignore", log, log] }).unref();
+			const gate = spawn(process.execPath, [resolve(RELEASE_DIR, "bin", "rho"), "release-run", checked.source, checked.commit], { env: cli.env as NodeJS.ProcessEnv, cwd: RELEASE_DIR, detached: true, stdio: ["ignore", log, log] });
+			gate.unref();
 			closeSync(log);
+			// Said before this command returns, so the status never shows the release before this one.
+			writeFileSync(file, `${JSON.stringify({ status: "running", stage: "starting", commit: checked.commit, previous: checked.previous, pid: gate.pid, at: Date.now() }, null, "\t")}\n`, { mode: 0o600 });
 			cli.out(`Releasing ${checked.commit.slice(0, 7)} (rho runs ${checked.previous.slice(0, 7)}). The gate checks it, then restarts rho onto it; if it does not come up, rho goes back. The result arrives as a message here. Progress: rho release --status`);
 			return 0;
 		}
