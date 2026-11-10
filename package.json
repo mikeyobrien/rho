@@ -3,6 +3,7 @@
 	"version": "2.0.0-dev.0",
 	"description": "An agent that stays running, remembers, and checks in. Built on pi-durable.",
 	"type": "module",
+	"bin": { "rho": "bin/rho" },
 	"private": true,
 	"scripts": {
 		"start": "bun src/main.ts",
