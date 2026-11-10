@@ -178,12 +178,6 @@ test("a key in the environment is enough; the Claude plan is used only when the 
 	expect(await run(["status"], keyed.cli)).toBe(0);
 	expect(keyed.lines.at(-1)).toBe("Model: openai/gpt-5.5.");
 	expect(readFileSync(join(keyed.dir, "daemon.log"), "utf8")).not.toContain("Claude plan");
-	// The daemon read the key and then dropped it from its own environment, which its bash tool inherits.
-	const daemon = JSON.parse(readFileSync(join(keyed.dir, "daemon.json"), "utf8")).pid as number;
-	if (existsSync(`/proc/${daemon}/environ`)) {
-		// /proc shows the environment the process began with, so ask the process itself, through the route that reports its model.
-		expect(keyed.lines.at(-1)).toBe("Model: openai/gpt-5.5."); // it still has the key in hand
-	}
 
 	const plan = scratch();
 	mkdirSync(plan.dir, { recursive: true });
@@ -194,4 +188,48 @@ test("a key in the environment is enough; the Claude plan is used only when the 
 	const log = readFileSync(join(plan.dir, "daemon.log"), "utf8");
 	expect(log).toContain("Claude plan: rho is using your Claude Code login. This is not an API key.");
 	expect(log).toContain("charged to usage credits");
+}, 60_000);
+
+test("a key in the daemon's environment is used for requests and is not in the environment its bash tool runs with", async () => {
+	// A stand-in model server: it asks for `env` to be run, then says done. It records the key it was sent.
+	const sent: (string | null)[] = [];
+	const chunk = (delta: object, finish: string | null = null) => `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+	const model = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: async (request) => {
+		sent.push(request.headers.get("authorization"));
+		const first = sent.length === 1;
+		const body = first
+			? `${chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "env" }) } }] })}${chunk({}, "tool_calls")}`
+			: `${chunk({ role: "assistant", content: "done" })}${chunk({}, "stop")}`;
+		return new Response(`${body}data: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+	} });
+	try {
+		const { cli, dir } = scratch();
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "config.json"), JSON.stringify({ cwd: join(dir, ".."), providers: [{ id: "local", baseUrl: `http://127.0.0.1:${model.port}/v1`, apiKeyEnv: "MY_SERVER_KEY", models: ["m"] }] }));
+		const env = { ...cli.env, MY_SERVER_KEY: "key-for-my-server-1234", OPENAI_API_KEY: "sk-openai-in-env-5678", HARMLESS_SETTING: "stays" };
+		expect(await run(["start"], { ...cli, env })).toBe(0);
+		const port = JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8")).port as number;
+		const headers = { authorization: `Bearer ${readFileSync(join(dir, "token"), "utf8").trim()}`, "content-type": "application/json" };
+		await fetch(`http://127.0.0.1:${port}/api/model`, { method: "POST", headers, body: JSON.stringify({ model: "local/m" }) });
+		expect((await fetch(`http://127.0.0.1:${port}/api/submit`, { method: "POST", headers, body: JSON.stringify({ text: "run env", requestId: "env-check-0001" }) })).status).toBe(200);
+		let output = "";
+		for (let i = 0; i < 100 && output === ""; i++) {
+			await new Promise((done) => setTimeout(done, 100));
+			const events = await fetch(`http://127.0.0.1:${port}/api/events`, { headers });
+			const reader = events.body!.getReader();
+			let text = "";
+			while (!text.includes("\n\n")) text += new TextDecoder().decode((await reader.read()).value);
+			await reader.cancel();
+			const state = JSON.parse(text.split("\n\n")[0]!.slice(6)) as { running: boolean; entries: { role: string; text: string }[] };
+			if (!state.running) output = state.entries.find((entry) => entry.role === "tool")?.text ?? "";
+		}
+		expect(sent).toEqual(["Bearer key-for-my-server-1234", "Bearer key-for-my-server-1234"]); // the key is used
+		expect(output).toContain("HARMLESS_SETTING=stays"); // the shell has the rest of the environment
+		expect(output).not.toContain("key-for-my-server-1234");
+		expect(output).not.toContain("sk-openai-in-env-5678");
+		expect(output).not.toContain("MY_SERVER_KEY");
+		expect(output).not.toContain("OPENAI_API_KEY");
+	} finally {
+		model.stop(true);
+	}
 }, 60_000);

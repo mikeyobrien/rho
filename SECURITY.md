@@ -29,14 +29,20 @@ Rho is an agent with a shell. This page states what protects you and what does n
   `bun`, `pnpm`, `yarn`), merging, releasing or deleting on GitHub with `gh`, and
   `rho release`. Allow grants that exact command once.
 - These are refused: deleting a `.git` directory, and reading or writing rho's own data
-  directory (its token, keys and storage) with any tool.
+  directory (its token, keys and storage).
+  - `read`, `write`, `edit`, `ls`, `grep` and `find` resolve the path first, so a link or a
+    second name for the directory does not get around this.
+  - `bash` is refused when the command's text names the directory, when a path written in
+    the command resolves into it, or when the command would start inside it. A command that
+    builds the path another way (a wildcard, a variable, `cd` to the parent and then a
+    relative name) is not caught. See the next point.
 - **The guard reads the command's text. It is a seatbelt, not a boundary.** A command that
   hides what it does, through a variable, a script file or another interpreter, passes it.
   A model that is tricked or mistaken can still do harm that the guard does not name, such
   as deleting your files.
 - A run stops after 200 tool rounds by default. A check-in stops after 20.
-- A check-in runs with nobody watching. An action that needs your Allow is refused there
-  and reported.
+- A check-in runs with nobody watching. An action that needs your Allow is refused there,
+  and the model is told to report that it was not done.
 
 ## Text from the web
 
@@ -53,6 +59,12 @@ Rho is an agent with a shell. This page states what protects you and what does n
 
 - API keys given to `rho key` are stored in `~/.rho/v2/keys.json`, readable only by you,
   as plain text. They are never accepted as command arguments and never printed or logged.
+- A key in an environment variable is read when rho starts and then removed from rho's own
+  environment, so the model's `bash` cannot print it with `env`. This covers the variables
+  of the providers rho knows and `apiKeyEnv` of your own providers. It does not cover your
+  AWS variables, or any other secret in the environment rho was started with: `bash` sees
+  those. On Linux, a process running as you can still read the environment rho was started
+  with from `/proc`.
 - With `"claudePlan": true`, rho uses your Claude Code login by starting the `claude`
   command. Rho does not read or copy that login. Claude Code sends its own requests, and a
   relay on loopback puts your conversation into them. Anthropic may refuse such use of a

@@ -37,5 +37,8 @@ terminal client, voice, image input, and import of rho 1's brain and vault.
   providers are pi-ai's and were tested only against a stand-in server and a local model.
 - Starting at boot is untested on both platforms.
 - The bash guard matches command text and can be bypassed.
+- A release that is killed between stopping rho and starting it leaves rho stopped. Run
+  `rho start`.
+- An approval (Allow) for a command does not expire until that command is run.
 
 `TASKS.md` has the full record.

@@ -74,8 +74,8 @@ This starts rho and opens its page in your browser, already paired. Type a quest
 browser can be opened, the command prints the address to open instead.
 
 Rho listens only on `127.0.0.1`. To use it from another device, forward the port, for example
-`ssh -L 4780:127.0.0.1:4780 your-machine`, then run `rho open` on the machine and open the
-address it prints on your device.
+`ssh -L 4780:127.0.0.1:4780 your-machine`, then run `rho open --print` on the machine and
+open the address it prints on your device. The address works once.
 
 If rho has no key, `rho status` and the page say so and name the command to run.
 
@@ -83,7 +83,7 @@ If rho has no key, `rho status` and the page say so and name the command to run.
 
 | Command | What it does |
 | --- | --- |
-| `rho open` | Start rho if needed and open the page with a one-use pairing link. |
+| `rho open` | Start rho if needed and open the page with a one-use pairing link. `--print` prints the link instead. |
 | `rho start`, `rho stop`, `rho status` | Start, stop, or show whether it runs and on which model. |
 | `rho key [provider]` | Store an API key, or list the providers that have one. `--remove` deletes it. |
 | `rho logs [lines]` | The last lines of rho's log. |
@@ -107,6 +107,10 @@ boot script holds a wake lock for as long as the phone is up, which costs batter
 On Linux it writes and enables a systemd user unit. For rho to start at boot without you
 logging in, turn on lingering once: `loginctl enable-linger $USER`.
 
+The service does not get your shell's environment. It keeps `PATH`, `RHO_HOME`, `RHO_PORT`
+and `RHO_CLAUDE` from the shell that installed it, and nothing else. **An API key that is
+only in an environment variable is not seen by the service.** Store it with `rho key`.
+
 A reboot has not been tested on either platform.
 
 ## Settings
@@ -116,16 +120,17 @@ Settings are in `~/.rho/v2/config.json`. All are optional. Restart rho after a c
 | Setting | Meaning |
 | --- | --- |
 | `model` | `provider/model` for new conversations. Default: the first of `anthropic/claude-sonnet-5-5`, `openai/gpt-5.5`, `google/gemini-3.1-pro-preview`, `openrouter/anthropic/claude-sonnet-5.5` whose provider has a key. |
-| `thinking` | `off`, `minimal`, `low`, `medium` (default), `high`, `xhigh` or `max`. |
-| `cwd` | The directory the first conversation works in. Default: your home directory. |
+| `thinking` | `off`, `minimal`, `low`, `medium` (default), `high`, `xhigh` or `max`, for new conversations. |
+| `cwd` | The directory new conversations work in. Default: your home directory. `~` is your home directory. A conversation keeps the directory it was made with; change an existing one from the page's menu. |
 | `maxTurns` | Most tool rounds in one run. Default 200. |
-| `memory` | `{"kind": "file"}` (default), `{"kind": "honcho", "url": "...", "workspace": "...", "user": "...", "agent": "..."}`, or `{"kind": "off"}`. |
+| `memory` | `{"kind": "file"}` (default), `{"kind": "honcho", "url": "...", "workspace": "...", "user": "...", "agent": "..."}`, or `{"kind": "off"}`. Honcho also takes `"apiKey"`, which is then stored in this file as plain text. |
 | `checkins` | `false` turns reminders off. `{"maxTurns": 20}` sets the limit of one check-in. |
 | `providers` | Servers that speak the OpenAI chat API, such as a local model: `[{"id": "local", "baseUrl": "http://127.0.0.1:8080/v1", "models": ["model-name"]}]`. Add `"apiKeyEnv": "NAME"` if the server needs a key. |
 | `claudePlan` | `true` adds Claude through your Claude Code login. See below. |
 
 Environment variables: `RHO_HOME` (default `~/.rho`; rho 2 uses the `v2` directory inside
-it), `RHO_PORT` (default 4780), `RHO_CLAUDE` (path of the `claude` command).
+it), `RHO_PORT` (default 4780), `RHO_CLAUDE` (path of the `claude` command), `RHO_SERVICE`
+(the service's name, default `rho`).
 
 Rho also reads `AGENTS.md` files: `~/.rho/v2/AGENTS.md` for your standing instructions, and
 the ones in a conversation's working directory and its parents.

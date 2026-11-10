@@ -211,7 +211,8 @@ and taps its buttons through Shizuku):
 - The gate (`~/.rho/v2/release.log`): check 19:38:45, switch 19:39:24, "Rho is stopped"
   19:39:24.8, "Rho is running (pid 22925)" 19:39:26.1, released 19:39:26.1.
 - After the restart the page was asked "Run rho version and tell me which commit you run now"
-  and the new rho answered with `fa3fbb1` and its new pid.
+  and the new rho answered with `4eaab82` (the commit's id then; see "History scan and
+  rewrite") and its new pid.
 - `bun run check` run again on `fa3fbb1` afterwards: 120 pass, 0 fail.
 
 The same loop had run twice before that over HTTP (`bun e2e/selfbuild-http.ts`), while the
@@ -331,6 +332,66 @@ shapes (`sk-`, `ghp_`, `github_pat_`, `xox`, `AKIA`, `AIza`, JWTs, private-key h
   rewritten; text that identifies the owner without using a searched name.
 - The pre-rewrite branch is kept outside the repository, in
   `~/.cache/rho-backup/` on the phone, and must not be pushed.
+
+## Pre-release review (2026-11-10)
+
+A reviewer subagent (Opus, high thinking) read the documents, `src/http.ts`, the guard, the
+web and search tools, providers, the CLI, the gate, check-ins, memory, the service and the
+Claude relay, over 56 tool calls. **It did not deliver a report.** It ran out of its 30
+minutes, and when resumed to write up, the model refused. Its findings below are taken from
+its saved working notes, where most were marked "suspected". Each was reproduced before it
+was fixed, or is listed as not reproduced. A review that ends this way is weaker than one
+with a written verdict: there is no "would release" judgement from the reviewer, and nothing
+says which leads it would have dropped.
+
+Fixed, each reproduced first and now under test:
+
+| Finding | How it was confirmed | Fix |
+| --- | --- | --- |
+| `find` listed `keys.json` through a link to a directory above the data directory | ran it: printed `.rho/v2/keys.json` | paths are resolved and directories compared by device and inode (`src/tools/protected.ts`) |
+| `bash` read `keys.json` by a relative path from the home directory, through a link, and through Android's second mount (`/data/user/0`) | ran each: the key was printed | relative form refused; every path in a command is resolved; a shell is refused inside the data directory |
+| An empty token file let a request with no token in | ran it: 200 | a token under 32 characters is replaced at start |
+| API keys in the daemon's environment were visible to `bash` | ran `env` in the tool | the daemon removes provider key variables from its environment after reading them; tested against a real daemon |
+| Under systemd, a release started by rho itself is killed when the gate stops rho | on Linux: a detached child of a unit died at `systemctl stop` | the gate runs as its own unit; a release started inside rho's unit went fetch, check, switch, restart, released, new pid |
+| A check-in's guarded command told the model the person would be shown Allow and Deny, and left a request nobody sees | ran it | refused with "nobody is here to give it"; nothing is left waiting |
+| `/api/pair` read a body of any size before refusing | read the code | bounded by the server and by the declared length; 3 MB gets 413 |
+| `grep` on a link to a directory failed | found by the new test | a link is searched as what it leads to |
+| On Termux `rho open` always opens the phone's browser, so the port-forward steps could not work | read the code | `rho open --print` |
+| `"cwd": "~/..."` was not expanded | read the code | `~` is expanded |
+| The memory scan did not know stored API keys | read the code | stored keys are refused in memory |
+| `fec0::/10` passed the private-address check | read the code | refused |
+| Ctrl-C at the key prompt left the terminal without echo | read the code | echo is restored. Not run by hand. |
+| README: `cwd` and `thinking` described wrongly; the service's environment, `RHO_SERVICE` and Honcho's `apiKey` not mentioned. SECURITY: "refused with any tool" overstated | compared with the code | documents corrected |
+
+Checked and found sound by the reviewer, not re-checked here: path traversal on the page's
+files; the origin and host checks; the one-use pairing code; redirects in `fetch_content`;
+memory failing open; the key file's permissions; no key in any log or error; no HTML
+injection in the page; the reminder arithmetic.
+
+Known issues, not fixed:
+
+- **A release killed part-way is not recovered.** If the gate dies between stopping rho and
+  starting it (a phone kill, a power cut), rho stays stopped, possibly on the new commit,
+  and `release.json` says "running" for ever. `rho start` brings it up on whatever is checked
+  out. Not reproduced; it follows from the code. The fix is to store the stages and resume
+  or undo at the next start.
+- **An Allow has no time limit.** A granted command stays granted until that exact text is
+  run, and a Deny leaves no trace.
+- If a check-in's task fails outright, reminders stop firing until one is added or rho
+  restarts. Not reproduced.
+- Each start of rho makes a new check-in task; the old one ends when it next wakes. Harmless
+  as far as was traced, and the kill tests pass, but it is one task more per restart.
+- If the gate finishes before `rho release` writes its first status, the status can say
+  "running" after the release is over. A new release is not blocked by it.
+- The pairing code does not expire; it is valid until used or until rho restarts.
+- A setting with a bad value (`thinking: "hgih"`) is not caught at start.
+- The bash guard still matches text for everything else; see `SECURITY.md`.
+- The owner's AWS variables and any other secret in the environment rho was started with
+  are visible to `bash`.
+
+Not covered by the review: the web page's script beyond a search for HTML injection, the
+tests themselves, `e2e/`, and a second read of anything after these fixes. The fixes
+themselves were reviewed by nobody but their author.
 
 ## Release preparation (2026-11-10)
 
