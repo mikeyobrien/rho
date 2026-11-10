@@ -44,6 +44,7 @@ const before = daemon();
 const host = `127.0.0.1:${before.port}`;
 const live = (screen: any) => screen.package === device.BROWSER && screen.address().startsWith(host) && /^[\w-]+\/[\w.-]+$/.test(status(screen));
 const send = async (words: string) => {
+	await device.clearInput(host); // a failed earlier try may have left words in the box
 	await device.type(words, host);
 	const typed = await device.read();
 	if (typed.byId("input").text !== words) throw new Error(`the box holds ${JSON.stringify(typed.byId("input").text)}`);
@@ -89,10 +90,11 @@ try {
 
 	await device.until("the page to be live again and idle", (s: any) => live(s) && s, 120_000);
 	await device.shot("selfbuild-2-released.png", out);
-	await send("Which commit do you run now? Run rho version and tell me what it prints.");
-	const answered = await device.until("the answer with the commit", (s: any) => live(s) && thread(s).split("Which commit do you run now").at(-1)!.includes(after.commit.slice(0, 7)) && s, 180_000);
+	// One sentence each: the phone's keyboard capitalises after a full stop, and what is sent must be what was typed.
+	await send("Run rho version and tell me which commit you run now");
+	const answered = await device.until("the answer with the commit", (s: any) => live(s) && thread(s).split("which commit you run now").at(-1)!.includes(after.commit.slice(0, 7)) && s, 180_000);
 	await device.shot("selfbuild-3-answered.png", out);
-	say(`answered after the release: ${JSON.stringify(thread(answered).split("tell me what it prints.").at(-1)!.trim().slice(-200))}`);
+	say(`answered after the release: ${JSON.stringify(thread(answered).split("which commit you run now").at(-1)!.trim().slice(-200))}`);
 } catch (error) {
 	failed = true;
 	say(`FAILED: ${(error as Error).message}`);
