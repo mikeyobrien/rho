@@ -118,7 +118,8 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 		}
 		case "status": {
 			const now = await running(dir);
-			cli.out(now ? `Running (pid ${now.pid}) at http://127.0.0.1:${now.port}.` : "Not running.");
+			// The commit is the daemon's own word for what it runs; a rho outside git has none to give.
+			cli.out(now ? `Running (pid ${now.pid}) at http://127.0.0.1:${now.port}${now.commit ? `, commit ${now.commit.slice(0, 7)}` : ""}.` : "Not running.");
 			return now ? 0 : 1;
 		}
 		case "open": {

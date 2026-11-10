@@ -35,6 +35,10 @@ test("start, status and stop; a second start changes nothing", async () => {
 	expect(await run(["start"], cli)).toBe(0);
 	expect(lines.at(-1)).toContain(`already running (pid ${pid})`);
 	expect(await run(["status"], cli)).toBe(0);
+	// The daemon runs from this checkout, so the commit it names is this checkout's.
+	const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: import.meta.dir }).stdout.toString().trim();
+	const port = JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8")).port as number;
+	expect(lines.at(-1)).toBe(`Running (pid ${pid}) at http://127.0.0.1:${port}, commit ${head.slice(0, 7)}.`);
 	expect(await run(["logs", "5"], cli)).toBe(0);
 	expect(lines.at(-1)).toContain(`rho: pid ${pid}`);
 	expect(await run(["stop"], cli)).toBe(0);
