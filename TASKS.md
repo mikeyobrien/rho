@@ -291,6 +291,14 @@ x86_64, Bun 1.4.4): clone, `bun install --frozen-lockfile`, link `rho` into `~/.
   typed key was not echoed.
 - Both: `bun run check` in the clean checkout, 162 pass, 0 fail (Linux at `7a73e23`, twice;
   the phone at `e301f31`, and at `7a73e23` in the work checkout).
+- Repeated on the phone after the review fixes, at `973e3ed`: clone, install, link, `rho
+  start` ("Not ready ... rho key anthropic"), a model configured, `rho open --print`, pair,
+  one question. The answer used `bash` twice: reading rho's own token was refused, and
+  `uname -o` printed "Android". The Linux machine ran `bun run check` from a clean clone at
+  that commit (171 pass) but the install-and-first-answer steps were not repeated there.
+- Seen in that run: `"cwd"` written to the config after the first start did not move the
+  first conversation, which had already been made in the home directory. This is what the
+  README says ("A conversation keeps the directory it was made with").
 - One difference was found and fixed. The Linux machine has a real `claude` command on its
   `PATH`, and a provider test ran it and timed out. Tests now always use the fake CLI
   (`7a73e23`).
