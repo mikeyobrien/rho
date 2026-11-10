@@ -270,6 +270,37 @@ Done in `src/providers.ts`, `rho key` in `src/cli.ts`, `test/providers.test.ts`.
   Also not checked: `rho key` typed at a real terminal (the no-echo read was tested only
   through the function the command calls); pi-ai's OAuth logins, which rho does not offer.
 
+## Clean-checkout install on both platforms (2026-11-10)
+
+The README's steps were run as written, in a scratch home directory with no API key in the
+environment, on the phone (Termux, aarch64, Bun 1.4.4) and on the Linux machine (Arch,
+x86_64, Bun 1.4.4): clone, `bun install --frozen-lockfile`, link `rho` into `~/.local/bin`,
+`rho start`, `rho status`, `rho key`.
+
+- Both: 95 packages installed; `rho start` came up and said "Not ready: Rho has no model to
+  use yet. Add an API key with: rho key anthropic".
+- Both: after a model was configured, a script paired the way the page does (the one-use
+  code gave the token, the same code again got 401, the page was served), asked a question,
+  and got an answer that used the `bash` tool: "Android" on the phone, "GNU/Linux" on Linux.
+- Both: `rho key anthropic` with a made-up key stored it in `keys.json` with mode 600, and
+  `--remove` removed it. On the phone the prompt was also run on a pseudo-terminal: the
+  typed key was not echoed.
+- Both: `bun run check` in the clean checkout, 162 pass, 0 fail (Linux at `c50532b`, twice;
+  the phone at `ba2938e`, and at `c50532b` in the work checkout).
+- One difference was found and fixed. The Linux machine has a real `claude` command on its
+  `PATH`, and a provider test ran it and timed out. Tests now always use the fake CLI
+  (`c50532b`).
+- What differed from the README, and why:
+  - The clone was from a local copy of the branch (`v2`), not from GitHub (`rho2`), because
+    nothing is pushed. The GitHub address in the README is untested until the owner pushes.
+  - The first answer came from a local model set in `providers`, not from `rho key
+    anthropic` with a real key, because no API key exists on either machine.
+  - The page was not opened in a browser in these runs; the browser run is the self-build
+    proof above, on the installed rho.
+- Not checked: Bun installed from scratch on either machine (both had it); a machine without
+  git; `bun install` without the lockfile; the two postinstall scripts Bun blocks (rho runs
+  and passes its checks without them; they were not read).
+
 ## Branch name on GitHub (2026-11-10)
 
 The work is on the local branch `v2`. GitHub already has a branch `v2/standalone-install`,
