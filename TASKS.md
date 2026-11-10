@@ -110,9 +110,31 @@ In order. Each item ends in something that can be checked.
     regex strip, not a real parser, so navigation clutter comes through and pages built by
     script come back empty; no PDF, no GitHub shortcut; Exa's free endpoint is rate limited
     and its limits were not measured; search queries go to Exa.
-11. **The self-build gate.** Rho runs from a release checkout and works in a separate one. A
-    `release` step runs `bun run check`, switches the service to the new commit, health-checks
-    it, and goes back to the last good commit if it does not answer.
+11. **The self-build gate.** DONE 2026-11-10: `src/gate.ts`, and `rho release [commit]` and
+    `rho release --status` in the command. Rho runs from one checkout; work is committed in
+    another, and `rho release` is run there. The gate, in its own process:
+    1. fetches the commit and runs `bun install --frozen-lockfile` and `bun run check` on it in
+       a clean copy, with nothing running changed;
+    2. waits up to two minutes for rho to be idle, switches the release checkout, restarts rho;
+    3. reads from the running rho which commit it is;
+    4. if that is not the new commit within a minute, switches back and restarts the old one.
+    It refuses, before doing anything: the commit rho already runs, a release from the
+    checkout rho runs from, a release checkout with uncommitted changes, a second release
+    while one is under way. The result is written to `release.json` and sent to the first
+    conversation as a message marked as the gate's. The agent's own `rho release` waits for
+    the person's yes (guard rails).
+    Checked: 7 tests against a stand-in program in real git checkouts. Then by hand, with the
+    real command and a real rho (fake Claude CLI, scratch home): a good commit was released
+    in 43 s and the restarted rho reported it; a commit with a failing test was not released
+    and rho was never restarted; a commit that passed its checks but threw at start was
+    switched to, failed, and rho came back on the previous commit, with the report in the
+    conversation. The by-hand run found a bug that was fixed: the status showed the previous
+    release for a moment after `rho release` returned.
+    Limits: a rollback waits the full minute even when the new rho died at once. `down`
+    (going back failed too) is reported only in `release.json` and the log, since nothing is
+    left to deliver a message. The checks are the commit's own: a commit that weakens its
+    tests passes them. A release replaces the code under every conversation, not one.
+    Not checked: a release while a run is working under a real model; under the service.
 12. **Guard rails.** DONE 2026-11-10: `src/tools/guard.ts`, wrapped around every tool that
     touches files or runs commands.
     - Refused: `rm` of a `.git` directory or anything in one; any tool reading, writing,
