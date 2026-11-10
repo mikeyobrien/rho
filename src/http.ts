@@ -4,7 +4,7 @@
 //
 // A call names its conversation with `?c=<id>`; without it, the first conversation is meant.
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync, renameSync } from "node:fs";
 import { extname, isAbsolute, join, resolve, sep } from "node:path";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { LiveDoc, type Conversation } from "@earendil-works/pi-durable";
@@ -62,6 +62,8 @@ const same = (a: string, b: string): boolean => {
 const json = (status: number, value: unknown) => Response.json(value, { status, headers: { "cache-control": "no-store" } });
 
 async function bodyOf(request: Request): Promise<Record<string, unknown>> {
+	// Refused by its declared size before it is read; the server's own limit bounds a body that declares none.
+	if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY * 4) throw new Refusal(413, "The message is too long.");
 	const text = await request.text();
 	if (text.length > MAX_BODY) throw new Refusal(413, "The message is too long.");
 	try {
@@ -96,8 +98,16 @@ export async function serve(options: ServerOptions): Promise<Server> {
 	const log = options.log ?? (() => {});
 
 	const tokenPath = join(dir, "token");
-	if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomBytes(32).toString("base64url"), { mode: 0o600 });
+	// A token file that is empty or cut short (a kill while it was written) is replaced: an empty
+	// token would equal a request that sends none.
+	const stored = existsSync(tokenPath) ? readFileSync(tokenPath, "utf8").trim() : "";
+	if (stored.length < 32) {
+		if (stored !== "" || existsSync(tokenPath)) log("token: the stored token was unusable and was replaced. Pair again with: rho open");
+		writeFileSync(`${tokenPath}.tmp`, randomBytes(32).toString("base64url"), { mode: 0o600 });
+		renameSync(`${tokenPath}.tmp`, tokenPath);
+	}
 	const token = readFileSync(tokenPath, "utf8").trim();
+	if (token.length < 32) throw new Error(`The token in ${tokenPath} could not be written.`);
 	let pairCode = randomBytes(16).toString("base64url");
 	const savePairCode = () => writeFileSync(join(dir, "pair-code"), pairCode, { mode: 0o600 });
 
@@ -268,6 +278,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 
 	const startedAt = Date.now();
 	const server = Bun.serve({
+		maxRequestBodySize: MAX_BODY * 4,
 		hostname: "127.0.0.1",
 		port: options.port,
 		idleTimeout: 0,

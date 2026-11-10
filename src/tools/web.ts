@@ -51,7 +51,7 @@ export function isPrivateAddress(address: string): boolean {
 		const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
 		if (mapped) return isPrivateAddress(mapped[1]!);
 		if (lower.startsWith("::ffff:")) return true; // a mapped address in hex form: refuse it outright
-		return lower === "::" || lower === "::1" || /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower) || lower.startsWith("ff") || lower.startsWith("64:ff9b:");
+		return lower === "::" || lower === "::1" || /^f[cd]/.test(lower) || /^fe[89a-f]/.test(lower) || lower.startsWith("ff") || lower.startsWith("64:ff9b:");
 	}
 	return true; // not an address at all
 }

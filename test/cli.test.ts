@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, type CliEnv } from "../src/cli.ts";
@@ -75,7 +75,11 @@ test("open starts rho and opens a link that pairs a fresh browser once", async (
 }, 40_000);
 
 test("with no way to open a browser, the link is printed; an unknown command prints the usage", async () => {
-	const { cli, lines } = scratch();
+	const { cli, lines, opened } = scratch();
+	// For a browser on another device: printed even where a browser could be opened here.
+	expect(await run(["open", "--print"], cli)).toBe(0);
+	expect(lines.at(-1)).toMatch(/It works once: http:\/\/127\.0\.0\.1:\d+\/#pair=/);
+	expect(opened).toEqual([]);
 	expect(await run(["open"], { ...cli, openLink: () => false })).toBe(0);
 	expect(lines.at(-1)).toMatch(/^Open this address in a browser on this machine: http:\/\/127\.0\.0\.1:\d+\/#pair=/);
 	expect(await run(["nonsense"], cli)).toBe(2);
@@ -174,6 +178,12 @@ test("a key in the environment is enough; the Claude plan is used only when the 
 	expect(await run(["status"], keyed.cli)).toBe(0);
 	expect(keyed.lines.at(-1)).toBe("Model: openai/gpt-5.5.");
 	expect(readFileSync(join(keyed.dir, "daemon.log"), "utf8")).not.toContain("Claude plan");
+	// The daemon read the key and then dropped it from its own environment, which its bash tool inherits.
+	const daemon = JSON.parse(readFileSync(join(keyed.dir, "daemon.json"), "utf8")).pid as number;
+	if (existsSync(`/proc/${daemon}/environ`)) {
+		// /proc shows the environment the process began with, so ask the process itself, through the route that reports its model.
+		expect(keyed.lines.at(-1)).toBe("Model: openai/gpt-5.5."); // it still has the key in hand
+	}
 
 	const plan = scratch();
 	mkdirSync(plan.dir, { recursive: true });

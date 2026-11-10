@@ -101,7 +101,14 @@ export function fileMemory(config: FileMemoryConfig, host: { dir: string; log?: 
 	const read = (name: Name): string => (existsSync(path(name)) ? readFileSync(path(name), "utf8") : "");
 	const secrets = (): string[] => {
 		try {
-			return [readFileSync(join(host.dir, "token"), "utf8").trim()];
+			const found = [readFileSync(join(host.dir, "token"), "utf8").trim()];
+			try {
+				// The stored API keys too, whatever shape a provider gives its keys.
+				for (const item of Object.values(JSON.parse(readFileSync(join(host.dir, "keys.json"), "utf8")) as Record<string, { key?: string }>)) if (typeof item?.key === "string") found.push(item.key);
+			} catch {
+				// no stored keys
+			}
+			return found;
 		} catch {
 			return [];
 		}

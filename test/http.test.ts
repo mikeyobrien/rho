@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -216,6 +216,35 @@ test("the working directory is shown and can be changed to a directory that exis
 	expect(await (await call("/api/cwd", { path: join(dir, "missing") })).json()).toEqual({ error: "That directory does not exist." });
 	expect((await call("/api/cwd", { path: dir })).status).toBe(200);
 	expect((await follow((state) => state.cwd === dir)).at(-1)!.cwd).toBe(dir);
+});
+
+test("an empty or cut-short token file is replaced at start, so a request with no token is still refused", async () => {
+	await server.stop();
+	for (const broken of ["", "short"]) {
+		writeFileSync(join(dir, "token"), broken);
+		const logged: string[] = [];
+		const again = await serve({ core, models: createModels(), dir, port: 0, log: (line) => logged.push(line) });
+		try {
+			const fresh = readFileSync(join(dir, "token"), "utf8");
+			expect(fresh.length).toBeGreaterThanOrEqual(32);
+			expect(logged.join("\n")).toContain("the stored token was unusable and was replaced");
+			const at = `http://127.0.0.1:${again.port}/api/conversations`;
+			expect((await fetch(at)).status).toBe(401);
+			expect((await fetch(at, { headers: { authorization: "Bearer " } })).status).toBe(401);
+			expect((await fetch(at, { headers: { authorization: `Bearer ${broken}` } })).status).toBe(401);
+			expect((await fetch(at, { headers: { authorization: `Bearer ${fresh}` } })).status).toBe(200);
+		} finally {
+			await again.stop();
+		}
+	}
+});
+
+test("a body far over the limit is refused, with or without the token", async () => {
+	const huge = JSON.stringify({ code: "x".repeat(3 * 1024 * 1024) });
+	const unpaired = await fetch(`${base}/api/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: huge });
+	expect(unpaired.status).toBe(413);
+	expect((await call("/api/submit", { text: "x".repeat(300 * 1024), requestId: "big-message-1" })).status).toBe(413);
+	expect((await call("/api/health")).status).toBe(200); // and rho is still there
 });
 
 test("reminders are listed and removed over the API", async () => {

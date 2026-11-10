@@ -6,7 +6,7 @@ import { closeWarmProcesses, sweepStale } from "./claude/relay.ts";
 import { openCore, readConfig } from "./core.ts";
 import { rho1Notice, rhoHome } from "./home.ts";
 import { serve } from "./http.ts";
-import { chooseModel, openModels, setupOf } from "./providers.ts";
+import { chooseModel, keyVariables, openModels, setupOf } from "./providers.ts";
 
 const log = (line: string) => console.error(line);
 const home = rhoHome();
@@ -14,7 +14,11 @@ const dir = home.dir;
 const port = Number(process.env.RHO_PORT ?? 4780);
 sweepStale();
 const config = readConfig(dir, log);
-const { models, claudePlan } = openModels({ dir, config, log });
+// The keys are read from a copy of the environment, then taken out of the real one: the bash
+// tool and the Claude CLI run with this process's environment and must not see them.
+const env = { ...process.env };
+const { models, claudePlan } = openModels({ dir, config, env, log });
+for (const name of await keyVariables(config)) delete process.env[name];
 if (claudePlan) await models.refresh({ providers: [CLAUDE_CODE] }).catch((error: Error) => log(`models: could not ask Claude Code for its models: ${error.message}`));
 // Rho starts without a model too: the page and `rho status` then say what is missing.
 const model = await chooseModel(models, config);

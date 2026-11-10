@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { context, openCore, type Core, type RhoConfig } from "../src/core.ts";
-import { chooseModel, CLAUDE_PLAN_WARNING, keyStore, openModels, setupOf } from "../src/providers.ts";
+import { chooseModel, CLAUDE_PLAN_WARNING, keyStore, keyVariables, openModels, setupOf } from "../src/providers.ts";
 
 // Which model a new person gets, from what they have: nothing, a key, a config, a plan.
 const dirs: string[] = [];
@@ -117,6 +117,13 @@ test("a server of the person's own is a provider from the config, and it answers
 	expect(JSON.stringify(entries.at(-1)!.model)).toContain("Hello from the local model.");
 	expect(seen).toEqual([{ auth: "Bearer none", model: "small-model" }]);
 	expect(logged).toEqual([]);
+});
+
+test("the variables that hold provider keys are known, so the daemon can take them out of the shell's environment", async () => {
+	const names = await keyVariables({ providers: [{ id: "local", baseUrl: "http://x/v1", apiKeyEnv: "MY_SERVER_KEY", models: ["m"] }] });
+	for (const name of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "HF_TOKEN", "MY_SERVER_KEY"]) expect([name, names.includes(name)]).toEqual([name, true]);
+	// Not what the person's own commands need: paths, regions, their cloud login.
+	for (const name of ["PATH", "HOME", "AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_REGION"]) expect([name, names.includes(name)]).toEqual([name, false]);
 });
 
 test("a bad provider entry is left out with a reason, and the rest still load", async () => {

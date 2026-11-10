@@ -160,14 +160,15 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	mkdirSync(options.dir, { recursive: true, mode: 0o700 });
 	const release = own(options.dir);
 	const config = options.config ?? {};
-	const home = config.cwd ?? homedir();
+	// `~` is the home directory here as in a shell; a config file has no shell to expand it.
+	const home = (config.cwd ?? homedir()).replace(/^~(?=\/|$)/, homedir());
 	const registry = createRegistry();
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
-	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir)]) registry.install(tidy(extension));
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir, (id) => persons(id))]) registry.install(tidy(extension));
 	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
-	const memory = options.memory === undefined ? openMemory(config, { dir: options.dir, log }) : (options.memory ?? undefined);
-	// Only the person's own conversations are mirrored to memory, not rho's side work.
+	// Only the person's own conversations are mirrored to memory or may ask for a yes, not rho's side work.
 	let persons: (id: string) => Promise<boolean> = async () => false;
+	const memory = options.memory === undefined ? openMemory(config, { dir: options.dir, log }) : (options.memory ?? undefined);
 	if (memory) registry.install(tidy(memoryExtension(memory, { log, capture: (id) => persons(id) })));
 	log(`memory: ${memory?.label ?? "off"}`);
 	const now = options.clock?.now ?? Date.now;

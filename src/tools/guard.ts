@@ -16,6 +16,7 @@ import { basename, dirname, sep } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, wrapTool, type Conversation, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
+import { isProtected, protect } from "./protected.ts";
 import { findTool, grepTool, lsTool } from "./search.ts";
 
 export type Verdict = { kind: "allow" } | { kind: "refuse"; why: string } | { kind: "ask"; what: string };
@@ -47,6 +48,7 @@ const WAITS: [RegExp, string][] = [
 	[/\brho\s+release\b(?!\s+--status)/, "putting new code into the running rho"],
 ];
 
+const REFUSED = "Refused: rho's own data (its token and storage) is not the agent's to read or change.";
 /** What the guard says about a shell command. Pure: the text and the paths decide. */
 export function judgeCommand(command: string, dataDir: string, home = homedir()): Verdict {
 	const names = new Set<string>();
@@ -54,7 +56,14 @@ export function judgeCommand(command: string, dataDir: string, home = homedir())
 		names.add(dir);
 		if (dir.startsWith(home + sep)) for (const short of ["~", "$HOME", "${HOME}"]) names.add(short + dir.slice(home.length));
 	}
-	if ([...names].some((name) => command.includes(name))) return { kind: "refuse", why: "rho's own data (its token and storage) is not the agent's to read or change." };
+	const why = "rho's own data (its token and storage) is not the agent's to read or change.";
+	if ([...names].some((name) => command.includes(name))) return { kind: "refuse", why };
+	// The same directory written from the home directory, where a conversation starts: `.rho/v2/token`.
+	for (const dir of [dataDir, real(dataDir)]) {
+		if (!dir.startsWith(home + sep)) continue;
+		const relative = dir.slice(home.length + 1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		if (new RegExp(`(?:^|[\\s"'=(;|&<>]|\\./)${relative}(?:$|[/\\s"';|&)<>])`).test(command)) return { kind: "refuse", why };
+	}
 	// `rm` of a `.git` directory or anything in one; `.gitignore` and `.github` are not that.
 	if (/\brm\b[^\n;|&]*?(?:^|[\s"'/=])\.git(?:\/[^\s"';|&]*)?(?=$|[\s"';|&])/.test(command)) return { kind: "refuse", why: "deleting a git directory destroys history that cannot be rebuilt." };
 	for (const [pattern, what] of WAITS) if (pattern.test(command)) return { kind: "ask", what };
@@ -76,37 +85,37 @@ export async function answerApproval(conversation: Conversation, id: string, all
 }
 
 /** The `guard` extension: wraps the tools that touch files or run commands. */
-export function guard(dataDir: string): Extension {
-	const dirs = [...new Set([dataDir, real(dataDir)])];
+export function guard(dataDir: string, persons: (conversation: string) => Promise<boolean> = async () => true): Extension {
+	protect(dataDir);
 	/** Refuse a path in rho's data, also when a link leads there. */
 	const checkPath = async (path: unknown, api: Parameters<ToolRegistration["execute"]>[1], context: Context): Promise<void> => {
 		const env = api.env;
 		if (!env) return;
 		const absolute = await env.absolutePath(typeof path === "string" && path !== "" ? path : ".", context);
 		if (!absolute.ok) return; // the tool reports a bad path itself
-		// Where the path really leads. A file that does not exist yet has no real path of its own,
-		// so the nearest directory that does exist is resolved and the rest put back on it.
-		let existing = absolute.value;
-		let rest = "";
-		let canonical = await env.canonicalPath(existing, context);
-		while (!canonical.ok && dirname(existing) !== existing) {
-			rest = `${sep}${basename(existing)}${rest}`;
-			existing = dirname(existing);
-			canonical = await env.canonicalPath(existing, context);
-		}
-		for (const candidate of [absolute.value, ...(canonical.ok ? [canonical.value + rest] : [])]) {
-			if (dirs.some((dir) => inside(candidate, dir))) throw new Error("Refused: rho's own data (its token and storage) is not the agent's to read or change.");
-		}
+		if (isProtected(absolute.value)) throw new Error(REFUSED);
 	};
 	const paths = <T extends ToolRegistration<any, any>>(tool: T) =>
 		wrapTool(tool, (inner) => ({ ...inner, execute: async (args: any, api: any, context: Context) => (await checkPath(args.path, api, context), inner.execute(args, api, context)) }) as T);
 	const bash = wrapTool(createBashTool(), (inner) => ({
 		...inner,
 		execute: async (args, api, context) => {
+			// A command run from inside rho's data needs no path to reach it.
+			const cwd = await api.env?.absolutePath(".", context);
+			if (cwd?.ok && isProtected(cwd.value)) throw new Error(REFUSED);
+			// Every path the command names, resolved: another name for the same directory (a link, or
+			// Android's second mount of an app's files) is the same directory.
+			const seen = new Map<string, boolean>();
+			for (const word of args.command.match(/(?:~|\.{0,2})?\/?[\w.@%+,:~-]+(?:\/[\w.@%+,:~-]*)+|~/g) ?? []) {
+				const path = word.startsWith("~") ? homedir() + word.slice(1) : word.startsWith("/") ? word : cwd?.ok ? `${cwd.value}/${word}` : undefined;
+				if (path !== undefined && isProtected(path, seen)) throw new Error(REFUSED);
+			}
 			const verdict = judgeCommand(args.command, dataDir);
 			if (verdict.kind === "refuse") throw new Error(`Refused: ${verdict.why} Do not try it another way.`);
 			if (verdict.kind === "ask") {
 				const command = args.command;
+				// Rho's own side work (a check-in) has nobody watching: there is no one to ask.
+				if (!(await persons(String(api.conversationId)))) throw new Error(`Not run: ${verdict.what} cannot be undone and needs the person's yes, and nobody is here to give it. Do not try it another way. Report that it was not done and why.`);
 				// One commit: take a waiting grant for this exact command, or leave the request for the person.
 				const granted = await api.commit(async (tx) => {
 					const doc = await tx.doc(Approvals, api.conversationId);

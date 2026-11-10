@@ -217,8 +217,44 @@ test("a run stops at its turn limit and says so, and the limit survives a restar
 	expect((await bad.core.root.agent(context)).maxTurns).toBe(200);
 }, 30_000);
 
+test("rho's data is not found through a link to a directory above it, nor from a shell started inside it", async () => {
+	const { use, dir, work, core } = await open();
+	writeFileSync(join(dir, "keys.json"), JSON.stringify({ anthropic: { type: "api_key", key: "sk-LEAKME-0123456789" } }));
+	writeFileSync(join(dir, "..", "beside.txt"), "LEAKME is also said in a file beside the data\n");
+	symlinkSync(join(dir, ".."), join(work, "up")); // a link to the parent: the path never names the data directory
+	// The walk compares directories by what they are, not by how the path is spelled.
+	expect((await use("find", { pattern: "*.json", path: "up" })).text).toBe("No files match.");
+	expect((await use("find", { pattern: "*.json" })).text).toBe("No files match."); // and from the directory that holds the link
+	expect((await use("grep", { pattern: "LEAKME", path: "up" })).text).toBe("beside.txt:1: LEAKME is also said in a file beside the data");
+	for (const [name, args] of [["read", { path: "up/data/keys.json" }], ["ls", { path: "up/data" }], ["grep", { pattern: ".", path: "up/data/keys.json" }]] as const) {
+		const result = await use(name, args);
+		expect([name, result.error, result.text.includes("LEAKME")]).toEqual([name, true, false]);
+	}
+	// A shell command that names the data by another path is refused as well: the paths in it are resolved.
+	for (const command of ["cat up/data/keys.json", "cat ./up/data/keys.json", `cat ${join(work, "up", "data", "keys.json")}`, "cd up/data && cat keys.json", "cp up/data/keys.json /dev/stdout"]) {
+		const result = await use("bash", { command });
+		expect([command, result.error, result.text.includes("LEAKME")]).toEqual([command, true, false]);
+	}
+	// Ordinary commands with paths in them still run.
+	const ordinary = await use("bash", { command: "cat up/beside.txt && ls up/work >/dev/null && echo ok ./x/y ~/nothing-here" });
+	expect([ordinary.error, ordinary.text.includes("LEAKME is also said")]).toEqual([undefined, true]);
+	// A conversation whose working directory is the data directory gets no shell there.
+	await core.root.configure({ cwd: dir }, context);
+	const inside = await use("bash", { command: "cat keys.json" });
+	expect([inside.error, inside.text.includes("LEAKME")]).toEqual([true, false]);
+	expect(inside.text).toContain("rho's own data");
+});
+
+test("from the home directory, the data directory's relative path is refused as its full path is", () => {
+	const data = join(homedir(), ".rho", "v2");
+	const judge = (command: string) => judgeCommand(command, data).kind;
+	for (const command of ["cat .rho/v2/token", "cat ./.rho/v2/keys.json", "ls .rho/v2", "cd .rho/v2 && ls", 'grep -r key ".rho/v2"', "tar czf x.tgz .rho/v2/"]) expect([command, judge(command)]).toEqual([command, "refuse"]);
+	// Other names that only look alike are ordinary work.
+	for (const command of ["ls .rho", "cat notes/.rho/v2x/file", "ls my.rho/v2", "cat .rho/v20/file"]) expect([command, judge(command)]).toEqual([command, "allow"]);
+});
+
 test("the guard's seatbelt is not a wall: what it does not catch is written down", () => {
 	// These pass the rules. They are here so the limit is stated in a test, not discovered later.
 	const judge = (command: string) => judgeCommand(command, join(homedir(), ".rho", "v2")).kind;
-	for (const command of ['g=git; $g push', "bash deploy.sh", 'python3 -c "import shutil; shutil.rmtree(\'.git\')"', "find . -name .git -exec rm -rf {} +", "cat ~/.rho/v*/token"]) expect([command, judge(command)]).toEqual([command, "allow"]);
+	for (const command of ['g=git; $g push', "bash deploy.sh", 'python3 -c "import shutil; shutil.rmtree(\'.git\')"', "find . -name .git -exec rm -rf {} +", "cat ~/.rho/v*/token", "cd .rho && cat v2/token"]) expect([command, judge(command)]).toEqual([command, "allow"]);
 });

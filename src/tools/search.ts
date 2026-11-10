@@ -6,17 +6,18 @@ import type { Context } from "@earendil-works/chord/context";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { bool, num, obj, opt, str } from "@earendil-works/pi-schema";
+import { isProtected, protect } from "./protected.ts";
 
 const MAX_FILES = 50_000; // files one search will consider
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // larger files are not searched
 const MAX_LINE = 500; // characters of a line shown, and tested against the pattern
 const SKIP = new Set([".git", "node_modules"]);
 /** Directories no search looks into, as absolute paths: rho's own data. Set once by the core. */
-const excluded = new Set<string>();
 export function excludeFromSearch(dir: string): void {
-	excluded.add(dir);
+	protect(dir);
 }
-const hidden = (path: string): boolean => [...excluded].some((dir) => path === dir || path.startsWith(`${dir}/`));
+/** Rho's own data is never listed or searched, whatever name the path reaches it by. */
+const hidden = (path: string, seen: Map<string, boolean>): boolean => isProtected(path, seen);
 
 const stopped = (context: Context): void => {
 	if (context.abortSignal?.aborted) throw new Error("Stopped.");
@@ -33,11 +34,12 @@ async function absolute(env: ExecutionEnv, path: string | undefined, context: Co
 
 /** The files under `root`, as paths relative to it, sorted. `truncated` when there were more than the cap. */
 export async function filesUnder(env: ExecutionEnv, root: string, context: Context): Promise<{ files: string[]; truncated: boolean }> {
+	const seen = new Map<string, boolean>();
 	let out = "";
 	const git = await env.exec(["git", "ls-files", "-co", "--exclude-standard", "-z"], { cwd: root, onOutput: (text, _context, info) => void (info.stream === "stdout" && out.length < 16_000_000 && (out += text)) }, context);
 	stopped(context);
 	if (git.ok && git.value.exitCode === 0) {
-		const files = [...new Set(out.split("\0").filter((file) => file !== "" && !file.split("/").some((part) => SKIP.has(part)) && !hidden(`${root}/${file}`)))].sort();
+		const files = [...new Set(out.split("\0").filter((file) => file !== "" && !file.split("/").some((part) => SKIP.has(part)) && !hidden(`${root}/${file}`, seen)))].sort();
 		return { files: files.slice(0, MAX_FILES), truncated: files.length > MAX_FILES };
 	}
 	// Not a git work tree, or no git: walk it.
@@ -54,7 +56,7 @@ export async function filesUnder(env: ExecutionEnv, root: string, context: Conte
 		for (const entry of listed.value) {
 			if (SKIP.has(entry.name)) continue;
 			const path = dir === "" ? entry.name : `${dir}/${entry.name}`;
-			if (hidden(`${root}/${path}`)) continue;
+			if (hidden(`${root}/${path}`, seen)) continue;
 			if (entry.kind === "directory") queue.push(path);
 			else if (files.push(path) >= MAX_FILES) return { files: files.sort(), truncated: true };
 		}
@@ -126,7 +128,14 @@ export const grepTool = defineTool({
 		const root = await absolute(env, args.path, context);
 		const info = await env.fileInfo(root, context);
 		if (!info.ok) throw info.error;
-		const single = info.value.kind !== "directory";
+		// A link is what it leads to: a link to a directory is searched as one.
+		let kind = info.value.kind;
+		if (kind === "symlink") {
+			const real = await env.canonicalPath(root, context);
+			const target = real.ok ? await env.fileInfo(real.value, context) : undefined;
+			if (target?.ok) kind = target.value.kind;
+		}
+		const single = kind !== "directory";
 		const listing = single ? { files: [""], truncated: false } : await filesUnder(env, root, context);
 		const glob = args.glob ? globFor(args.glob) : undefined;
 		const limit = Math.max(1, Math.floor(args.limit ?? 100));

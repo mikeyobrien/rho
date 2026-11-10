@@ -84,6 +84,17 @@ async function start(dir: string, cli: CliEnv): Promise<DaemonFile | undefined> 
 	return undefined;
 }
 
+/** Start the gate as its own systemd user unit, outside rho's. Returns its pid, or undefined when systemd-run is not there. */
+function gateUnit(command: string[], env: Record<string, string | undefined>, log: string): { pid: number | undefined } | undefined {
+	if (Bun.which("systemd-run", { PATH: env.PATH ?? "" }) === null) return undefined;
+	const unit = `rho-release-${Date.now()}`;
+	const pass = ["PATH", "HOME", "RHO_HOME", "RHO_PORT", "RHO_CLAUDE", "RHO_SERVICE", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"].flatMap((name) => (env[name] ? [`--setenv=${name}=${env[name]}`] : []));
+	const started = spawnSync("systemd-run", ["--user", "--quiet", "--collect", `--unit=${unit}`, `--working-directory=${RELEASE_DIR}`, `--property=StandardOutput=append:${log}`, `--property=StandardError=append:${log}`, ...pass, ...command], { env: env as NodeJS.ProcessEnv, encoding: "utf8" });
+	if (started.status !== 0) return undefined; // fall back to a detached process
+	const pid = Number(spawnSync("systemctl", ["--user", "show", "-p", "MainPID", "--value", unit], { env: env as NodeJS.ProcessEnv, encoding: "utf8" }).stdout.trim());
+	return { pid: pid > 0 ? pid : undefined };
+}
+
 /** One line on whether the running rho has a model it can use. */
 async function setupLine(dir: string, now: DaemonFile): Promise<string> {
 	try {
@@ -182,6 +193,8 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			if (!now) return 1;
 			// The code is one use: the page trades it for the token and takes it out of the address.
 			const link = `http://127.0.0.1:${now.port}/#pair=${readFileSync(join(dir, "pair-code"), "utf8")}`;
+			// `--print` is for a browser on another device, reached through a forwarded port.
+			if (args[1] === "--print") return cli.out(`Open this address in a browser that reaches this machine's port ${now.port}. It works once: ${link}`), 0;
 			cli.out(cli.openLink(link) ? "Opened rho in the browser." : `Open this address in a browser on this machine: ${link}`);
 			return 0;
 		}
@@ -208,9 +221,15 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			mkdirSync(dir, { recursive: true, mode: 0o700 });
 			// The gate runs apart from this command and from rho: the restart must not end it.
 			const log = openSync(join(dir, "release.log"), "a", 0o600);
-			const gate = spawn(process.execPath, [resolve(RELEASE_DIR, "bin", "rho"), "release-run", checked.source, checked.commit], { env: cli.env as NodeJS.ProcessEnv, cwd: RELEASE_DIR, detached: true, stdio: ["ignore", log, log] });
-			gate.unref();
+			const command = [process.execPath, resolve(RELEASE_DIR, "bin", "rho"), "release-run", checked.source, checked.commit];
+			// Under systemd, stopping rho's unit ends every process started inside it, a detached one
+			// too. When rho itself runs the release, the gate would die at its own restart and leave
+			// rho stopped. So there the gate runs as a unit of its own.
+			const unit = readService(dir)?.kind === "systemd" ? gateUnit(command, cli.env, join(dir, "release.log")) : undefined;
+			const gate = unit ?? spawn(command[0]!, command.slice(1), { env: cli.env as NodeJS.ProcessEnv, cwd: RELEASE_DIR, detached: true, stdio: ["ignore", log, log] });
+			if (!unit) (gate as ReturnType<typeof spawn>).unref();
 			closeSync(log);
+			if (gate.pid === undefined) return cli.out("The release gate could not be started. See: rho logs"), 1;
 			// Said before this command returns, so the status never shows the release before this one.
 			writeFileSync(file, `${JSON.stringify({ status: "running", stage: "starting", commit: checked.commit, previous: checked.previous, pid: gate.pid, at: Date.now() }, null, "\t")}\n`, { mode: 0o600 });
 			cli.out(`Releasing ${checked.commit.slice(0, 7)} (rho runs ${checked.previous.slice(0, 7)}). The gate checks it, then restarts rho onto it; if it does not come up, rho goes back. The result arrives as a message here. Progress: rho release --status`);
@@ -257,7 +276,7 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 		case "logs":
 			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet, start rho first."), 0;
 		default:
-			cli.out("Usage: rho start | stop | status | open | key [provider [--remove]] | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
+			cli.out("Usage: rho start | stop | status | open [--print] | key [provider [--remove]] | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
 			return 2;
 	}
 }
@@ -275,9 +294,15 @@ export async function main(args: string[]): Promise<number> {
 	// A secret is read without echo from a terminal, or as the first line of piped input.
 	const readSecret = async (prompt: string): Promise<string> => {
 		const tty = process.stdin.isTTY === true;
+		const restore = () => {
+			spawnSync("stty", ["echo"], { stdio: "inherit" });
+			process.stderr.write("\n");
+			process.exit(130);
+		};
 		if (tty) {
 			process.stderr.write(prompt);
 			spawnSync("stty", ["-echo"], { stdio: "inherit" });
+			process.once("SIGINT", restore); // Ctrl-C must not leave the terminal without echo
 		}
 		try {
 			let text = "";
@@ -288,6 +313,7 @@ export async function main(args: string[]): Promise<number> {
 			return text.split("\n")[0] ?? "";
 		} finally {
 			if (tty) {
+				process.removeListener("SIGINT", restore);
 				spawnSync("stty", ["echo"], { stdio: "inherit" });
 				process.stderr.write("\n");
 			}

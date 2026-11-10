@@ -160,6 +160,26 @@ export function openModels(options: ModelsOptions): { models: MutableModels; key
 	return { models, keys, claudePlan };
 }
 
+/**
+ * The environment variables that can hold a provider's key or token, for every provider rho
+ * knows. The daemon takes these out of its own environment once it has read them, so the `bash`
+ * tool, which runs with the daemon's environment, cannot print them.
+ *
+ * pi-ai does not publish the list, so it is learned by asking: each provider is asked for its
+ * login against an empty environment, and every name it looks up is noted.
+ */
+export async function keyVariables(config: RhoConfig): Promise<string[]> {
+	const asked = new Set<string>();
+	const probe = createModels({ authContext: { env: async (name) => void asked.add(name), fileExists: async () => false } });
+	for (const provider of builtinProviders()) probe.setProvider(provider);
+	await Promise.all(probe.getProviders().map((provider) => probe.checkAuth(provider.id).catch(() => undefined)));
+	// Only secrets: a region, a profile or an account id stays, because the person's own commands may need it.
+	// Not the AWS variables: they are the person's cloud login, which their own commands use too.
+	const names = new Set([...asked].filter((name) => /KEY|TOKEN|SECRET/.test(name) && !/_FILE$/.test(name) && !name.startsWith("AWS_")));
+	for (const spec of Array.isArray(config.providers) ? (config.providers as CustomProvider[]) : []) if (typeof spec?.apiKeyEnv === "string") names.add(spec.apiKeyEnv);
+	return [...names].sort();
+}
+
 const idOf = (model: { provider: string; id: string }): string => `${model.provider}/${model.id}`;
 /**
  * The model of a new conversation: the configured one; else the first preferred model whose

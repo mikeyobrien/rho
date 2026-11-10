@@ -6,6 +6,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { checkinNote, dueReminders, nextDue, parseReminder, type Reminder } from "../src/checkins.ts";
 import { context, openCore, type Core } from "../src/core.ts";
+import { Approvals } from "../src/tools/guard.ts";
 import { entryView, type EntryView } from "../src/view.ts";
 import { fakeClock, HOUR, MINUTE } from "./fixtures/clock.ts";
 
@@ -32,7 +33,7 @@ async function open(config: object = {}, reuse?: { dir: string; clock: ReturnTyp
 	models.setProvider(faux.provider);
 	const logged: string[] = [];
 	const calls: string[] = []; // what each model request was asked, newest user text
-	const core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: dir, ...config }, memory: null, clock, log: (line) => logged.push(line) });
+	const core = await openCore({ dir: join(dir, "data"), models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: dir, ...config }, memory: null, clock, log: (line) => logged.push(line) });
 	cores.push(core);
 	/** Script the model: each reply is given once, and the request it answered is recorded. */
 	const script = (...replies: (string | ReturnType<typeof fauxAssistantMessage>)[]) =>
@@ -224,6 +225,32 @@ test("Stop ends a running check-in quietly; the reminder stays and runs at its n
 	clock.advance(HOUR);
 	await until("the next check-in", async () => (await notices()).length === 1);
 	expect(await notices()).toEqual(["[check-in] Second time round."]);
+});
+
+test("a check-in cannot ask for a yes: a guarded command is refused there in words that say nobody is watching", async () => {
+	const { clock, faux, notices, reminders, core } = await open();
+	let told = "";
+	faux.setResponses([fauxAssistantMessage(fauxToolCall("bash", { command: "git push origin main" }), { stopReason: "toolUse" }), ((transcript: { messages: { content: unknown }[] }) => ((told = JSON.stringify(transcript.messages.at(-1)!.content)), fauxAssistantMessage("The push was not done: it needs your yes."))) as never]);
+	await reminders.add({ text: "Push the nightly branch", every: "1h" });
+	clock.advance(HOUR + MINUTE);
+	await until("the report", async () => (await notices()).length === 1);
+	expect(told).toContain("needs the person's yes, and nobody is here to give it");
+	expect(told).not.toContain("They are shown the command");
+	expect(await notices()).toEqual(["[check-in] The push was not done: it needs your yes."]);
+	// Nothing waits anywhere for an Allow that could never come.
+	expect((await core.harness.snapshot(Approvals, core.root.id, context))?.pending ?? []).toEqual([]);
+});
+
+test("Clear context in the first conversation does not lose reminders or stop check-ins", async () => {
+	const { clock, script, notices, reminders, core } = await open();
+	script("Still checking in.");
+	await reminders.add({ text: "Hourly thing", every: "1h" });
+	await settle();
+	await core.root.reset(undefined, context);
+	await settle();
+	expect((await reminders.list()).length).toBe(1);
+	clock.advance(HOUR + MINUTE);
+	await until("the report after the reset", async () => (await notices()).length === 1);
 });
 
 test("the agent sets, lists and removes reminders with the reminder tool", async () => {
