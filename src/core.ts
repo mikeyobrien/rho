@@ -10,6 +10,7 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { homedir } from "node:os";
 import { SearchTools } from "./tools/search.ts";
 import { tidy } from "./tools/tidy.ts";
+import { webTools, type WebOptions } from "./tools/web.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -58,6 +59,8 @@ export interface CoreOptions {
 	models: Models;
 	config?: RhoConfig;
 	extensions?: readonly Extension[];
+	/** How the web tools reach the web. Tests change it. */
+	web?: WebOptions;
 	/** Where tools touch files and run commands. Default: this machine, in the conversation's directory. Tests change it. */
 	env?: (cwd: string) => ExecutionEnv;
 	log?: (line: string) => void;
@@ -120,7 +123,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	const home = config.cwd ?? homedir();
 	const registry = createRegistry();
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
-	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, ...(options.extensions ?? [])]) registry.install(tidy(extension));
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? [])]) registry.install(tidy(extension));
 	const harness = await Harness.open(
 		await openNodeSqliteStorage(join(options.dir, "rho.sqlite")),
 		{

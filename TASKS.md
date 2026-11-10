@@ -63,8 +63,24 @@ In order. Each item ends in something that can be checked.
    reasoning poorly; the phrase's effect on answer quality or cost.
 8. **Project context.** `AGENTS.md` files and an environment summary as prompt sections.
 9. **Conversations.** More than one, each with its own directory: list, open, new.
-10. **Web access.** `web_search` (one provider to start) and `fetch_content` (a page as
-    readable text). Everything fetched reaches the model inside untrusted-content fences.
+10. **Web access.** DONE 2026-11-10: `src/tools/web.ts`. `web_search` uses Exa's key-less MCP
+    endpoint (`mcp.exa.ai`); `fetch_content` returns a page's readable text. Both are
+    read-only and `replay: "safe"`. Everything they return is inside a fence that says it is
+    data, not instructions; the fence's tag carries a random mark and the text inside cannot
+    close it. `fetch_content` takes only http and https, refuses any address that is not the
+    public web (loopback, local networks, tailnets, link-local, a name that resolves to one),
+    checks each redirect the same way, downloads at most 2 MB and returns at most 20,000
+    characters a call.
+    Checked: 10 tests against a fake search service and fake pages. Live, once, real web:
+    a search returned three fenced results in 0.5 s; `https://example.com/` came back fenced
+    in 85 ms; an http address redirected to https and a 35,626-character page was returned
+    400 characters at a time with the offset to read on; `localhost` and a tailnet host name
+    were refused before any request.
+    Not covered: the DNS answer is checked and then the name is fetched, so a name that
+    changes its answer in between (DNS rebinding) is not stopped; the page text is a
+    regex strip, not a real parser, so navigation clutter comes through and pages built by
+    script come back empty; no PDF, no GitHub shortcut; Exa's free endpoint is rate limited
+    and its limits were not measured; search queries go to Exa.
 11. **The self-build gate.** Rho runs from a release checkout and works in a separate one. A
     `release` step runs `bun run check`, switches the service to the new commit, health-checks
     it, and goes back to the last good commit if it does not answer.
