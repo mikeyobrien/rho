@@ -10,8 +10,11 @@ Done when: from the web page on the phone, rho makes a commit to this branch tha
 
 In order. Each item ends in something that can be checked.
 
-1. **Daemon core.** One process: a Harness on SQLite, `~/.rho/config.json`, a log. First test:
-   kill the process mid-run under Bun, reopen, the run finishes and no tool ran twice.
+1. **Daemon core.** DONE 2026-11-10: `src/core.ts` (a Harness on SQLite in `RHO_HOME`, default
+   `~/.rho2`; `config.json`; resumes unfinished work on open) and `src/main.ts` (answers one
+   question from the command line). Crash test passes under Bun, in a second process killed
+   with SIGKILL: mid-answer, the next process retries once and the question is not asked
+   twice; mid-tool, the tool does not run again and the model is told it was interrupted.
 2. **Model access.** PARTLY DONE. pi-durable takes a pi-ai `Models` object, so every pi-ai
    provider works once the host registers it and a credential exists. Claude on the Max plan:
    DONE, `src/claude/` (below). Still to do in the daemon: register the built-in providers,
@@ -68,6 +71,18 @@ In order. Each item ends in something that can be checked.
 
 - Bun 1.4.4 on Termux runs pi-durable 1.5.1 with SQLite storage; Bun and Node read each
   other's databases. TypeScript 6.0.3 type-checks here; TypeScript 7 has no Android build.
+- Crash and resume, checked 2026-11-10. With a scripted model: 4 tests (`test/core.test.ts`).
+  Once on real Claude (Haiku): a tool round ran its tool once; a second process was killed
+  with SIGKILL 2.5 s into a long answer; the reopened core finished the answer (300 of 300
+  lines) with one user entry, keeping the cut-off attempt as an `aborted` entry.
+  - A SIGKILL leaves rho's Claude CLI processes running (3 seen: wrapper, proot, CLI). They
+    ended by themselves within seconds. It also leaves a turn directory in the temp
+    directory, holding that turn's system prompt and tool list; `sweepStale()` removes those
+    older than ten minutes at the next start.
+  - The interrupted answer costs a second model request for the whole answer.
+  - Not checked: a kill between a tool finishing and its result being stored; repeated kills
+    (pi-durable's restart limit); storage failure; two rho processes on one data directory.
+  - `src/main.ts` is not a daemon yet: it exits after one question. No HTTP, no service.
 - **Rho's own Claude provider** (`src/claude/`; reworked 2026-11-10 to match pi's
   `pi-claude-code`, so requests are billed as Claude Code's own). The CLI builds and sends its
   own request: its headers (`claude-cli` user agent, `x-app: cli`), its billing and identity

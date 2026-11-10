@@ -20,7 +20,7 @@
 // logged or stored.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -261,6 +261,28 @@ interface Turn {
 	abort: AbortController;
 	settle(value: Response | Error): void;
 	seen?: Json[];
+}
+
+/**
+ * Remove turn directories a killed rho left in the temp directory. A SIGKILL gives rho no
+ * chance to end its CLI or delete its files; the orphaned CLI stops by itself once its relay is
+ * gone, and this clears the files at the next start. Only directories older than `olderThanMs`
+ * are removed, so a turn in progress in another rho is not touched.
+ */
+export function sweepStale(olderThanMs = 10 * 60_000, root = tmpdir()): number {
+	let removed = 0;
+	for (const name of readdirSync(root)) {
+		if (!/^rho-claude-[A-Za-z0-9]{6}$/.test(name)) continue;
+		const path = join(root, name);
+		try {
+			if (Date.now() - statSync(path).mtimeMs < olderThanMs) continue;
+			rmSync(path, { recursive: true, force: true });
+			removed++;
+		} catch {
+			// gone already, or not ours to remove
+		}
+	}
+	return removed;
 }
 
 const warm = new Map<string, Worker>();

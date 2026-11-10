@@ -1,11 +1,11 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { obj, str } from "@earendil-works/pi-schema";
 import { CLAUDE_CODE, claudeCodeProvider, claudeStatus } from "../src/claude/provider.ts";
-import { closeWarmProcesses, normalizeSchema, planTurn, relayFetch, restoreBlocks, restoreRequest, warmProcessCount, type Frame } from "../src/claude/relay.ts";
+import { closeWarmProcesses, normalizeSchema, planTurn, relayFetch, restoreBlocks, restoreRequest, sweepStale, warmProcessCount, type Frame } from "../src/claude/relay.ts";
 
 // No model is called here: a fake CLI (test/fixtures/fake-claude.ts) and a fake Anthropic.
 const command = [process.execPath, join(import.meta.dir, "fixtures", "fake-claude.ts")];
@@ -255,6 +255,17 @@ test("the CLI runs in the directory rho names, so the model is told the real one
 	sayHello();
 	await (await post(request([{ role: "user", content: [text("q")] }]), "normal", { cwd: dir })).text();
 	expect(cliSaw().cwd).toBe(dir);
+});
+
+test("turn directories left by a killed rho are cleared at the next start, and fresh ones are left alone", () => {
+	const root = mkdtempSync(join(tmpdir(), "rho-sweep-test-"));
+	for (const name of ["rho-claude-AAAAAA", "rho-claude-BBBBBB", "rho-claude-test-CCCCCC", "other"]) mkdirSync(join(root, name));
+	const old = new Date(Date.now() - 3_600_000);
+	utimesSync(join(root, "rho-claude-AAAAAA"), old, old);
+	utimesSync(join(root, "other"), old, old);
+	expect(sweepStale(600_000, root)).toBe(1);
+	expect(readdirSync(root).sort()).toEqual(["other", "rho-claude-BBBBBB", "rho-claude-test-CCCCCC"]);
+	rmSync(root, { recursive: true, force: true });
 });
 
 test("status reads the CLI's login without a model request", async () => {
