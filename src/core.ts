@@ -8,6 +8,7 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { homedir } from "node:os";
+import { projectExtension, type ContextOptions } from "./context.ts";
 import { guard } from "./tools/guard.ts";
 import { excludeFromSearch, SearchTools } from "./tools/search.ts";
 import { tidy } from "./tools/tidy.ts";
@@ -62,6 +63,8 @@ export interface CoreOptions {
 	models: Models;
 	config?: RhoConfig;
 	extensions?: readonly Extension[];
+	/** The project-context section's clock. Tests change it. */
+	context?: ContextOptions;
 	/** How the web tools reach the web. Tests change it. */
 	web?: WebOptions;
 	/** Where tools touch files and run commands. Default: this machine, in the conversation's directory. Tests change it. */
@@ -128,6 +131,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
 	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir)]) registry.install(tidy(extension));
 	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
+	// The person's standing instructions live beside rho's data, where the agent cannot rewrite them.
+	registry.install(projectExtension(home, { personal: join(options.dir, "AGENTS.md"), ...options.context }));
 	const harness = await Harness.open(
 		await openNodeSqliteStorage(join(options.dir, "rho.sqlite")),
 		{

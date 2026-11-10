@@ -61,7 +61,19 @@ In order. Each item ends in something that can be checked.
    of 6 calls came with a reasoning phrase.
    Not checked: the cards in a real browser (their look was never seen); a model that fills
    reasoning poorly; the phrase's effect on answer quality or cost.
-8. **Project context.** `AGENTS.md` files and an environment summary as prompt sections.
+8. **Project context.** DONE 2026-11-10: `src/context.ts`. A `project` prompt section: an
+   environment summary (directory, git or not, system, home, date, and on Termux what differs
+   there), then every `AGENTS.md` from the root down to the conversation's directory,
+   outermost first, preceded by the person's own `<data dir>/AGENTS.md`. One file is cut at
+   16,000 characters with a pointer to the rest; all together at 48,000.
+   The section is sticky: every request of a conversation repeats the same bytes, so the
+   prompt cache holds. It is read again when the directory changes, in a new chat, and after
+   a compaction. So an `AGENTS.md` edited mid-conversation is not seen until then, and the
+   date line is the day the context was read, not today.
+   Checked: 5 tests on what the scripted model receives, including byte-identical system
+   messages across four requests with a tool round, an edited file and a changed date.
+   Not checked: the re-read after a real compaction (reasoned from pi-durable's `shown`,
+   not run); a live model's prompt-cache numbers with the section in place.
 9. **Conversations.** More than one, each with its own directory: list, open, new.
 10. **Web access.** DONE 2026-11-10: `src/tools/web.ts`. `web_search` uses Exa's key-less MCP
     endpoint (`mcp.exa.ai`); `fetch_content` returns a page's readable text. Both are
