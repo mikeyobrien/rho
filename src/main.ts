@@ -5,16 +5,20 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { AssistantEntry } from "@earendil-works/pi-durable";
 import { claudeCodeProvider, CLAUDE_CODE } from "./claude/provider.ts";
 import { closeWarmProcesses, sweepStale } from "./claude/relay.ts";
-import { context, dataDir, openCore, readConfig } from "./core.ts";
+import { context, openCore, readConfig } from "./core.ts";
+import { rho1Notice, rhoHome } from "./home.ts";
 
 const log = (line: string) => console.error(line);
-const dir = dataDir();
+const home = rhoHome();
+const dir = home.dir;
 sweepStale();
 const models = createModels();
 models.setProvider(claudeCodeProvider());
 await models.refresh({ providers: [CLAUDE_CODE] }).catch((error: Error) => log(`models: could not ask Claude Code for its models: ${error.message}`));
 const core = await openCore({ dir, models, config: readConfig(dir, log), log, onFailed: () => setTimeout(() => process.exit(1), 100) });
 log(`rho: data in ${dir}`);
+const notice = rho1Notice(home);
+if (notice) log(notice);
 
 const question = process.argv.slice(2).join(" ").trim();
 if (question !== "") {

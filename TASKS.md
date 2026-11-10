@@ -11,7 +11,7 @@ Done when: from the web page on the phone, rho makes a commit to this branch tha
 In order. Each item ends in something that can be checked.
 
 1. **Daemon core.** DONE 2026-11-10: `src/core.ts` (a Harness on SQLite in `RHO_HOME`, default
-   `~/.rho2`; `config.json`; resumes unfinished work on open) and `src/main.ts` (answers one
+   `~/.rho/v2`; `config.json`; resumes unfinished work on open) and `src/main.ts` (answers one
    question from the command line). Crash test passes under Bun, in a second process killed
    with SIGKILL: mid-answer, the next process retries once and the question is not asked
    twice; mid-tool, the tool does not run again and the model is told it was interrupted.
@@ -83,6 +83,18 @@ In order. Each item ends in something that can be checked.
   - Not checked: a kill between a tool finishing and its result being stored; repeated kills
     (pi-durable's restart limit); storage failure; two rho processes on one data directory.
   - `src/main.ts` is not a daemon yet: it exits after one question. No HTTP, no service.
+- Data directory (decided 2026-11-10): rho 2 shares `~/.rho` with rho 1 and writes only
+  `~/.rho/v2/` (`src/home.ts`). Rho 1 uses none of the names `v2`, `rho.sqlite`, or a
+  top-level `config.json`, and never deletes the directory, so the two run side by side and
+  rho 2 is removed by deleting `v2/`. Tested: opening and running rho 2 in a rho 1 layout
+  leaves every rho 1 file byte-identical. At start rho 2 logs what rho 1 data it found and
+  what has not been carried over.
+  - Migration is copy, never move, recorded per step in `v2/migrated.json`. What exists now is
+    the detection and the record. The steps themselves are not built: brain (needs the memory
+    provider, item 14), vault (item 25), heartbeat interval and agent name (items 22, 2).
+    Rho 1's Telegram state, results, logs and package list are left alone and reported.
+  - A real rho 1 directory exists on the owner's Mac (brain, vault, telegram, init.toml and more). None
+    on the phone or the Linux machine. The Mac's was listed by name only; nothing in it was read.
 - **Rho's own Claude provider** (`src/claude/`; reworked 2026-11-10 to match pi's
   `pi-claude-code`, so requests are billed as Claude Code's own). The CLI builds and sends its
   own request: its headers (`claude-cli` user agent, `x-app: cli`), its billing and identity

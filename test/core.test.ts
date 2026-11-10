@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dataDir, parseModel, readConfig } from "../src/core.ts";
+import { parseModel, readConfig } from "../src/core.ts";
 
 // The core is run in a real second process (test/fixtures/crash-host.ts) with a scripted model
 // and killed with SIGKILL, which is what Android does to it. No model is called.
@@ -115,12 +115,10 @@ test("a finished tool call is not run again by a restart", async () => {
 	expect(lines(dir, "effects.log")).toEqual(["once"]);
 });
 
-test("config and paths", () => {
+test("config", () => {
 	expect(parseModel("claude-code/claude-opus-5-5")).toEqual({ provider: "claude-code", modelId: "claude-opus-5-5" });
 	expect(parseModel("openrouter/anthropic/claude")).toEqual({ provider: "openrouter", modelId: "anthropic/claude" });
 	expect(() => parseModel("no-slash")).toThrow(/provider\/model/);
-	expect(dataDir({ RHO_HOME: "/x" })).toBe("/x");
-	expect(dataDir({}).endsWith("/.rho2")).toBe(true);
 	const dir = scratch([]);
 	expect(readConfig(dir)).toEqual({});
 	writeFileSync(join(dir, "config.json"), '{"model":"a/b"}');
