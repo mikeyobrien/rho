@@ -24,8 +24,11 @@ const scratch = (prefix: string) => {
 	return dir;
 };
 async function open(config: object = {}, reuse?: { dir: string; work: string }) {
-	const dir = reuse?.dir ?? scratch("rho-guard-data-");
-	const work = reuse?.work ?? scratch("rho-guard-work-");
+	// Both live under one scratch parent, so "the directory above rho's data" is small and the test's own.
+	const parent = reuse ? "" : scratch("rho-guard-");
+	const dir = reuse?.dir ?? join(parent, "data");
+	const work = reuse?.work ?? join(parent, "work");
+	if (!reuse) for (const made of [dir, work]) mkdirSync(made);
 	const faux = fauxProvider();
 	const models = createModels();
 	models.setProvider(faux.provider);
@@ -104,7 +107,7 @@ test("rho's own data is refused to every tool, also by a relative path or throug
 	// A search from above the data directory passes over it instead of failing.
 	writeFileSync(join(work, "mine.txt"), "the-secret-token is mentioned here\n");
 	const above = await use("grep", { pattern: "the-secret-token", path: join(dir, "..") });
-	expect(above.text).not.toContain(`${dir.split("/").at(-1)}/token`);
+	expect(above.text).toBe("work/mine.txt:1: the-secret-token is mentioned here"); // the work file is found; the token beside it is not
 });
 
 test("a push waits for the person: it does not run, a yes runs that command once, and a no runs nothing", async () => {

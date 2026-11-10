@@ -154,7 +154,28 @@ In order. Each item ends in something that can be checked.
     mistakes, not intent. Text that merely names a push (`echo 'run git push yourself'`)
     asks needlessly. Not checked: a live model's behaviour when refused or made to wait.
     No notification is sent for a waiting request; the person sees it when they open the page.
-13. **Service.** runit service and boot script, as the phone agent has.
+13. **Service.** DONE 2026-11-10: `src/service.ts` and `rho service install | uninstall |
+    status`. On Termux it writes a runit service (`$PREFIX/var/service/<name>/run`) and a
+    Termux:Boot script (`~/.termux/boot/<name>`) that takes the wake lock and starts the
+    service runner; on Linux a systemd user unit, enabled. The files run rho from the checkout
+    the command was run from and carry over only `PATH`, `RHO_HOME`, `RHO_PORT`, `RHO_CLAUDE`
+    (and on Termux `PREFIX`, `TMPDIR`, `LD_PRELOAD`). With the service installed, `rho start`
+    and `rho stop` go through it. A file of the same name that rho did not write is left alone.
+    Checked by hand, in scratch homes with the fake Claude CLI:
+    - phone (runit): `kill -9` brought rho back as a new process in about 1 s; after `rho stop`
+      it was still stopped 8 s later with no process; uninstall removed both files.
+    - the Linux machine (systemd 262, Arch): the same, back in about 2 s; unit `enabled`, `Restart=always`;
+      uninstall removed the unit.
+    Also on the Linux machine: `bun install --frozen-lockfile` and `bun run check` from a clone of `v2`.
+    The first run there failed one test, which searched the whole system temp directory
+    (5.8 GB on the Linux machine, small on the phone) and timed out; the test now searches a scratch
+    directory of its own. It was the test, not the guard: every refusal answered in under 40 ms.
+    Not checked: a reboot on either machine (the boot script and `WantedBy=default.target`
+    are untested); the wake lock's battery cost; lingering on Linux, which a user unit needs
+    to start without a login (the Linux machine has it on; the command does not turn it on); macOS has
+    no service here.
+    The wake lock is held for as long as the phone is up. That is the phone agent's design
+    debt carried over, not a decision that it should be so.
 
 ## Soon after: what makes dogfooding pleasant
 
