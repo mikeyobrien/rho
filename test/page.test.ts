@@ -268,6 +268,7 @@ test("the menu lists models and thinking levels and changes them; new chat puts 
 	await page.send("two");
 	await until("second answer", () => page.messages().includes("msg assistant|second") && idle(page));
 	expect(page.messages().map((line) => line.split("|")[0])).toEqual(["msg user", "msg assistant", "divider", "msg user", "msg assistant"]);
+	expect(page.messages()[2]).toBe("divider|Context cleared");
 });
 
 test("on a keyboard Enter sends and Shift+Enter does not; on touch Enter is a new line", async () => {

@@ -77,7 +77,21 @@ In order. Each item ends in something that can be checked.
    pre-commit hook so a failing check now blocks the commit.
    Not checked: the re-read after a real compaction (reasoned from pi-durable's `shown`,
    not run); a live model's prompt-cache numbers with the section in place.
-9. **Conversations.** More than one, each with its own directory: list, open, new.
+9. **Conversations.** DONE 2026-11-10. The core keeps a list of the person's conversations
+   (a session document); each has its own thread, directory, model and thinking level,
+   stored with it. Every HTTP call names its conversation with `?c=<id>` (none: the first).
+   `GET /api/conversations` lists them with title, directory, model and whether one is
+   working; `POST /api/conversations` makes one, optionally in a given directory. A
+   conversation is named from its first message. The page lists them in the menu, opens
+   one, and makes a new one where the current one works; "New chat" is now "Clear context".
+   Checked: 6 tests over HTTP and in the page (create, list, switch; separate threads, tools
+   in separate directories, each answered by its own model; all kept after a restart; a
+   reload reopens the open one; a message kept while offline goes to the conversation it was
+   written in; a stored conversation that is gone falls back to the first). The page test
+   found a bug that was fixed: switching to an empty conversation left the old thread drawn.
+   Not built: renaming, deleting or archiving a conversation; the list grows without end.
+   Not checked: the conversation list in a real browser; two runs working at once under a
+   real model (each starts its own Claude CLI process).
 10. **Web access.** DONE 2026-11-10: `src/tools/web.ts`. `web_search` uses Exa's key-less MCP
     endpoint (`mcp.exa.ai`); `fetch_content` returns a page's readable text. Both are
     read-only and `replay: "safe"`. Everything they return is inside a fence that says it is

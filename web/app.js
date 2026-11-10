@@ -17,6 +17,7 @@ export function start(env) {
 		status: $("status"), thread: $("thread"), entries: $("entries"), live: $("live"), empty: $("empty"), earlier: $("earlier"), latest: $("latest"),
 		notice: $("notice"), noticeText: $("notice-text"), queue: $("queue"), composer: $("composer"), input: $("input"), send: $("send"),
 		menuButton: $("menu-button"), menu: $("menu"), model: $("model"), thinking: $("thinking"), newChat: $("new-chat"),
+		conversations: $("conversations"), newConversation: $("new-conversation"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -37,6 +38,7 @@ export function start(env) {
 	};
 
 	let token = store.get("token", "");
+	let conversation = store.get("conversation", ""); // the open conversation; "" is the first one
 	let state; // the newest snapshot from the daemon
 	let connection = "connecting"; // connecting | live | offline | unpaired
 	let outbox = store.get("outbox", []); // [{ requestId, text }] not yet accepted by the daemon
@@ -48,8 +50,9 @@ export function start(env) {
 	let streamAbort;
 
 	// --- talking to the daemon -------------------------------------------------------------
-	async function api(path, body) {
-		const response = await env.fetch(`/api/${path}`, {
+	const at = (path, id) => (id ? `${path}${path.includes("?") ? "&" : "?"}c=${encodeURIComponent(id)}` : path);
+	async function api(path, body, id = conversation) {
+		const response = await env.fetch(at(`/api/${path}`, id), {
 			method: body === undefined ? "GET" : "POST",
 			headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
 			body: body === undefined ? undefined : JSON.stringify(body),
@@ -73,6 +76,10 @@ export function start(env) {
 				outbox = [];
 				store.set("outbox", outbox);
 			}
+			if (token !== data.token) {
+				conversation = ""; // another rho has other conversations
+				store.set("conversation", conversation);
+			}
 			token = data.token;
 			store.set("token", token);
 		} catch {
@@ -94,8 +101,14 @@ export function start(env) {
 			};
 			try {
 				arm();
-				const response = await env.fetch("/api/events", { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
+				const response = await env.fetch(at("/api/events", conversation), { headers: { authorization: `Bearer ${token}` }, signal: abort.signal });
 				if (response.status === 401) return setConnection("unpaired");
+				if (response.status === 404 && conversation !== "") {
+					// The conversation this browser had open is gone: open the first one.
+					conversation = "";
+					store.set("conversation", conversation);
+					continue;
+				}
 				if (!response.ok || !response.body) throw new Error(`status ${response.status}`);
 				const reader = response.body.getReader();
 				const decoder = new TextDecoder();
@@ -142,6 +155,7 @@ export function start(env) {
 		if (state && state.conversation !== next.conversation) {
 			known.clear();
 			rendered.clear();
+			drawn = undefined;
 		}
 		state = next;
 		for (const entry of next.entries) known.set(entry.id, entry);
@@ -156,7 +170,8 @@ export function start(env) {
 			while (outbox.length > 0 && connection === "live" && !stopped) {
 				const item = outbox[0];
 				try {
-					await api("submit", { text: item.text, requestId: item.requestId, whenBusy: item.mode ?? "steer" });
+					// A kept message goes to the conversation it was written in, whichever is open now.
+					await api("submit", { text: item.text, requestId: item.requestId, whenBusy: item.mode ?? "steer" }, item.c ?? "");
 				} catch (error) {
 					if (error.status === undefined) return; // not reached: it stays "Not sent yet" and goes again later
 					// The daemon refused it: give the words back instead of losing them.
@@ -175,7 +190,7 @@ export function start(env) {
 	// A message sent while rho works joins the work in hand at its next step ("steer"); the
 	// person can make it wait for the answer instead ("followUp"). Idle, both start a run.
 	function submit(text, mode = "steer") {
-		outbox = [...outbox, { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`, text, mode }];
+		outbox = [...outbox, { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`, text, mode, c: conversation }];
 		store.set("outbox", outbox);
 		stick = true;
 		render();
@@ -246,7 +261,7 @@ export function start(env) {
 		el.earlier.hidden = !moreEarlier;
 
 		const live = [];
-		for (const item of outbox) {
+		for (const item of outbox.filter((kept) => (kept.c ?? "") === conversation)) {
 			live.push(make("div", { className: "msg user unsent", textContent: item.text }));
 			live.push(note(connection === "live" ? "Sending" : "Not sent yet", "note unsent-note"));
 		}
@@ -340,6 +355,7 @@ export function start(env) {
 		el.noticeText.textContent = connection === "unpaired"
 			? "This browser is not paired. On the machine rho runs on, run: rho open"
 			: outbox.length > 0 ? "Can't reach rho. Your message is kept and sends when it is back." : "Can't reach rho.";
+		if (el.newChat) el.newChat.textContent = "Clear context";
 	}
 
 	function renderSend() {
@@ -417,6 +433,48 @@ export function start(env) {
 		}
 	});
 
+	// --- conversations ---------------------------------------------------------------------------
+	function switchTo(id, root) {
+		conversation = root ? "" : id;
+		store.set("conversation", conversation);
+		state = undefined;
+		known.clear();
+		rendered.clear();
+		drawn = undefined; // not "": an empty thread must still replace what was drawn
+		moreEarlier = false;
+		stick = true;
+		closeMenu();
+		render();
+		void stream();
+	}
+	async function listConversations() {
+		try {
+			const { items } = await api("conversations");
+			el.conversations.replaceChildren(
+				...items.map((item) => {
+					const open = make("button", { type: "button", className: "conversation" });
+					const current = item.root ? conversation === "" : conversation === item.id;
+					if (current) open.setAttribute("aria-current", "true");
+					open.append(make("span", { className: "conversation-title", textContent: item.title || "New conversation" }), make("span", { className: "conversation-where", textContent: `${item.running ? "Working · " : ""}${item.cwd ?? ""}` }));
+					open.addEventListener("click", () => switchTo(item.id, item.root));
+					const row = make("li", {});
+					row.append(open);
+					return row;
+				}),
+			);
+		} catch (error) {
+			flash(error.message);
+		}
+	}
+	el.newConversation.addEventListener("click", async () => {
+		try {
+			const { id } = await api("conversations", state?.cwd ? { cwd: state.cwd } : {}); // it starts where this one works
+			switchTo(id, false);
+		} catch (error) {
+			flash(error.message);
+		}
+	});
+
 	// --- menu ------------------------------------------------------------------------------------
 	function syncMenu() {
 		for (const option of el.thinking.children) option.selected = option.value === state?.thinking;
@@ -431,6 +489,7 @@ export function start(env) {
 		el.menu.hidden = false;
 		el.menuButton.setAttribute("aria-expanded", "true");
 		el.thinking.replaceChildren(...THINKING.map((level) => make("option", { value: level, textContent: level, selected: level === state?.thinking })));
+		void listConversations();
 		try {
 			const { items } = await api("models");
 			el.model.replaceChildren(...items.map((model) => make("option", { value: model.id, textContent: model.name, selected: model.id === state?.model })));

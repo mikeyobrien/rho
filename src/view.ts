@@ -90,7 +90,7 @@ export function entryView(entry: EntryRecord): EntryView | undefined {
 		const diff = typeof details?.diff === "string" ? details.diff : undefined;
 		return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text, summary: summarize(text, message.isError, diff), ...(diff !== undefined ? { diff } : {}), ...(message.isError ? { error: true as const } : {}) };
 	}
-	if (entry.kind === "pi.reset") return { id, role: "divider", text: "New chat" };
+	if (entry.kind === "pi.reset") return { id, role: "divider", text: "Context cleared" };
 	if (entry.kind === "pi.compaction") return { id, role: "divider", text: "Earlier messages were summarized" };
 	return undefined;
 }

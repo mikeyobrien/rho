@@ -1,10 +1,13 @@
 // The daemon's door: HTTP on loopback only. Every API call carries the bearer token; the one
 // exception is trading a one-time pairing code for it. State reaches a client as server-sent
 // events, each a whole snapshot (view.ts), so a reconnect needs no replay.
+//
+// A call names its conversation with `?c=<id>`; without it, the first conversation is meant.
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, isAbsolute, join, resolve, sep } from "node:path";
 import type { Models } from "@earendil-works/pi-ai";
+import { LiveDoc, type Conversation } from "@earendil-works/pi-durable";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
 import { answerApproval, Approvals } from "./tools/guard.ts";
@@ -66,11 +69,28 @@ async function bodyOf(request: Request): Promise<Record<string, unknown>> {
 	}
 	throw new Refusal(400, "The request is not a JSON object.");
 }
+/** An absolute path to a directory that exists, or a refusal that says which it is not. */
+function directory(path: unknown): string {
+	if (typeof path !== "string" || !isAbsolute(path)) throw new Refusal(400, "path is an absolute directory.");
+	if (!existsSync(path) || !statSync(path).isDirectory()) throw new Refusal(400, "That directory does not exist.");
+	return resolve(path);
+}
+
+type Stream = ReadableStreamDefaultController<Uint8Array>;
+/** One conversation as the server holds it open: its watch, its newest snapshot, its listeners. */
+interface Channel {
+	id: string;
+	conversation: Conversation;
+	current: StateView;
+	streams: Set<Stream>;
+	/** Read the waiting approvals again and tell the listeners. */
+	refresh(): Promise<void>;
+	stop(): Promise<unknown>;
+}
 
 export async function serve(options: ServerOptions): Promise<Server> {
 	const { core, models, dir } = options;
 	const log = options.log ?? (() => {});
-	const root = core.root;
 
 	const tokenPath = join(dir, "token");
 	if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomBytes(32).toString("base64url"), { mode: 0o600 });
@@ -78,47 +98,78 @@ export async function serve(options: ServerOptions): Promise<Server> {
 	let pairCode = randomBytes(16).toString("base64url");
 	const savePairCode = () => writeFileSync(join(dir, "pair-code"), pairCode, { mode: 0o600 });
 
-	// One watch on the conversation feeds every open stream.
 	const encoder = new TextEncoder();
-	const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
-	const watch = await root.watch(context);
-	const approvals = async (): Promise<StateView["approvals"]> => ((await core.harness.snapshot(Approvals, root.id, context))?.pending ?? []).map(({ id, tool, command, what }) => ({ id, tool, command, what }));
-	let current: StateView = stateView(watch.value, await approvals());
-	const frame = () => encoder.encode(`data: ${JSON.stringify(current)}\n\n`);
-	const send = (bytes: Uint8Array) => {
-		for (const stream of [...streams]) {
+	const frame = (channel: Channel) => encoder.encode(`data: ${JSON.stringify(channel.current)}\n\n`);
+	const send = (channel: Channel, bytes: Uint8Array) => {
+		for (const stream of [...channel.streams]) {
 			try {
 				stream.enqueue(bytes);
 			} catch {
-				streams.delete(stream); // the client went away
+				channel.streams.delete(stream); // the client went away
 			}
 		}
 	};
-	watch.start(async (call) => {
-		if (call.kind !== "value") return;
-		current = stateView(call.value, await approvals());
-		send(frame());
-	});
-	const keepalive = setInterval(() => send(encoder.encode(": keepalive\n\n")), 15_000); // a silent stream is a dead one
+	// A conversation is watched from the first call that names it; one watch feeds all its streams.
+	const channels = new Map<string, Promise<Channel>>();
+	const open = async (id: string): Promise<Channel> => {
+		const conversation = await core.conversation(id);
+		if (!conversation) throw new Refusal(404, "That conversation does not exist.");
+		const watch = await conversation.watch(context);
+		const approvals = async (): Promise<StateView["approvals"]> => ((await core.harness.snapshot(Approvals, conversation.id, context))?.pending ?? []).map(({ id: ask, tool, command, what }) => ({ id: ask, tool, command, what }));
+		const channel: Channel = {
+			id,
+			conversation,
+			current: stateView(watch.value, await approvals()),
+			streams: new Set(),
+			refresh: async () => {
+				channel.current = { ...channel.current, approvals: await approvals() };
+				send(channel, frame(channel));
+			},
+			stop: () => watch.stop(),
+		};
+		watch.start(async (call) => {
+			if (call.kind !== "value") return;
+			channel.current = stateView(call.value, await approvals());
+			send(channel, frame(channel));
+		});
+		return channel;
+	};
+	const channelOf = (url: URL): Promise<Channel> => {
+		const id = url.searchParams.get("c") || core.rootId;
+		let found = channels.get(id);
+		if (!found) {
+			found = open(id);
+			channels.set(id, found);
+			found.catch(() => channels.delete(id));
+		}
+		return found;
+	};
+	const opened = async (): Promise<Channel[]> => (await Promise.allSettled(channels.values())).flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+	const keepalive = setInterval(async () => {
+		for (const channel of await opened()) send(channel, encoder.encode(": keepalive\n\n")); // a silent stream is a dead one
+	}, 15_000);
 	keepalive.unref?.();
 
 	const routes: Record<string, (request: Request, url: URL) => Promise<unknown>> = {
-		"POST /api/submit": async (request) => {
+		"POST /api/submit": async (request, url) => {
+			const { conversation, id } = await channelOf(url);
 			const { text, requestId, whenBusy } = await bodyOf(request);
 			if (typeof text !== "string" || text.trim() === "") throw new Refusal(400, "Write a message first.");
 			if (typeof requestId !== "string" || requestId.length < 8 || requestId.length > 100) throw new Refusal(400, "requestId is required: 8 to 100 characters, the same on a resend.");
-			const submission = await root.submit({ type: "input", content: text, requestId, whenBusy: whenBusy === "steer" ? "steer" : "followUp" }, context);
+			const submission = await conversation.submit({ type: "input", content: text, requestId, whenBusy: whenBusy === "steer" ? "steer" : "followUp" }, context);
+			await core.title(id, text);
 			return { ok: true, submissionId: String(submission.id) };
 		},
-		"POST /api/stop": async () => (await root.abort(context), { ok: true }),
-		"POST /api/new": async () => (await root.reset(undefined, context), { ok: true }),
+		"POST /api/stop": async (_request, url) => (await (await channelOf(url)).conversation.abort(context), { ok: true }),
+		"POST /api/new": async (_request, url) => (await (await channelOf(url)).conversation.reset(undefined, context), { ok: true }),
 		"POST /api/unqueue": async (request) => {
 			const { id } = await bodyOf(request);
 			if (typeof id !== "string") throw new Refusal(400, "id is required.");
 			const submission = await core.harness.submission(id as never, context);
 			return { ok: true, result: submission ? await submission.abort(context) : "settled" };
 		},
-		"POST /api/model": async (request) => {
+		"POST /api/model": async (request, url) => {
+			const { conversation } = await channelOf(url);
 			const { model, thinking } = await bodyOf(request);
 			if (model !== undefined) {
 				if (typeof model !== "string") throw new Refusal(400, "model is written provider/model.");
@@ -129,41 +180,53 @@ export async function serve(options: ServerOptions): Promise<Server> {
 					throw new Refusal(400, (error as Error).message);
 				}
 				if (!(await models.getAvailable()).some((known) => known.provider === ref.provider && known.id === ref.modelId)) throw new Refusal(400, "That model is not available.");
-				await root.configure({ model: ref }, context);
+				await conversation.configure({ model: ref }, context);
 			}
 			if (thinking !== undefined) {
 				if (typeof thinking !== "string" || !THINKING.has(thinking)) throw new Refusal(400, `thinking is one of: ${[...THINKING].join(", ")}.`);
-				await root.configure({ thinkingLevel: thinking as never }, context);
+				await conversation.configure({ thinkingLevel: thinking as never }, context);
 			}
 			return { ok: true };
 		},
-		"POST /api/approve": async (request) => {
+		"POST /api/approve": async (request, url) => {
+			const channel = await channelOf(url);
 			const { id, allow } = await bodyOf(request);
 			if (typeof id !== "string" || typeof allow !== "boolean") throw new Refusal(400, "id and allow are required.");
-			const answered = await answerApproval(root, id, allow, context);
+			const answered = await answerApproval(channel.conversation, id, allow, context);
 			if (!answered) throw new Refusal(409, "That request is no longer waiting."); // an approval answers once
-			current = { ...current, approvals: await approvals() };
-			send(frame());
+			await channel.refresh();
 			// The person's answer reaches the agent as their message, at its next step.
 			const text = allow ? `Yes. Run it: \`${answered.command}\`` : `No. Do not run: \`${answered.command}\``;
-			await root.submit({ type: "input", content: text, requestId: `approval:${id}`, whenBusy: "steer" }, context);
+			await channel.conversation.submit({ type: "input", content: text, requestId: `approval:${id}`, whenBusy: "steer" }, context);
 			return { ok: true };
 		},
-		"POST /api/cwd": async (request) => {
-			const { path } = await bodyOf(request);
-			if (typeof path !== "string" || !isAbsolute(path)) throw new Refusal(400, "path is an absolute directory.");
-			if (!existsSync(path) || !statSync(path).isDirectory()) throw new Refusal(400, "That directory does not exist.");
-			await root.configure({ cwd: resolve(path) }, context);
+		"POST /api/cwd": async (request, url) => {
+			const path = directory((await bodyOf(request)).path);
+			await (await channelOf(url)).conversation.configure({ cwd: path }, context);
 			return { ok: true };
+		},
+		"GET /api/conversations": async () => ({
+			items: await Promise.all(
+				(await core.conversations()).map(async (info) => {
+					const conversation = (await core.conversation(info.id))!;
+					const agent = await conversation.agent(context);
+					const live = await core.harness.snapshot(LiveDoc, conversation.id, context);
+					return { id: info.id, title: info.title, root: info.id === core.rootId, cwd: agent.cwd, model: agent.model ? `${agent.model.provider}/${agent.model.modelId}` : undefined, running: live?.run !== undefined };
+				}),
+			),
+		}),
+		"POST /api/conversations": async (request) => {
+			const { cwd } = await bodyOf(request);
+			return { id: (await core.create(cwd === undefined ? {} : { cwd: directory(cwd) })).id };
 		},
 		"GET /api/models": async () => ({ items: (await models.getAvailable()).map((model) => ({ id: `${model.provider}/${model.id}`, name: model.name ?? model.id, provider: model.provider })) }),
 		"GET /api/earlier": async (_request, url) => {
 			const before = Number(url.searchParams.get("before"));
 			if (!Number.isSafeInteger(before) || before < 1) throw new Refusal(400, "before is required: the id of the oldest entry you have.");
-			const page = await root.entries({ maxEntryId: (before - 1) as never, order: "descending" }, 40, undefined, context);
+			const page = await (await channelOf(url)).conversation.entries({ maxEntryId: (before - 1) as never, order: "descending" }, 40, undefined, context);
 			return { entries: page.items.flatMap((entry) => entryView(entry) ?? []).reverse(), more: page.items.length === 40 };
 		},
-		"GET /api/health": async () => ({ ok: true, pid: process.pid, startedAt, running: current.running, model: current.model }),
+		"GET /api/health": async () => ({ ok: true, pid: process.pid, startedAt }),
 	};
 
 	const startedAt = Date.now();
@@ -193,15 +256,16 @@ export async function serve(options: ServerOptions): Promise<Server> {
 				if (!same(given, token)) return json(401, { error: "Not paired. Run: rho open" });
 
 				if (request.method === "GET" && url.pathname === "/api/events") {
-					let mine: ReadableStreamDefaultController<Uint8Array>;
+					const channel = await channelOf(url);
+					let mine: Stream;
 					const body = new ReadableStream<Uint8Array>({
 						start(controller) {
 							mine = controller;
-							controller.enqueue(frame());
-							streams.add(controller);
+							controller.enqueue(frame(channel));
+							channel.streams.add(controller);
 						},
 						cancel() {
-							streams.delete(mine);
+							channel.streams.delete(mine);
 						},
 					});
 					return new Response(body, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" } });
@@ -225,12 +289,14 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		pairCode: () => pairCode,
 		stop: async () => {
 			clearInterval(keepalive);
-			await watch.stop();
-			for (const stream of streams) {
-				try {
-					stream.close();
-				} catch {
-					// already closed
+			for (const channel of await opened()) {
+				await channel.stop();
+				for (const stream of channel.streams) {
+					try {
+						stream.close();
+					} catch {
+						// already closed
+					}
 				}
 			}
 			await server.stop(true);

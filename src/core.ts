@@ -3,7 +3,7 @@
 // memory) is added around this.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
-import { createRegistry, Harness, type Conversation, type Extension } from "@earendil-works/pi-durable";
+import { createRegistry, defineDoc, Harness, type Conversation, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
@@ -73,9 +73,23 @@ export interface CoreOptions {
 	/** Called once if storage fails; the host should exit non-zero so its service runner reopens it. */
 	onFailed?: (error: unknown) => void;
 }
+/** One of the person's conversations. Each has its own thread, directory and model. */
+export type ConversationInfo = { id: string; title: string; createdAt: number };
+/** The person's conversations, oldest first. Conversations that tasks own are not in it. */
+const Conversations = defineDoc<{ items: (ConversationInfo & { ref: string | number })[] }>({ kind: "rho.conversations", version: 1, scope: "session", initial: () => ({ items: [] }), checkpointWhen: () => true });
+
 export interface Core {
 	harness: Harness;
+	/** The first conversation; it always exists. */
 	root: Conversation;
+	rootId: string;
+	conversations(): Promise<ConversationInfo[]>;
+	/** One of the listed conversations, or undefined. */
+	conversation(id: string): Promise<Conversation | undefined>;
+	/** A new conversation with the configured model, working in `cwd` (default: the configured directory). */
+	create(options?: { cwd?: string }): Promise<ConversationInfo>;
+	/** Name a conversation that has no name yet, from its first message. */
+	title(id: string, text: string): Promise<void>;
 	close(): Promise<void>;
 }
 
@@ -153,10 +167,46 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 		release();
 		throw error;
 	});
-	// The agent choices are stored with the conversation on first use; later starts keep them.
-	const root = await harness.root(context, { agent: { model: parseModel(config.model ?? DEFAULT_MODEL), thinkingLevel: config.thinking ?? "medium", instructions: INSTRUCTIONS, cwd: home } });
+	// The agent choices are stored with each conversation when it is made; later starts keep them.
+	const fresh = (cwd: string) => ({ model: parseModel(config.model ?? DEFAULT_MODEL), thinkingLevel: config.thinking ?? ("medium" as const), instructions: INSTRUCTIONS, cwd });
+	const root = await harness.root(context, { agent: fresh(home) });
+	const rootId = String(root.id);
 	const maxTurns = Number.isInteger(config.maxTurns) && config.maxTurns! >= 1 ? config.maxTurns! : 200;
-	if ((await root.agent(context)).maxTurns !== maxTurns) await root.configure({ maxTurns }, context); // a run is bounded
+	const listed = async () => (await harness.snapshot(Conversations, context))?.items ?? [];
+	const add = (conversation: Conversation) =>
+		harness.commit(async (tx) => {
+			const doc = await tx.doc(Conversations);
+			const info = { id: String(conversation.id), ref: conversation.id as unknown as string | number, title: "", createdAt: Date.now() };
+			if (!doc.items.some((item) => item.id === info.id)) doc.items.push(info);
+			return { id: info.id, title: info.title, createdAt: info.createdAt };
+		}, context);
+	if (!(await listed()).some((item) => item.id === rootId)) await add(root);
+	const find = async (id: string): Promise<Conversation | undefined> => {
+		const item = (await listed()).find((candidate) => candidate.id === id);
+		return item ? harness.conversation(item.ref as unknown as ConversationId, context) : undefined;
+	};
+	// A run is bounded, in every conversation, also when the setting changed since it was made.
+	for (const item of await listed()) {
+		const conversation = await find(item.id);
+		if (conversation && (await conversation.agent(context)).maxTurns !== maxTurns) await conversation.configure({ maxTurns }, context);
+	}
 	harness.resume();
-	return { harness, root, close: () => harness.close(context).finally(release) };
+	return {
+		harness,
+		root,
+		rootId,
+		conversations: async () => (await listed()).map(({ id, title, createdAt }) => ({ id, title, createdAt })),
+		conversation: find,
+		// Two commits: a kill between them leaves a conversation nothing lists, which is harmless.
+		create: async (made = {}) => add(await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { ...fresh(made.cwd ?? home), maxTurns } }, context)),
+		title: async (id, text) => {
+			const words = (text.trim().split("\n")[0] ?? "").slice(0, 60);
+			if (words === "" || (await listed()).find((item) => item.id === id)?.title !== "") return;
+			await harness.commit(async (tx) => {
+				const item = (await tx.doc(Conversations)).items.find((candidate) => candidate.id === id);
+				if (item && item.title === "") item.title = words;
+			}, context);
+		},
+		close: () => harness.close(context).finally(release),
+	};
 }
