@@ -44,8 +44,13 @@ In order. Each item ends in something that can be checked.
 5. **Coding tools.** DONE 2026-11-10: pi-durable's `read`, `write`, `edit`, `bash` installed in
    the core over its Node environment. Each conversation's tools work in that conversation's
    directory (`config.cwd`, default home; `POST /api/cwd` changes it; shown in `StateView`).
-6. **Search tools.** `grep`, `find`, `ls` as tools of their own, so searching does not go
-   through `bash`.
+6. **Search tools.** DONE 2026-11-10: `src/tools/search.ts`: `grep`, `find`, `ls`, read-only and
+   `replay: "safe"`, over the conversation's environment. In a git work tree they list what
+   git lists (ignored files skipped); elsewhere they walk. `.git` and `node_modules` are
+   always skipped. 7 tests: matches, no matches, limits, a bad pattern, binary and huge files,
+   and Stop while waiting on the file system.
+   Not checked: speed on a large repository (each file is read whole, in JavaScript; no
+   ripgrep), symlink loops outside git, non-UTF-8 text.
 7. **Tidy tools.** Every tool takes a short `reasoning` argument; the page shows each call as
    two lines (the goal, then the target and a result summary), with the full output and the
    diff on demand.
