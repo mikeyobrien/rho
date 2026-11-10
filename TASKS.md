@@ -74,7 +74,7 @@ In order. Each item ends in something that can be checked.
    date line is the day the context was read, not today.
    Checked: 5 tests on what the scripted model receives, including byte-identical system
    messages across four requests with a tool round, an edited file and a changed date.
-   Commit `bfa172d` went in with one test failing (a test's stalled-disk stand-in also
+   Commit `4025d1b` went in with one test failing (a test's stalled-disk stand-in also
    stalled the new section's own read); the next commit fixed the test and added a
    pre-commit hook so a failing check now blocks the commit.
    Not checked: the re-read after a real compaction (reasoned from pi-durable's `shown`,
@@ -202,22 +202,22 @@ and taps its buttons through Shizuku):
 - The request typed into the page: "When there is no log yet make rho logs print No log yet,
   start rho first and update the tests, then run bun run check, commit it on v2, and run rho
   release from this checkout".
-- Rho's commit: `4eaab82` "rho logs with no log yet says to start rho first" (`src/cli.ts`,
+- Rho's commit: `fa3fbb1` "rho logs with no log yet says to start rho first" (`src/cli.ts`,
   `test/cli.test.ts`; 3 lines added, 1 removed). It ran `bun run check` and committed through
   the pre-commit hook, which runs the check again.
 - The gate (`~/.rho/v2/release.log`): check 19:38:45, switch 19:39:24, "Rho is stopped"
   19:39:24.8, "Rho is running (pid 22925)" 19:39:26.1, released 19:39:26.1.
 - After the restart the page was asked "Run rho version and tell me which commit you run now"
-  and the new rho answered with `4eaab82` and its new pid.
-- `bun run check` run again on `4eaab82` afterwards: 120 pass, 0 fail.
+  and the new rho answered with `fa3fbb1` and its new pid.
+- `bun run check` run again on `fa3fbb1` afterwards: 120 pass, 0 fail.
 
 The same loop had run twice before that over HTTP (`bun e2e/selfbuild-http.ts`), while the
-phone's screen was locked: commits `347b24d` (`rho version`) and `4ec7e2a` (`rho status` names
+phone's screen was locked: commits `0b908ef` (`rho version`) and `5c6d322` (`rho status` names
 its commit) are rho's own too, the second released through the gate the same way.
 
 What the first try found, and what was changed:
 - Rho ran `bin/rho release` from its work checkout, whose own gate saw itself as "the checkout
-  rho runs from" and refused. Fixed in `e27239f`: a release typed in any checkout is handed to
+  rho runs from" and refused. Fixed in `e642c15`: a release typed in any checkout is handed to
   the rho that is running, and its gate. The work checkout's code is the candidate, not the judge.
 - The phone's keyboard capitalised a word after a full stop, so the page proof now types one
   sentence and checks the box holds exactly what it typed before it sends.
@@ -285,11 +285,11 @@ x86_64, Bun 1.4.4): clone, `bun install --frozen-lockfile`, link `rho` into `~/.
 - Both: `rho key anthropic` with a made-up key stored it in `keys.json` with mode 600, and
   `--remove` removed it. On the phone the prompt was also run on a pseudo-terminal: the
   typed key was not echoed.
-- Both: `bun run check` in the clean checkout, 162 pass, 0 fail (Linux at `c50532b`, twice;
-  the phone at `ba2938e`, and at `c50532b` in the work checkout).
+- Both: `bun run check` in the clean checkout, 162 pass, 0 fail (Linux at `7a73e23`, twice;
+  the phone at `e301f31`, and at `7a73e23` in the work checkout).
 - One difference was found and fixed. The Linux machine has a real `claude` command on its
   `PATH`, and a provider test ran it and timed out. Tests now always use the fake CLI
-  (`c50532b`).
+  (`7a73e23`).
 - What differed from the README, and why:
   - The clone was from a local copy of the branch (`v2`), not from GitHub (`rho2`), because
     nothing is pushed. The GitHub address in the README is untested until the owner pushes.
@@ -300,6 +300,34 @@ x86_64, Bun 1.4.4): clone, `bun install --frozen-lockfile`, link `rho` into `~/.
 - Not checked: Bun installed from scratch on either machine (both had it); a machine without
   git; `bun install` without the lockfile; the two postinstall scripts Bun blocks (rho runs
   and passes its checks without them; they were not read).
+
+## History scan and rewrite (2026-11-10)
+
+`git log -p` of the whole branch (39 commits) was searched for emails, IPv4 addresses, key
+shapes (`sk-`, `ghp_`, `github_pat_`, `xox`, `AKIA`, `AIza`, JWTs, private-key headers,
+`tskey-`), bearer tokens, and the names of the owner's machines, network and accounts.
+
+- Found and removed: two machine host names, one tailnet address (in two test lines), a
+  Honcho workspace name and a peer name. The branch was unpushed, so its history was
+  rewritten with `git filter-branch`; the same search afterwards finds none of them in any
+  commit or message. Machines are now called "the Linux machine" and "the owner's Mac", and
+  the address is `100.64.0.7`, which is in the same range and belongs to nobody known.
+- Every commit id changed. The ids in this file were changed to the new ones. A commit id
+  quoted in a commit message, in a screenshot, or reported by the installed rho from before
+  the rewrite is an old id. The self-build proof's commit was `4eaab82` when it ran; it is
+  `fa3fbb1` now.
+- Found and left, on purpose:
+  - The author email on every commit. It is the one already on the public `main` branch.
+  - The key-shaped strings: all are made-up test values (`sk-test-0123456789abcdef`,
+    `ghp_abcdefghijklmnopqrstuvwxyz0123`, `AKIAABCDEFGHIJKLMNOP`, a private-key header with
+    no key) that the memory scanner's tests need.
+  - Addresses in the private ranges and `93.184.216.34`, `8.8.8.8`: test inputs for
+    `fetch_content`'s refusals.
+  - The GitHub user name in the repository address.
+- Not checked: binary files (there are none in the branch); `bun.lock` was searched but not
+  rewritten; text that identifies the owner without using a searched name.
+- The pre-rewrite branch is kept outside the repository, in
+  `~/.cache/rho-backup/` on the phone, and must not be pushed.
 
 ## Branch name on GitHub (2026-11-10)
 
