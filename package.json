@@ -13,6 +13,7 @@
 	"dependencies": {
 		"@earendil-works/chord": "1.5.1",
 		"@earendil-works/pi-ai": "1.5.1",
+		"@earendil-works/pi-claude-code": "github:earendil-works/pi-claude-code#d5b5e04",
 		"@earendil-works/pi-durable": "1.5.1",
 		"@earendil-works/pi-schema": "1.5.1"
 	},

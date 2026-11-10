@@ -12,8 +12,11 @@ In order. Each item ends in something that can be checked.
 
 1. **Daemon core.** One process: a Harness on SQLite, `~/.rho/config.json`, a log. First test:
    kill the process mid-run under Bun, reopen, the run finishes and no tool ran twice.
-2. **Model access.** Providers from pi-ai, reading pi's stored logins under its file lock.
-   Model and thinking level per conversation. Open: which model builds rho (see Decisions).
+2. **Model access.** Claude through `@earendil-works/pi-claude-code`, the same provider pi
+   uses on this phone: it drives the Claude Code CLI, which holds the Max login, and reads no
+   credentials itself. Call `refresh` once at start so the current models are listed. Model
+   and thinking level per conversation. Default: `claude-code/claude-opus-5-5`, medium.
+   Other pi-ai providers (OpenAI through pi's login file) stay possible, not built first.
 3. **HTTP and the event stream.** Loopback only, bearer token on every API call, one-time
    pairing. Submit, stop, new chat, steer and queue, earlier entries, models.
 4. **Web page.** Thread, composer, streaming answer, stop, queue, model picker. Markdown
@@ -58,9 +61,7 @@ In order. Each item ends in something that can be checked.
 
 ## Decisions
 
-- Which model builds rho. On the phone, pi's login file holds only an OpenAI login. Claude is
-  reached today through the Claude Code CLI and a pi extension, not through pi-ai. Start on
-  OpenAI, or find out whether pi-ai's Anthropic provider can use the existing subscription.
+- DECIDED: Claude builds rho, through pi-claude-code (below).
 - Which search provider `web_search` starts with.
 - Whether rho 2.0 may push to GitHub itself, or only the person pushes.
 
@@ -68,6 +69,17 @@ In order. Each item ends in something that can be checked.
 
 - Bun 1.4.4 on Termux runs pi-durable 1.5.1 with SQLite storage; Bun and Node read each
   other's databases. TypeScript 6.0.3 type-checks here; TypeScript 7 has no Android build.
+- pi-claude-code under Bun, checked 2026-11-10 with no model request made: `claude auth status`
+  reports logged in on the Max plan in 0.2 s, and after a refresh 14 models are listed,
+  including `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-fable-5-2`.
+  Not checked: an actual turn, tool calls through its relay, or a crash mid-turn.
+- It is pinned to commit `d5b5e04` from GitHub (it is not on npm) and imported by file path
+  (`.../pi-claude-code/src/provider.ts`), since the package declares no entry point. It pulls
+  in pi's coding agent and terminal UI as peer packages, which rho does not use.
+- The Claude Code CLI must be on `PATH` (`~/.pi/agent/bin/claude` here, a proot wrapper), so
+  the service has to set `PATH` or `PI_CLAUDE_CODE_COMMAND`.
+- The provider's README warns that Anthropic may move `claude -p` use to separate credits;
+  if a turn is billed as usage credits it fails unless explicitly allowed.
 - `bun install` blocked two postinstall scripts; which packages, and whether they matter,
   was not checked.
 - An idle Bun server woke about three times a second in one 20-second sample; Node almost
