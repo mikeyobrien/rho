@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { preflight, release, type GateHost } from "./gate.ts";
 import { readConfig } from "./core.ts";
 import { rhoHome } from "./home.ts";
-import { CLAUDE_PLAN_WARNING, openModels, SUGGESTED } from "./providers.ts";
+import { CLAUDE_PLAN_WARNING, deviceId, LOGIN_WARNING, openModels, SUGGESTED } from "./providers.ts";
 import { installService, readService, serviceDown, serviceStatus, serviceUp, uninstallService } from "./service.ts";
 
 export interface CliEnv {
@@ -19,6 +19,8 @@ export interface CliEnv {
 	cwd?: string;
 	/** Ask for a secret without showing it. Absent when there is nobody to ask. */
 	readSecret?(prompt: string): Promise<string>;
+	/** Ask for a line that may be shown. Rejects when `signal` fires. Absent when there is nobody to ask. */
+	readLine?(prompt: string, signal?: AbortSignal): Promise<string>;
 }
 interface DaemonFile { pid: number; port: number; startedAt: number; commit?: string; /** The checkout the daemon runs from. */ root?: string }
 /** The checkout this rho runs from. */
@@ -155,6 +157,47 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			if (now) cli.out(await setupLine(dir, now));
 			return now ? 0 : 1;
 		}
+		case "login":
+		case "logout": {
+			// A sign-in with a subscription, run by the provider's own flow in pi-ai. Rho does its own
+			// login and keeps its own credential: two programs refreshing one login can end each other's.
+			const { models, keys } = openModels({ dir, config: readConfig(dir), env: cli.env });
+			// Not Anthropic: a Claude subscription is used only through Claude Code's own requests ("claudePlan").
+			const able = models.getProviders().filter((item) => item.auth.oauth && item.id !== "anthropic").map((item) => item.id);
+			const provider = args[1];
+			if (provider === "anthropic" || provider === "claude-code") return cli.out(`A Claude subscription is not signed in to here. Rho uses it only through Claude Code's own login: set "claudePlan": true in ${join(dir, "config.json")}. For an API key: rho key anthropic`), 2;
+			const known = provider === undefined ? undefined : models.getProvider(provider);
+			if (!known?.auth.oauth) return cli.out(`${provider === undefined ? "" : known ? `${provider} has no sign-in; it takes a key: rho key ${provider}\n` : `Rho knows no provider called ${provider}.\n`}Usage: rho ${args[0]} <provider>\nProviders with a sign-in: ${able.join(", ")}`), provider === undefined ? 0 : 2;
+			if (args[0] === "logout") {
+				const had = keys.has(provider!);
+				await models.logout(provider!);
+				return cli.out(had ? `Removed rho's stored login for ${provider}.` : `Rho has no stored login for ${provider}.`), 0;
+			}
+			cli.out(LOGIN_WARNING);
+			const cancel = new AbortController();
+			try {
+				await models.login(provider!, "oauth", {
+					signal: cancel.signal,
+					notify: (event) => {
+						if (event.type === "auth_url") cli.out(`${cli.openLink(event.url) ? "Opened the sign-in page in your browser. If it did not open, use this address" : "Open this address in a browser on this machine"}:\n${event.url}${event.instructions ? `\n${event.instructions}` : ""}`);
+						else if (event.type === "device_code") cli.out(`Go to ${event.verificationUri} and enter the code ${event.userCode}`);
+						else cli.out(event.message);
+					},
+					prompt: async (prompt) => {
+						if (prompt.type === "select") return prompt.options[0]!.id;
+						const ask = prompt.type === "secret" ? cli.readSecret : cli.readLine;
+						// With nobody to ask, the browser's own return to rho is the only way in: wait for it.
+						if (!ask) return new Promise<string>((_resolve, reject) => prompt.signal?.addEventListener("abort", () => reject(new Error("not needed")), { once: true }));
+						return ask(`${prompt.message} `, prompt.signal);
+					},
+				}, { getDeviceId: () => deviceId(dir), agentName: "rho" });
+			} catch (error) {
+				return cli.out(`Sign-in did not finish: ${(error as Error).message}`), 1;
+			}
+			const first = (await models.getAvailable(provider!))[0];
+			cli.out(`Signed in to ${known.name ?? provider}. The login is stored in ${keys.path} (readable by you only). Rho uses it from the next message${first ? `; pick a model such as ${first.provider}/${first.id} in the page's menu, or restart rho for new conversations to start on it` : ""}.`);
+			return 0;
+		}
 		case "key": {
 			// Keys are stored in the data directory, readable by the owner only. A key is never an
 			// argument: arguments are kept in shell history and shown to other processes.
@@ -165,9 +208,10 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 				const lines: string[] = [];
 				for (const item of models.getProviders()) {
 					const check = await models.checkAuth(item.id).catch(() => undefined);
-					if (check) lines.push(`  ${item.id}: ${stored.has(item.id) ? "key stored by rho" : `from ${check.source ?? "the environment"}`}`);
+					if (check) lines.push(`  ${item.id}: ${stored.has(item.id) ? (check.type === "oauth" ? "signed in (rho login)" : "key stored by rho") : `from ${check.source ?? "the environment"}`}`);
 				}
 				cli.out(lines.length > 0 ? `Providers rho can use now:\n${lines.join("\n")}` : "Rho has no API key yet.");
+				cli.out(`To sign in with a subscription instead of a key: rho login <provider>   (${models.getProviders().filter((item) => item.auth.oauth && item.id !== "anthropic").map((item) => item.id).join(", ")})`);
 				cli.out(`Add one with: rho key <provider>\n${SUGGESTED.map((item) => `  ${item.id.padEnd(11)}${item.name} (or set ${item.env})`).join("\n")}\nOther providers rho knows: ${models.getProviders().map((item) => item.id).filter((id) => !SUGGESTED.some((item) => item.id === id) && id !== "claude-code").join(", ")}`);
 				cli.out(`To use a Claude plan instead of a key, set "claudePlan": true in ${join(dir, "config.json")}. ${CLAUDE_PLAN_WARNING.split(". ").slice(1, 3).join(". ")}.`);
 				return 0;
@@ -277,7 +321,7 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 		case "logs":
 			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet, start rho first."), 0;
 		default:
-			cli.out("Usage: rho start | stop | status | open [--print] | key [provider [--remove]] | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
+			cli.out("Usage: rho start | stop | status | open [--print] | key [provider [--remove]] | login <provider> | logout <provider> | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
 			return 2;
 	}
 }
@@ -321,5 +365,24 @@ export async function main(args: string[]): Promise<number> {
 			process.stdin.pause();
 		}
 	};
-	return run(args, { env: process.env, out: (line) => console.log(line), openLink, readSecret });
+	// A line that may be shown, such as an address pasted back. It stops waiting when the signal fires.
+	const readLine = (prompt: string, signal?: AbortSignal): Promise<string> =>
+		new Promise((done, fail) => {
+			process.stderr.write(prompt);
+			let text = "";
+			const stop = () => {
+				process.stdin.off("data", onData);
+				process.stdin.pause();
+			};
+			const onData = (chunk: Buffer) => {
+				text += String(chunk);
+				if (!text.includes("\n")) return;
+				stop();
+				done(text.split("\n")[0]!.trim());
+			};
+			signal?.addEventListener("abort", () => (stop(), fail(new Error("not needed"))), { once: true });
+			process.stdin.on("data", onData);
+			process.stdin.resume();
+		});
+	return run(args, { env: process.env, out: (line) => console.log(line), openLink, readSecret, readLine });
 }

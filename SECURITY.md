@@ -65,6 +65,8 @@ Rho is an agent with a shell. This page states what protects you and what does n
   AWS variables, `CLAUDE_CODE_OAUTH_TOKEN` (the Claude CLI needs it), or any other secret
   in the environment rho was started with: `bash` sees those. On Linux, a process running as you can still read the environment rho was started
   with from `/proc`.
+- `rho login` stores a provider's login (an access token and a refresh token) in the same
+  file, as plain text. Rho does its own sign-in and does not read another program's login.
 - With `"claudePlan": true`, rho uses your Claude Code login by starting the `claude`
   command. Rho does not read or copy that login. Claude Code sends its own requests, and a
   relay on loopback puts your conversation into them. Anthropic may refuse such use of a

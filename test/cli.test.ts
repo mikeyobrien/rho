@@ -233,3 +233,31 @@ test("a key in the daemon's environment is used for requests and is not in the e
 		model.stop(true);
 	}
 }, 60_000);
+
+test("rho login: what it refuses, a stored login makes the provider usable, and logout removes it", async () => {
+	const { cli, lines, dir } = scratch();
+	expect(await run(["login"], cli)).toBe(0);
+	expect(lines.at(-1)).toContain("Providers with a sign-in: ");
+	expect(lines.at(-1)).toContain("openai");
+	expect(lines.at(-1)).not.toMatch(/\banthropic\b/); // a Claude subscription goes through Claude Code only
+	expect(await run(["login", "anthropic"], cli)).toBe(2);
+	expect(lines.at(-1)).toContain('"claudePlan": true');
+	expect(await run(["login", "deepseek"], cli)).toBe(2);
+	expect(lines.at(-1)).toContain("it takes a key: rho key deepseek");
+	expect(await run(["login", "nonesuch"], cli)).toBe(2);
+	// A login as the provider's flow stores it (the flow itself needs a person and a browser, and is not run here).
+	mkdirSync(dir, { recursive: true });
+	const login = { type: "oauth", access: "access-token-not-real-0001", refresh: "refresh-token-not-real-0002", expires: Date.now() + 3_600_000 };
+	writeFileSync(join(dir, "keys.json"), JSON.stringify({ openai: login }), { mode: 0o600 });
+	expect(await run(["key"], cli)).toBe(0);
+	expect(lines.join("\n")).toContain("  openai: signed in (rho login)");
+	expect(lines.join("\n")).not.toContain("token-not-real");
+	expect(await run(["start"], cli)).toBe(0);
+	expect(await run(["status"], cli)).toBe(0);
+	expect(lines.at(-1)).toBe("Model: openai/gpt-5.5.");
+	expect(await run(["logout", "openai"], cli)).toBe(0);
+	expect(lines.at(-1)).toBe("Removed rho's stored login for openai.");
+	expect(JSON.parse(readFileSync(join(dir, "keys.json"), "utf8"))).toEqual({});
+	expect(await run(["status"], cli)).toBe(0);
+	expect(lines.at(-1)).toContain("Not ready");
+}, 40_000);

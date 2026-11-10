@@ -15,7 +15,8 @@ import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { claudeCodeProvider, CLAUDE_CODE } from "./claude/provider.ts";
 import type { RhoConfig } from "./core.ts";
 
-type Credential = { type: "api_key"; key?: string; env?: Record<string, string> };
+/** What is stored for a provider: an API key, or a login (`rho login`) with its refresh token. */
+type Credential = { type: "api_key"; key?: string; env?: Record<string, string> } | { type: "oauth"; refresh: string; access: string; expires: number; [key: string]: unknown };
 type Env = Record<string, string | undefined>;
 
 /** The first of these that has a key is the model of a new conversation. */
@@ -27,6 +28,22 @@ export const SUGGESTED = [
 	{ id: "google", name: "Google Gemini", env: "GEMINI_API_KEY" },
 	{ id: "openrouter", name: "OpenRouter", env: "OPENROUTER_API_KEY" },
 ] as const;
+export const LOGIN_WARNING =
+	"This signs rho in with a subscription, not an API key. The provider decides what a subscription may be used for and can change it: requests can be refused or limited. An API key (rho key) is the supported way to use rho.";
+/** A stable id for this installation, which some logins ask for. Made on first use. */
+export function deviceId(dir: string): string {
+	const path = join(dir, "device-id");
+	try {
+		const stored = readFileSync(path, "utf8").trim();
+		if (/^[0-9a-f-]{36}$/i.test(stored)) return stored;
+	} catch {
+		// not made yet
+	}
+	const made = crypto.randomUUID();
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	writeFileSync(path, `${made}\n`, { mode: 0o600 });
+	return made;
+}
 export const CLAUDE_PLAN_WARNING =
 	"Claude plan: rho is using your Claude Code login. This is not an API key. Anthropic decides what a plan may be used for and has changed it before: " +
 	"requests can be refused, or charged to usage credits instead of your plan. Rho stops a turn rather than spend credits. To use an API key instead, remove \"claudePlan\" from config.json and run: rho key anthropic";

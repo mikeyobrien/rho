@@ -22,8 +22,8 @@ See [MIGRATION.md](MIGRATION.md).
   once.
 - A release gate so rho can release changes to its own code and go back if they fail.
 - Services: runit and Termux:Boot on Termux, a systemd user unit on Linux.
-- Model providers from pi-ai with API keys, servers that speak the OpenAI chat API, and an
-  opt-in provider that uses a Claude Code login.
+- Model providers from pi-ai with API keys, servers that speak the OpenAI chat API, sign-in
+  with a subscription (`rho login`), and an opt-in provider that uses a Claude Code login.
 
 ### Not in 2.0
 

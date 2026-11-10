@@ -79,6 +79,17 @@ open the address it prints on your device. The address works once.
 
 If rho has no key, `rho status` and the page say so and name the command to run.
 
+### Signing in with a subscription instead
+
+```sh
+rho login openai
+```
+
+This runs the provider's own sign-in in your browser and stores the login in the same
+`keys.json`. `rho login` lists the providers that have one, and `rho logout <provider>`
+removes it. It is a subscription, not an API key: the provider decides what it may be used
+for and can refuse or limit requests. An API key is the supported way to use rho.
+
 ## Commands
 
 | Command | What it does |
@@ -86,6 +97,7 @@ If rho has no key, `rho status` and the page say so and name the command to run.
 | `rho open` | Start rho if needed and open the page with a one-use pairing link. `--print` prints the link instead. |
 | `rho start`, `rho stop`, `rho status` | Start, stop, or show whether it runs and on which model. |
 | `rho key [provider]` | Store an API key, or list the providers that have one. `--remove` deletes it. |
+| `rho login <provider>`, `rho logout <provider>` | Sign in with a subscription through the provider's own flow, or remove that login. |
 | `rho logs [lines]` | The last lines of rho's log. |
 | `rho service install` | Run rho as a service that restarts it and starts it at boot. |
 | `rho service uninstall`, `rho service status` | Remove the service, or show its state. |
