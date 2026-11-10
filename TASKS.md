@@ -12,11 +12,13 @@ In order. Each item ends in something that can be checked.
 
 1. **Daemon core.** One process: a Harness on SQLite, `~/.rho/config.json`, a log. First test:
    kill the process mid-run under Bun, reopen, the run finishes and no tool ran twice.
-2. **Model access.** Claude through `@earendil-works/pi-claude-code`, the same provider pi
-   uses on this phone: it drives the Claude Code CLI, which holds the Max login, and reads no
-   credentials itself. Call `refresh` once at start so the current models are listed. Model
-   and thinking level per conversation. Default: `claude-code/claude-opus-5-5`, medium.
-   Other pi-ai providers (OpenAI through pi's login file) stay possible, not built first.
+2. **Model access.** pi-durable takes a pi-ai `Models` object, so every pi-ai provider (43
+   catalogs in 1.5.1) works once the host registers it and a credential exists. Register all
+   built-ins; the picker lists those with a credential. Credentials come from pi's login file
+   (only OpenAI is logged in on the phone). Claude on the Max plan goes through rho's own
+   Claude Code provider (spike below). Model and thinking level per conversation.
+   Unchecked: pi-ai's own Anthropic provider declares a subscription login; whether it works
+   with the Max plan was not tested. Check before writing the provider.
 3. **HTTP and the event stream.** Loopback only, bearer token on every API call, one-time
    pairing. Submit, stop, new chat, steer and queue, earlier entries, models.
 4. **Web page.** Thread, composer, streaming answer, stop, queue, model picker. Markdown
@@ -80,6 +82,24 @@ In order. Each item ends in something that can be checked.
   the service has to set `PATH` or `PI_CLAUDE_CODE_COMMAND`.
 - The provider's README warns that Anthropic may move `claude -p` use to separate credits;
   if a turn is billed as usage credits it fails unless explicitly allowed.
+- Claude Code provider spike, 2026-11-10 (14 real requests, Claude Code 2.1.322, harness in
+  `~/.cache/rho-spike/`). No relay was used; a pass-through proxy only observed.
+  - Works: a plain answer; a tool request through an inert MCP inventory (tool names arrive
+    as `mcp__rho__<name>`); two tool requests in one response; replay of history into a fresh
+    process, including a signed thinking block, which upstream accepted.
+  - Replay rule: mark only earlier *user* frames `shouldQuery:false`, write frames one at a
+    time, and wait for the zero-turn `result` after each marked frame. Writing all frames at
+    once reorders the history. Marking assistant frames hangs the CLI (two runs timed out).
+  - A tool request ends the CLI with exit 1 and `error_max_turns` after one upstream request;
+    the response itself is intact. Unmarked history made it send two requests.
+  - Claude Code adds, and a relay-free provider cannot remove: a billing line and "You are a
+    Claude agent, built on Anthropic's Claude Agent SDK." in the system prompt; a reminder
+    holding the account email on the newest user message; an environment block (working
+    directory, OS, model name, date).
+  - Thinking blocks arrive with a signature and empty text. First token in about 1.0-1.3 s
+    including process start. Every turn reported plan usage, not overage.
+  - Not settled: cancel. SIGTERM at 2.5 s did not stop the stream; the answer finished 0.6 s
+    later. Kill the process group, or cut the upstream connection, and test again.
 - `bun install` blocked two postinstall scripts; which packages, and whether they matter,
   was not checked.
 - An idle Bun server woke about three times a second in one 20-second sample; Node almost
