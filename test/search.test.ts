@@ -135,6 +135,7 @@ test("Stop ends a search that is waiting on the file system", async () => {
 				if (typeof value !== "function") return value;
 				if (key !== "readTextFile" && key !== "listDir") return value.bind(target);
 				return async (...args: unknown[]) => {
+					if (String(args[0]).endsWith("AGENTS.md")) return value.apply(target, args); // the prompt's own read, before any tool
 					const signal = (args.at(-1) as { abortSignal?: AbortSignal }).abortSignal;
 					entered?.();
 					await new Promise<void>((resolve) => (signal?.aborted ? resolve() : signal?.addEventListener("abort", () => resolve(), { once: true })));

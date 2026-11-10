@@ -136,6 +136,7 @@ test("read, write and edit end when Stop comes while they wait on the file syste
 				const value = Reflect.get(target, key, target);
 				if (typeof value !== "function" || key === "cleanup") return typeof value === "function" ? value.bind(target) : value;
 				return async (...args: unknown[]) => {
+					if (String(args[0]).endsWith("AGENTS.md")) return value.apply(target, args); // the prompt's own read, before any tool
 					const signal = (args.at(-1) as { abortSignal?: AbortSignal } | undefined)?.abortSignal;
 					entered?.();
 					await new Promise<void>((resolve) => (signal?.aborted ? resolve() : signal?.addEventListener("abort", () => resolve(), { once: true })));
@@ -144,7 +145,7 @@ test("read, write and edit end when Stop comes while they wait on the file syste
 			},
 		});
 	};
-	const { core, faux, call, work } = await open({ env: slow });
+	const { core, faux, call, work, entries } = await open({ env: slow });
 	writeFileSync(join(work, "keep.txt"), "original\n");
 	for (const [name, args] of [["read", { path: "keep.txt" }], ["write", { path: "new.txt", content: "must not appear" }], ["edit", { path: "keep.txt", edits: [{ oldText: "original", newText: "changed" }] }]] as const) {
 		const waiting = new Promise<void>((resolve) => (entered = resolve));
@@ -156,5 +157,8 @@ test("read, write and edit end when Stop comes while they wait on the file syste
 		expect(Date.now() - started).toBeLessThan(3_000);
 		expect(existsSync(join(work, "new.txt"))).toBe(false);
 		expect(readFileSync(join(work, "keep.txt"), "utf8")).toBe("original\n");
+		// It was the tool that was waiting and was stopped, not something before it.
+		const last = (await entries()).at(-1) as { role: string; name?: string; error?: boolean };
+		expect([last.role, last.name, last.error]).toEqual(["tool", name, true]);
 	}
 }, 20_000);

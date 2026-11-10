@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# A commit goes in only when the type-check and the tests pass (AGENTS.md, "Working here").
+# Turn it on once per checkout: git config core.hooksPath .githooks
+exec bun run check

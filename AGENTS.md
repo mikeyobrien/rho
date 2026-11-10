@@ -27,7 +27,8 @@ bootstrap section before choosing work; update it in the commit that changes the
 
 ## Working here
 
-- `bun run check` (type-check, then tests) passes before a commit.
+- `bun run check` (type-check, then tests) passes before a commit. The hook in `.githooks/`
+  enforces it; turn it on once per checkout with `git config core.hooksPath .githooks`.
 - Tests call no model: use pi-ai's `fauxProvider`, and `test/fixtures/fake-claude.ts` for the
   Claude CLI. A live model check is run by hand, on Haiku unless the model is the point, and
   its result is written into `TASKS.md` with what it did not cover.

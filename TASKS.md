@@ -72,6 +72,9 @@ In order. Each item ends in something that can be checked.
    date line is the day the context was read, not today.
    Checked: 5 tests on what the scripted model receives, including byte-identical system
    messages across four requests with a tool round, an edited file and a changed date.
+   Commit `bfa172d` went in with one test failing (a test's stalled-disk stand-in also
+   stalled the new section's own read); the next commit fixed the test and added a
+   pre-commit hook so a failing check now blocks the commit.
    Not checked: the re-read after a real compaction (reasoned from pi-durable's `shown`,
    not run); a live model's prompt-cache numbers with the section in place.
 9. **Conversations.** More than one, each with its own directory: list, open, new.
