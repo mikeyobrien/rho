@@ -51,9 +51,16 @@ In order. Each item ends in something that can be checked.
    and Stop while waiting on the file system.
    Not checked: speed on a large repository (each file is read whole, in JavaScript; no
    ripgrep), symlink loops outside git, non-UTF-8 text.
-7. **Tidy tools.** Every tool takes a short `reasoning` argument; the page shows each call as
-   two lines (the goal, then the target and a result summary), with the full output and the
-   diff on demand.
+7. **Tidy tools.** DONE 2026-11-10: `src/tools/tidy.ts` adds an optional `reasoning` argument
+   to every tool the core installs, its own or an extension's; no tool reads it. `StateView`
+   carries it apart from the arguments, and each tool result carries a summary ("+1 −1",
+   "3 lines", "no output", or an error's first line) and, for an edit, its diff. The page
+   draws a call as two lines (the tool and why; what it acted on and how it went), closed,
+   with the diff and output inside.
+   Checked: tests for the schema of all seven tools, the view and the card; live on Haiku, 6
+   of 6 calls came with a reasoning phrase.
+   Not checked: the cards in a real browser (their look was never seen); a model that fills
+   reasoning poorly; the phrase's effect on answer quality or cost.
 8. **Project context.** `AGENTS.md` files and an environment summary as prompt sections.
 9. **Conversations.** More than one, each with its own directory: list, open, new.
 10. **Web access.** `web_search` (one provider to start) and `fetch_content` (a page as

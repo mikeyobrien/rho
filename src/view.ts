@@ -7,13 +7,15 @@ import type { ConversationView, EntryRecord } from "@earendil-works/pi-durable";
 export interface ToolCallView {
 	id: string;
 	name: string;
-	/** The call's arguments as the model gave them. */
+	/** Why the model made the call, in its own short phrase; absent when it gave none. */
+	reasoning?: string;
+	/** The call's arguments, without `reasoning`. */
 	args: Record<string, unknown>;
 }
 export type EntryView =
 	| { id: number; role: "user"; text: string }
 	| { id: number; role: "assistant"; text: string; calls: ToolCallView[]; model?: string; cut?: true }
-	| { id: number; role: "tool"; callId: string; name: string; text: string; error?: true }
+	| { id: number; role: "tool"; callId: string; name: string; text: string; /** The result in a few words. */ summary: string; /** What an edit changed. */ diff?: string; error?: true }
 	| { id: number; role: "divider"; text: string };
 
 export interface StateView {
@@ -52,16 +54,40 @@ const FAILURES: Record<string, string> = {
 	turn_limit: "The run reached its step limit.",
 };
 
+const firstLine = (text: string): string => (text.trim().split("\n")[0] ?? "").slice(0, 100);
+/** A tool result in a few words, for the second line of its card. */
+export function summarize(text: string, isError: boolean, diff?: string): string {
+	// The harness wraps its own error notes in a <harness> block; the words inside are the summary.
+	if (isError) return firstLine(text.split("\n").filter((line) => !/^<\/?harness>$/.test(line.trim())).join("\n").replace(/^\s*\[error\]\s*/, "")) || "failed";
+	if (diff !== undefined) {
+		const lines = diff.split("\n");
+		const count = (mark: string) => lines.filter((line) => line.startsWith(mark) && !line.startsWith(mark.repeat(3))).length;
+		return `+${count("+")} −${count("-")}`;
+	}
+	const lines = text.trimEnd().split("\n");
+	if (text.trim() === "") return "no output";
+	return lines.length === 1 ? firstLine(text) : `${lines.length} lines`;
+}
+
 export function entryView(entry: EntryRecord): EntryView | undefined {
 	const id = Number(entry.id);
 	const message = entry.model?.[0];
 	if (entry.kind === "pi.user" && message?.role === "user") return { id, role: "user", text: textOf(message.content) };
 	if (entry.kind === "pi.assistant" && message?.role === "assistant") {
-		const calls = message.content.flatMap((part) => (part.type === "toolCall" ? [{ id: part.id, name: part.name, args: part.arguments as Record<string, unknown> }] : []));
+		const calls = message.content.flatMap((part) => {
+			if (part.type !== "toolCall") return [];
+			const { reasoning, ...args } = part.arguments as Record<string, unknown>;
+			return [{ id: part.id, name: part.name, ...(typeof reasoning === "string" && reasoning.trim() !== "" ? { reasoning: reasoning.trim().slice(0, 200) } : {}), args }];
+		});
 		const cut = message.stopReason === "aborted" || message.stopReason === "error";
 		return { id, role: "assistant", text: textOf(message.content), calls, model: message.model, ...(cut ? { cut: true as const } : {}) };
 	}
-	if (entry.kind === "pi.tool-result" && message?.role === "toolResult") return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text: textOf(message.content), ...(message.isError ? { error: true as const } : {}) };
+	if (entry.kind === "pi.tool-result" && message?.role === "toolResult") {
+		const text = textOf(message.content);
+		const details = message.details as { diff?: unknown } | undefined;
+		const diff = typeof details?.diff === "string" ? details.diff : undefined;
+		return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text, summary: summarize(text, message.isError, diff), ...(diff !== undefined ? { diff } : {}), ...(message.isError ? { error: true as const } : {}) };
+	}
 	if (entry.kind === "pi.reset") return { id, role: "divider", text: "New chat" };
 	if (entry.kind === "pi.compaction") return { id, role: "divider", text: "Earlier messages were summarized" };
 	return undefined;

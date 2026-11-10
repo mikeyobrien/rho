@@ -61,6 +61,35 @@ test("write, read, edit and bash work in the conversation's directory", async ()
 	expect(ran!.text).toContain("to-stderr");
 });
 
+test("every tool takes an optional reasoning argument, and the wire view carries it apart from the arguments", async () => {
+	const { core, work, turn, entries } = await open();
+	const tools = (await core.root.agent(context)).tools;
+	expect(tools.map((tool) => tool.name).sort()).toEqual(["bash", "edit", "find", "grep", "ls", "read", "write"]);
+	for (const tool of tools) {
+		const schema = tool.parameters as { properties: Record<string, { type?: string }>; required?: string[] };
+		expect([tool.name, schema.properties.reasoning?.type]).toEqual([tool.name, "string"]);
+		expect(schema.required ?? []).not.toContain("reasoning");
+	}
+	// A call with a reason works as one without, and the tool does not see it as an argument of its own.
+	const [wrote] = await turn([["write", { reasoning: "keep a note for later", path: "n.txt", content: "a\nb\n" }]]);
+	expect(wrote!.error).toBeUndefined();
+	expect(readFileSync(join(work, "n.txt"), "utf8")).toBe("a\nb\n");
+	const call = (await entries()).flatMap((entry) => (entry.role === "assistant" ? entry.calls : [])).at(-1)!;
+	expect(call).toEqual({ id: call.id, name: "write", reasoning: "keep a note for later", args: { path: "n.txt", content: "a\nb\n" } });
+	// The result summary: an edit says what changed and carries its diff; others say how much came back.
+	const [edited] = await turn([["edit", { path: "n.txt", edits: [{ oldText: "b", newText: "B" }] }]]);
+	expect(edited!.summary).toBe("+1 −1");
+	expect(edited!.diff).toContain("B");
+	const [listed] = await turn([["bash", { command: "printf 'x\\ny\\nz\\n'" }]]);
+	expect(listed!.summary).toBe("3 lines");
+	expect(listed!.diff).toBeUndefined();
+	const [quiet] = await turn([["bash", { command: "true" }]]);
+	expect(quiet!.summary).toBe("no output");
+	const [failed] = await turn([["read", { path: "nope.txt" }]]);
+	expect(failed!.summary.length).toBeGreaterThan(0);
+	expect(failed!.summary).not.toContain("\n");
+});
+
 test("failures come back to the model as errors that say what went wrong", async () => {
 	const { work, turn } = await open();
 	const [missing] = await turn([["read", { path: "nope.txt" }]]);

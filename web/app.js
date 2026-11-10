@@ -189,23 +189,41 @@ export function start(env) {
 	const firstLine = (text) => text.trim().split("\n")[0].slice(0, 80);
 	const note = (text, className = "note") => make("p", { className, textContent: text });
 
-	function toolCard(name, summary, body, error) {
+	/** What a call acts on, in short: its path, command, pattern, address or query. */
+	function targetOf(call) {
+		const args = call?.args ?? {};
+		const value = args.path ?? args.command ?? args.pattern ?? args.url ?? args.query ?? Object.values(args).find((item) => typeof item === "string") ?? "";
+		return firstLine(typeof value === "string" ? value : JSON.stringify(value));
+	}
+	/**
+	 * A tool call as two lines: what it is for, then what it acted on and how it went. The
+	 * output, and for an edit the diff, are inside and shown when the card is opened.
+	 */
+	function toolCard(name, call, result, body, error, diff) {
 		const card = make("details", { className: error ? "tool error" : "tool" });
-		const line = make("summary", {});
-		line.append(make("span", { className: "tool-name", textContent: name }));
-		if (summary) line.append(make("span", { className: "tool-summary", textContent: summary }));
-		card.append(line);
-		card.append(make("pre", { textContent: body }));
+		const head = make("summary", {});
+		const why = make("div", { className: "tool-line" });
+		why.append(make("span", { className: "tool-name", textContent: name }), make("span", { className: "tool-why", textContent: call?.reasoning ?? "" }));
+		const what = make("div", { className: "tool-line" });
+		what.append(make("span", { className: "tool-target", textContent: targetOf(call) }), make("span", { className: "tool-result", textContent: result }));
+		head.append(why, what);
+		card.append(head);
+		if (diff !== undefined) {
+			const lines = make("pre", { className: "diff" });
+			for (const line of diff.split("\n")) lines.append(make("span", { className: line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "same", textContent: `${line}\n` }));
+			card.append(lines);
+		}
+		card.append(make("pre", { className: "output", textContent: body }));
 		return card;
 	}
 
-	function nodeFor(entry, args) {
+	function nodeFor(entry, calls) {
 		const existing = rendered.get(entry.id);
 		if (existing) return existing;
 		let node;
 		if (entry.role === "divider") node = make("div", { className: "divider", textContent: entry.text });
 		else if (entry.role === "user") node = make("div", { className: "msg user", textContent: entry.text });
-		else if (entry.role === "tool") node = toolCard(entry.name, args.get(entry.callId) ?? firstLine(entry.text), entry.text, entry.error);
+		else if (entry.role === "tool") node = toolCard(entry.name, calls.get(entry.callId), entry.summary, entry.text, entry.error, entry.diff);
 		else {
 			node = make("div", { className: "msg assistant" });
 			renderMarkdown(node, entry.text, document);
@@ -219,10 +237,10 @@ export function start(env) {
 	function render() {
 		const entries = [...known.values()].sort((a, b) => a.id - b.id);
 		const key = entries.map((entry) => entry.id).join(",");
+		const calls = new Map(); // call id -> the call, for its card
+		for (const entry of entries) for (const call of entry.calls ?? []) calls.set(call.id, call);
 		if (key !== drawn) {
-			const args = new Map(); // call id -> its arguments in short, for the tool's card
-			for (const entry of entries) for (const call of entry.calls ?? []) args.set(call.id, firstLine(Object.values(call.args).map((value) => (typeof value === "string" ? value : JSON.stringify(value))).join(" ")));
-			el.entries.replaceChildren(...entries.map((entry) => nodeFor(entry, args)));
+			el.entries.replaceChildren(...entries.map((entry) => nodeFor(entry, calls)));
 			drawn = key;
 		}
 		el.earlier.hidden = !moreEarlier;
@@ -233,7 +251,7 @@ export function start(env) {
 			live.push(note(connection === "live" ? "Sending" : "Not sent yet", "note unsent-note"));
 		}
 		if (state?.running) {
-			for (const tool of state.tools) if (tool.status !== "done") live.push(Object.assign(toolCard(tool.name, "running", tool.output.slice(-2000), false), { open: tool.output !== "" }));
+			for (const tool of state.tools) if (tool.status !== "done") live.push(Object.assign(toolCard(tool.name, calls.get(tool.id), "running", tool.output.slice(-2000), false), { open: tool.output !== "" }));
 			if (state.partial) live.push(make("div", { className: "msg assistant streaming", textContent: state.partial }));
 			else if (state.retry) live.push(note(`Trying again, attempt ${state.retry.attempt}`, "note working"));
 			else if (!state.tools.some((tool) => tool.status !== "done")) live.push(note("Working", "note working"));

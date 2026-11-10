@@ -46,10 +46,20 @@ th, td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; ver
 .divider { align-self: center; color: var(--dim); font-size: 13px; }
 .tool { border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
 .tool.error { border-color: var(--bad); }
-.tool summary { display: flex; gap: 8px; min-height: 44px; align-items: center; padding: 0 12px; cursor: pointer; }
-.tool-name { font: 14px ui-monospace, monospace; }
-.tool-summary { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool pre { margin: 0; border-radius: 0 0 10px 10px; max-height: 320px; overflow: auto; white-space: pre-wrap; font: 13px/1.4 ui-monospace, monospace; }
+.tool summary { display: grid; gap: 2px; min-height: 44px; align-content: center; padding: 6px 12px; cursor: pointer; list-style: none; }
+.tool summary::-webkit-details-marker { display: none; }
+.tool-line { display: flex; gap: 8px; min-width: 0; }
+.tool-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-name { flex: none; font: 14px ui-monospace, monospace; }
+.tool-why:empty, .tool-target:empty { display: none; }
+.tool-target { flex: 1; color: var(--dim); font: 13px ui-monospace, monospace; }
+.tool-result { flex: none; max-width: 50%; color: var(--dim); }
+.tool.error .tool-result { color: var(--bad); }
+.tool pre { margin: 0; border-radius: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; font: 13px/1.4 ui-monospace, monospace; }
+.tool pre:last-child { border-radius: 0 0 10px 10px; }
+.diff .add { color: #9ece6a; }
+.diff .del { color: var(--bad); }
+.diff .same { color: var(--dim); }
 #empty { margin-top: 20vh; text-align: center; color: var(--dim); }
 .empty-title { color: var(--text); font-size: 18px; }
 .quiet { display: block; margin: 0 auto 12px; }

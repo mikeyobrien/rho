@@ -9,6 +9,7 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { homedir } from "node:os";
 import { SearchTools } from "./tools/search.ts";
+import { tidy } from "./tools/tidy.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -118,9 +119,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	const config = options.config ?? {};
 	const home = config.cwd ?? homedir();
 	const registry = createRegistry();
-	registry.install(CodingTools); // read, write, edit, bash
-	registry.install(SearchTools); // grep, find, ls
-	for (const extension of options.extensions ?? []) registry.install(extension);
+	// Every tool, whoever brings it, takes the optional `reasoning` argument.
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, ...(options.extensions ?? [])]) registry.install(tidy(extension));
 	const harness = await Harness.open(
 		await openNodeSqliteStorage(join(options.dir, "rho.sqlite")),
 		{

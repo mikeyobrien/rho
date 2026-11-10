@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -23,7 +23,7 @@ let down = false; // when true, the page cannot reach the daemon
 const pages: { stop(): void }[] = [];
 
 async function boot(port = 0) {
-	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}` }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })] });
+	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: dir }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })] });
 	server = await serve({ core, models, dir, port });
 }
 function waitTool() {
@@ -129,7 +129,38 @@ test("a tool round shows a card while it runs and a card with its result after",
 	gate.release();
 	await until("the final answer", () => page.messages().at(-1) === "msg assistant|All done." && idle(page));
 	// The tool-only assistant turn is hidden; the card carries the call's arguments and its output.
-	expect(page.messages()).toEqual(["msg user|please wait", "tool|waitthe reason givenwaited", "msg assistant|All done."]);
+	expect(page.messages()).toEqual(["msg user|please wait", "tool|waitthe reason givenwaitedwaited", "msg assistant|All done."]);
+});
+
+test("a tool card is two lines, what it is for and what it did, with the output and the diff inside", async () => {
+	writeFileSync(join(dir, "hello.txt"), "one\nhello wrold\nthree\n");
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("edit", { reasoning: "fix the greeting typo", path: "hello.txt", edits: [{ oldText: "wrold", newText: "world" }] }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("bash", { reasoning: "confirm the file reads right", command: "cat hello.txt" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("read", { path: "missing.txt" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage("Fixed."),
+	]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("fix it");
+	await until("the answer", () => page.messages().at(-1) === "msg assistant|Fixed." && idle(page));
+	const cards = (page.$("entries").children as El[]).filter((node) => node.tag === "details");
+	const part = (card: El, name: string) => card.all().find((node) => node.className === name)?.textContent;
+	const lines = (card: El) => (card.children[0] as El).children.map((line) => (line as El).children.map((cell) => cell.textContent));
+	// Line one: the tool and why. Line two: what it acted on and how it went.
+	expect(lines(cards[0]!)).toEqual([["edit", "fix the greeting typo"], ["hello.txt", "+1 −1"]]);
+	expect(lines(cards[1]!)).toEqual([["bash", "confirm the file reads right"], ["cat hello.txt", "3 lines"]]);
+	expect(lines(cards[2]!)[0]).toEqual(["read", ""]); // no reason given: the line holds the name alone
+	expect(cards[2]!.className).toBe("tool error");
+	expect(part(cards[2]!, "tool-result")).toMatch(/missing\.txt|not found|ENOENT/i);
+	// On demand: the cards start closed, and hold the diff and the output.
+	expect(cards.map((card) => card.open)).toEqual([false, false, false]);
+	const diff = cards[0]!.all().find((node) => node.className === "diff")!;
+	const changed = (diff.children as El[]).filter((line) => line.className !== "same").map((line) => [line.className, line.textContent.trim().replace(/^([+-])\s*\d*\s*/, "$1")]);
+	expect(changed).toEqual([["del", "-hello wrold"], ["add", "+hello world"]]);
+	expect(part(cards[1]!, "output")).toBe("one\nhello world\nthree\n");
+	expect(cards[1]!.all().some((node) => node.className === "diff")).toBe(false);
+	expect(readFileSync(join(dir, "hello.txt"), "utf8")).toBe("one\nhello world\nthree\n");
 });
 
 test("while a run works: words queue and can be taken back; an empty box is Stop", async () => {
