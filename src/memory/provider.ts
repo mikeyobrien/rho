@@ -21,6 +21,8 @@ export interface MemoryProvider {
 	load(): Promise<string | undefined>;
 	/** A finished turn, fire-and-forget: never throws, never delays the run. */
 	observe?(turn: MemoryTurn): void;
+	/** The person's preferences on which model suits which work, one a line, as they stand now (not as a conversation was shown them). Read when a job is handed to a worker. */
+	preferences?(): Promise<string[]>;
 	/** Tools that write the store. */
 	readonly tools?: readonly ToolRegistration[];
 }
