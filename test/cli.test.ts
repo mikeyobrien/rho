@@ -57,6 +57,33 @@ test("start, status and stop; a second start changes nothing", async () => {
 	expect(lines.at(-1)).toBe("Rho is not running.");
 }, 40_000);
 
+test("stop ends a rho its service has lost track of, and says so; start then brings it up again", async () => {
+	const { cli, lines, dir } = scratch();
+	// Started by hand: nothing supervises it.
+	expect(await run(["start"], cli)).toBe(0);
+	const pid = JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8")).pid as number;
+	// Now the home says a runit service runs rho, and the service command answers but controls no process:
+	// the state after a service runner was restarted under a running rho.
+	const bin = join(dir, "..", "fake-bin");
+	mkdirSync(bin);
+	const calls = join(dir, "..", "sv-calls.txt");
+	writeFileSync(join(bin, "sv"), `#!/usr/bin/env bash\necho "$@" >> ${JSON.stringify(calls)}\nexit 0\n`);
+	chmodSync(join(bin, "sv"), 0o755);
+	writeFileSync(join(dir, "service.json"), JSON.stringify({ kind: "runit", name: "rho-test-lost", files: [] }));
+	const lost: CliEnv = { ...cli, env: { ...cli.env, PATH: `${bin}:${cli.env.PATH}` } };
+	const began = Date.now();
+	expect(await run(["stop"], lost)).toBe(0);
+	expect(lines.at(-1)).toBe(`Rho is stopped. Its service had lost track of it (pid ${pid}), so it was ended directly.`);
+	expect(() => process.kill(pid, 0)).toThrow(); // really gone
+	expect(readFileSync(calls, "utf8")).toContain("down rho-test-lost"); // the service was asked first
+	expect(Date.now() - began).toBeGreaterThan(5_000); // and given time to do it
+	// With the old rho gone, nothing refuses the next one.
+	rmSync(join(dir, "service.json"));
+	expect(await run(["start"], cli)).toBe(0);
+	expect(lines.at(-2)).toMatch(/^Rho is running \(pid \d+\)/);
+	expect(JSON.parse(readFileSync(join(dir, "daemon.json"), "utf8")).pid).not.toBe(pid);
+}, 60_000);
+
 test("open starts rho and opens a link that pairs a fresh browser once", async () => {
 	const { cli, lines, opened, dir } = scratch();
 	expect(await run(["open"], cli)).toBe(0);

@@ -77,6 +77,26 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
 reviewers wanted first is a release killed part-way; since 2026-11-11 the next start says
 how it ended, and nothing yet brings a hand-started rho back up. Added since:
 
+- Fixed 2026-11-12, not in the installed rho yet: **`rho stop` trusted a service that had
+  lost its rho.** A release of `7a25e42` passed its checks and then did not start. With a
+  service installed, `stop` only asked the service to stop rho and waited. But the
+  service runner had been started again an hour after rho (the process list shows
+  `runsvdir` and the login shell starting in the same second, so Termux's session was
+  started again, which runs the boot script), and a new runner does not adopt a rho the
+  old one started. So the service stopped nothing, the old rho went on owning the data,
+  every start of the new one was refused ("Another rho already runs"), and the gate went
+  back after its 60 s. The roll back was right and rho stayed up throughout. Now `stop`
+  gives the service 6 s, then ends the process itself, with SIGKILL after 20 s more, and
+  says that the service had lost track of it. Tested with a real daemon and a service
+  command that answers and stops nothing (`test/cli.test.ts`).
+  - **This fix cannot put itself in.** The gate runs from the installed checkout, so its
+    `stop` is the old one until one release has gone through. Before that release the
+    orphaned rho has to be ended by hand and the service brought up; after that the
+    service supervises rho again and the old `stop` works too.
+  - Not fixed: a rho the runner has lost is not supervised, so if it dies nothing starts
+    it again, and nothing says so. `rho status` could say "not supervised". Not built.
+  - Not known: what started Termux's session again.
+
 - The guard matches a command's text, so it stops the agent's own harmless commands when
   their text names a push, a release, a git-directory delete or rho's data path: six
   times while items 17 to 21d were built (four waited for the owner's Allow, two were

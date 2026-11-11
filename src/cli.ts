@@ -148,10 +148,32 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			const service = readService(dir);
 			if (service) serviceDown(service, cli.env); // told to stay down, also when rho is between restarts
 			if (!now) return cli.out("Rho is not running."), 0;
-			if (!service) process.kill(now.pid, "SIGTERM");
-			for (let i = 0; i < 80 && alive(now.pid); i++) await sleep(250);
-			if (alive(now.pid)) return cli.out(`Rho (pid ${now.pid}) did not stop.`), 1;
-			return cli.out("Rho is stopped."), 0;
+			const end = (signal: "SIGTERM" | "SIGKILL") => {
+				try {
+					process.kill(now.pid, signal);
+				} catch {
+					// gone between the look and the signal
+				}
+			};
+			const gone = async (ms: number) => {
+				for (let waited = 0; waited < ms && alive(now.pid); waited += 250) await sleep(250);
+				return !alive(now.pid);
+			};
+			if (!service) end("SIGTERM");
+			// A service can lose its rho: the service runner was restarted (Termux was closed, or
+			// Android ended it) and the rho it had started lives on with nobody supervising it. Asking
+			// the service then stops nothing, and a start after it is refused because the old rho
+			// still owns the data. So a rho the service did not end is ended directly.
+			let lost = false;
+			if (service && !(await gone(6_000))) {
+				lost = true;
+				end("SIGTERM");
+			}
+			if (!(await gone(20_000))) {
+				end("SIGKILL"); // it ignored the request: its work is durable, and the next start takes it up
+				if (!(await gone(5_000))) return cli.out(`Rho (pid ${now.pid}) did not stop.`), 1;
+			}
+			return cli.out(lost ? `Rho is stopped. Its service had lost track of it (pid ${now.pid}), so it was ended directly.` : "Rho is stopped."), 0;
 		}
 		case "status": {
 			const now = await running(dir);
