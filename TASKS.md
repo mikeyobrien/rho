@@ -943,6 +943,11 @@ is used only through Claude Code.
         ends; with no rows there is no card. The counting line above the message box and
         the release strip are gone. The header says "N running". The menu's "Workers: N
         ended" adds the ended ones to the card until "Hide ended".
+      - Corrected the same day, after the owner saw it in the installed rho ("Running seems
+        stuck even though it's done"): a release that had ended kept its row for five
+        minutes, a habit carried over from the old strip. Under the word "Running" a
+        finished release reads as a stuck one. Now the row is there only while the release
+        is under way; how it ended is the gate's message in the thread.
       - `StateView` gains `background` (id, first line of the command, start time) and
         `card` on a notice. `POST /api/background/stop` is new.
       - Checked: 5 page tests on the stand-in DOM (30 in the file), the whole check three

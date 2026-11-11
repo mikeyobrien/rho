@@ -507,9 +507,7 @@ export function start(env) {
 		const seen = state?.release ?? (connection === "live" ? undefined : lastRelease);
 		if (!seen) return "";
 		if (seen.status === "running") return `Releasing ${seen.commit} · ${STAGES[seen.stage] ?? seen.stage} · ${clock(Math.max(0, (env.now?.() ?? Date.now()) - (seen.started ?? seen.at)))}`;
-		if (seen.status === "released") return `Rho now runs ${seen.commit} (it ran ${seen.previous}).`;
-		if (seen.status === "rolled-back") return `${seen.commit} did not start, so rho is back on ${seen.previous}.`;
-		return `${seen.commit} was not released. Rho still runs ${seen.previous}.`;
+		return ""; // over: the gate's message in the thread says how it ended
 	}
 	function renderRelease() {
 		if (state?.release) lastRelease = state.release;
@@ -566,8 +564,10 @@ export function start(env) {
 	function runningCard() {
 		const now = env.now?.() ?? Date.now();
 		const rows = [];
+		// A release is a row only while it is under way. How it ended is the gate's message in the
+		// thread, which stays; a finished release under "Running" reads as one that is stuck.
 		const release = releaseText();
-		if (release !== "") rows.push(runningRow(`release${/did not start|was not released/.test(release) ? " failed" : ""}`, "Release", release.replace(/^Releasing /, "")));
+		if (release.startsWith("Releasing")) rows.push(runningRow("release", "Release", release.replace(/^Releasing /, "")));
 		const job = state?.background;
 		if (job) rows.push(runningRow("background", job.command, `running · ${clock(Math.max(0, now - job.startedAt))} · background command`, undefined, { path: "background/stop", body: {}, label: "Stop the background command" }));
 		const workers = state?.workers ?? [];

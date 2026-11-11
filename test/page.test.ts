@@ -495,13 +495,11 @@ test("a release shows in the page as it goes: its stage and time, the restart as
 	const [commit, previous] = ["a".repeat(40), "b".repeat(40)];
 	const stage = (name: string, at: number) => writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "running", stage: name, commit, previous, pid: process.pid, started: 1_000, at }));
 	// The release is a row of the Running card at the tail of the thread, not a strip of its own.
-	const row = () => runningRowEls(page).find((item) => item.className.includes("release"));
 	const line = () => runningRows(page).find((text) => text.startsWith("Release | "))?.slice("Release | ".length) ?? "";
 	now = 42_000;
 	stage("check", 2_000);
 	await until("the release row", () => line() !== "");
 	expect(line()).toBe("aaaaaaa · running the checks · 0:41");
-	expect(row()!.className).not.toContain("failed");
 	expect((page.$("live").children as El[]).at(-1)!.className).toBe("running"); // the card is the last thing in the thread
 	expect(page.$("release").hidden).toBe(true); // nothing outside the thread
 	// The time counts on its own between the daemon's snapshots.
@@ -519,22 +517,18 @@ test("a release shows in the page as it goes: its stage and time, the restart as
 	expect(page.$("notice").hidden).toBe(true);
 	now = 75_000;
 	await until("the line to count through the restart", () => line() === "aaaaaaa · restarting rho · 1:14", 15_000);
-	// It comes back on the new commit.
+	// It comes back on the new commit: the release is over, so its row goes at once and with it the card.
+	// How it ended is the gate's message in the thread, not a row that sits under "Running".
 	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "released", commit, previous, at: Date.now() }));
 	down = false;
-	await until("the result", () => line() === "Rho now runs aaaaaaa (it ran bbbbbbb).", 15_000);
-	expect(idle(page)).toBe(true);
-	// A release that failed, and one that went back, say so in the colour of a fault.
-	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "failed", commit, previous, reason: "Its checks failed (exit 1):\nlots", at: Date.now() }));
-	await until("the failure", () => line() === "aaaaaaa was not released. Rho still runs bbbbbbb.");
-	expect(row()!.className).toContain("failed");
-	expect(runningCard(page)!.textContent).not.toContain("lots");
-	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "rolled-back", commit, previous, at: Date.now() }));
-	await until("the roll back", () => line() === "aaaaaaa did not start, so rho is back on bbbbbbb.");
-	// After five minutes it is no longer news.
-	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "released", commit, previous, at: Date.now() - 6 * 60_000 }));
-	await until("the row to go", () => line() === "");
-	expect(runningCard(page)).toBeUndefined(); // nothing runs: no card
+	await until("the row to go", () => idle(page) && runningCard(page) === undefined, 15_000);
+	// One that failed, and one that went back, leave no row either.
+	for (const ended of [{ status: "failed", reason: "Its checks failed (exit 1):\nlots" }, { status: "rolled-back" }]) {
+		stage("check", Date.now());
+		await until("a release under way again", () => line() !== "");
+		writeFileSync(join(dir, "release.json"), JSON.stringify({ ...ended, commit, previous, at: Date.now() }));
+		await until(`no row after ${ended.status}`, () => runningCard(page) === undefined);
+	}
 }, 40_000);
 
 test("when rho is unreachable with no release under way, it is still said as a fault", async () => {
