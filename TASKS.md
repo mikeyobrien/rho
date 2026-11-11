@@ -15,6 +15,95 @@ developed by itself, on a phone. Decisions follow from that:
 - Small enough to hold in one context: a feature that rho 1 needed machinery for is taken
   only in the form pi-durable gives it.
 
+## Where things stand (groomed 2026-11-11)
+
+An index of the rest of this file. The record under each item number is the source; this
+section only says what is open and in what order. Item numbers are kept as they were, also
+the awkward ones (20a, 21a to 21d), because commits and other items name them.
+
+As of this grooming: the installed rho runs `f627a94`. The work checkout is ahead of it by
+notifications (`f902b0c`, item 17) and edits to this file. Nothing is pushed to GitHub.
+
+**Waiting on the owner** (nothing here can move without them):
+
+- Release `f902b0c` (an Allow), and install the Termux:API app with `pkg install termux-api`
+  to see a notification at all (item 17).
+- Item 20: confirm the ten acceptance criteria and the three choices (model, brief,
+  approvals). They said yes to building it, not yet to the criteria.
+- Item 20b: say whether "tools on a host over SSH, brain on the phone" is what they meant
+  by cloud delegates, or a hosted cloud. It reverses their 2026-11-10 decision that the
+  phone agent depends on no other compute.
+- Photos in 2.0 or held back. They are built and released into the installed rho, and
+  `CHANGELOG.md` lists them under "Added" while its "Not in 2.0" still names image input.
+  The agent recommended keeping them; the owner did not answer.
+- The decider (item 21a): whether to turn it on. It needs a tunnel to the owner's Linux
+  machine that nothing keeps open, and a decision on depending on that machine. The owner
+  also showed Strands Decider as another model for the job; it was not tried.
+- Whether a release the owner typed themselves still needs the Allow card (asked
+  2026-11-11, not answered).
+- Memory: point the installed rho at Honcho, or stay on the file provider (item 14).
+- Publishing: every step of `RELEASE.md` (push as `rho2`, tag, GitHub release, npm), the
+  branch-name choice, and one real request with an API key, which has never been tried.
+- Only they can see: whether Chrome offers "Install app" and the installed app opens paired.
+
+**Next, in order:**
+
+1. Item 20, delegates, once the criteria are confirmed.
+2. Item 20a, checks out of the agent's turn.
+3. Item 20b, delegates on a host, once its shape is confirmed.
+
+**Open, not ordered:**
+
+- 15 skills. 16 a question tool (the same as `ask_person` under "Taken from dobo").
+  18 usage and cost. 21 a terminal client. 23 transcript search. 24 a memory page.
+  25 vault, Termux tools, channels. 26 the phone agent as a host for this core.
+- From "Taken from dobo", proposed for 2.0 and not built: `request_secret` (`rho key`
+  covers API keys only); a decision log (the answer log covers approvals; steer and queue
+  choices and guard refusals are not logged).
+- What each built item lists as "Not built": acting on a decider verdict or on the answer
+  log (21a, 21d); a restart button and "restart to apply" after a settings change (21b,
+  21c); notifications on other systems, "looks stuck", quiet hours (17); the page listing
+  reminders (22); migrating rho 1's brain (14).
+- Proposed by the agent in conversation on 2026-11-11 and written nowhere else. The owner
+  asked for the mocks and for the research, not for these to be built:
+  - Tool cards: fold routine reads and searches into one row; a run summary built from the
+    tool records, with no green ticks; a failed card that points at the likely cause; a
+    "while you were away" marker.
+  - Remove EXIF data from photos small enough to skip scaling (item 19 lists it as known).
+  - Review memory for stale entries, and goals above tasks (from the talk the owner sent,
+    "proactive agent engineering").
+
+**Known issues, not fixed.** The list under "Pre-release review" stands; the one both
+reviewers wanted first is a release killed part-way, which leaves rho stopped. Added since:
+
+- The guard matches a command's text, so it stops the agent's own harmless commands when
+  their text names a push or rho's data path: five times on 2026-11-11, each needing the
+  owner's Allow or a rewrite. The decider (21a) is the candidate fix; nothing is built.
+- The test suite is 22 files and about a minute, and on the phone it loads the machine
+  enough to fail its own timing tests. Two were loosened (item 21d); item 20a is the fix.
+- The guard remembers data directories by inode for the life of a process, so a test's
+  scratch directory can be refused as rho's data. Four test files work around it
+  (decider, settings, answers, notify); the others are exposed (item 21a).
+- `answers.jsonl` and `decisions.jsonl` grow without limit.
+
+**Built, and not yet seen to work for real:**
+
+- Notifications (17): no notification has ever been sent.
+- The release line and the release card's commit list (21c): not seen in a browser. The
+  next release is the first that can show them.
+- The settings tool (21b): `list` was called in the installed rho and answered; a change
+  and its card were not tried there.
+- The decider (21a): 15 made-up commands by hand, no real traffic.
+- The answer log (21d): nothing has been asked since it was released.
+- Photos (19): one screenshot from Chrome reached the model at 2000 px wide. Whether the
+  browser or rho scaled it is not known.
+- From before: a rollback under the real service, a reboot of the phone, a check-in's sleep
+  of hours under Android's battery limits, any provider with an API key.
+
+**Done:** items 1 to 13 (bootstrap, with its proof), 14 memory, 19 photos, 21a the decider
+in shadow, 21b the settings tool, 21c the release line and card, 21d the answer log, 22
+check-ins. Item 17, notifications, is built and not released.
+
 ## Bootstrap: the least that lets rho build rho
 
 All 13 items are done, and the proof at the end of this section was run on 2026-11-10.
@@ -159,6 +248,8 @@ In order. Each item ends in something that can be checked.
     mistakes, not intent. Text that merely names a push (`echo 'run git push yourself'`)
     asks needlessly. Not checked: a live model's behaviour when refused or made to wait.
     No notification is sent for a waiting request; the person sees it when they open the page.
+    (Since item 17, 2026-11-11: a waiting request notifies on Android, once that is released
+    and the Termux:API app is installed.)
 13. **Service.** DONE 2026-11-10: `src/service.ts` and `rho service install | uninstall |
     status`. On Termux it writes a runit service (`$PREFIX/var/service/<name>/run`) and a
     Termux:Boot script (`~/.termux/boot/<name>`) that takes the wake lock and starts the
@@ -825,8 +916,8 @@ is used only through Claude Code.
       run since (nine runs under load).
     - Not built: the page does not list reminders yet (the agent lists them when asked); a
       check-in cannot ask for approval, so a guarded action in a check-in is refused and
-      reported; check-ins report only to the first conversation; no phone notification
-      (the notices task).
+      reported; check-ins report only to the first conversation. (A report
+      notifies on Android since item 17, built 2026-11-11.)
 23. Transcript search tool over stored entries.
 24. Memory page with review.
 25. Vault, Termux tools, channels (Telegram, email) with effect records.
@@ -869,7 +960,9 @@ Goes into tasks already planned:
 - docs: an invariants table where each rule names the test that holds it (dobo); acceptance
   checks written before the work and "unverified" said plainly (mov-agent's VERIFICATION.md).
 
-New tasks for 2.0 (proposed to the owner as goal tasks):
+New tasks for 2.0 (proposed to the owner as goal tasks). Of the four, notices are built
+(item 17, without "looks stuck" and without `notify-send`); `ask_person` is item 16; the
+other two are open. See "Where things stand".
 - `ask_person`: decisions that wait on the person, durable across restarts and compaction. Ids
   come from the store; a reversible decision names its default; an irreversible one has none.
 - Notices: one pure rule decides what interrupts (needs you, failed, looks stuck; never a
@@ -886,8 +979,13 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
 ## Decisions
 
 - DECIDED: Claude builds rho, through rho's own Claude Code provider with a relay (below).
-- Which search provider `web_search` starts with.
-- Whether rho 2.0 may push to GitHub itself, or only the person pushes.
+- DECIDED 2026-11-10: rho 2 shares `~/.rho` with rho 1 and writes only `~/.rho/v2/`.
+- DECIDED 2026-11-10, by the owner: the phone agent is its own agent with no hard
+  dependency on other compute. Items 20b and 21a both press on this.
+- DECIDED 2026-11-11, by the owner: notifications are built for Android first.
+- Settled by what was built, not by a stated decision: `web_search` uses Exa's key-less
+  endpoint (item 10); a `git push` by rho waits for the person's yes each time (item 12).
+- Open decisions are listed under "Where things stand", "Waiting on the owner".
 
 ## Known facts
 
@@ -904,7 +1002,7 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
   - The interrupted answer costs a second model request for the whole answer.
   - Not checked: a kill between a tool finishing and its result being stored; repeated kills
     (pi-durable's restart limit); storage failure; two rho processes on one data directory.
-  - `src/main.ts` is not a daemon yet: it exits after one question. No HTTP, no service.
+  - (True when written, not now: `src/main.ts` has been the daemon since item 3.)
 - Data directory (decided 2026-11-10): rho 2 shares `~/.rho` with rho 1 and writes only
   `~/.rho/v2/` (`src/home.ts`). Rho 1 uses none of the names `v2`, `rho.sqlite`, or a
   top-level `config.json`, and never deletes the directory, so the two run side by side and
@@ -925,7 +1023,7 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
     tool did not, and Stop hung.)
   - Not checked: the keepalive and a client's idle timeout over a long silence; many clients;
     a slow client that stops reading; the server under a kill (only the core was killed).
-  - Not built: `rho open` (the pairing link), serving the page's files, a service.
+  - (All three were built later the same day: items 4 and 13.)
 - Page and command, checked 2026-11-10: 16 tests run the page's real script against a real
   daemon on a stand-in DOM; 6 run the command against a real daemon process. In Chrome on the
   phone (`bun e2e/page.ts`, driven through Shizuku, one Haiku request): `rho open`'s link
