@@ -119,6 +119,7 @@ export function fileMemory(config: FileMemoryConfig, host: { dir: string; log?: 
 			return [];
 		}
 	};
+	const listOf = (name: Name): string[] => entriesOf(read(name)).map((line) => line.replace(/^\s*[-*]\s+/, "").trim());
 	const memory = defineTool({
 		name: "memory",
 		description: "Save to memory, all changes or none. file: user (about the person; only from the person's own words in the message you are answering), notes (your own notes) or models (the person's preferences on which model suits which work; only from their own words, like user). add {text}: one line. remove {match}: the one entry holding that text. edit {match, with}: replace that text inside the one entry holding it. Say in your reply what you saved.",
@@ -162,7 +163,8 @@ export function fileMemory(config: FileMemoryConfig, host: { dir: string; log?: 
 			});
 			return `What you know about the person and have noted yourself. It may be stale: what the person says now wins.\n\n${GUIDE}\n\n${files.join("\n\n")}`;
 		},
-		preferences: async () => entriesOf(read("models")).map((line) => line.replace(/^\s*[-*]\s+/, "").trim()),
+		preferences: async () => listOf("models"),
+		lists: async () => ({ user: listOf("user"), notes: listOf("notes"), models: listOf("models") }),
 		tools: [memory],
 	};
 }

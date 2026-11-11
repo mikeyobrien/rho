@@ -21,6 +21,7 @@ h1 { margin: 0; font-size: 17px; }
 .details-bar { display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; border-bottom: 1px solid var(--line); }
 .details-bar h2 { flex: 1; min-width: 0; margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 12px 12px calc(24px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(0, 760px); justify-content: center; align-content: start; gap: 12px; }
+.details-notice { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--warn); font-size: 14px; overflow-wrap: anywhere; }
 .details-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 12px 8px 4px; text-align: center; }
 .details-head p { margin: 0; overflow-wrap: anywhere; }
 .details-name { font-size: 24px; font-weight: 600; }

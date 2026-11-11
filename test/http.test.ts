@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -9,6 +9,7 @@ import { obj, str } from "@earendil-works/pi-schema";
 import { openCore, type Core } from "../src/core.ts";
 import { serve, type Server } from "../src/http.ts";
 import type { StateView } from "../src/view.ts";
+import type { MemoryProvider } from "../src/memory/provider.ts";
 
 // A real core and a real HTTP server on a free port, with a scripted model. No model is called.
 let dir: string;
@@ -18,12 +19,14 @@ let faux: ReturnType<typeof fauxProvider>;
 let base: string;
 let token: string;
 let gate: { release(): void; started: Promise<void> };
+let allModels: ReturnType<typeof createModels>;
 
 beforeEach(async () => {
 	dir = mkdtempSync(join(tmpdir(), "rho-http-test-"));
 	faux = fauxProvider();
 	const models = createModels();
 	models.setProvider(faux.provider);
+	allModels = models;
 	let release!: () => void;
 	let begun!: () => void;
 	const held = new Promise<void>((resolve) => (release = resolve));
@@ -83,7 +86,7 @@ async function follow(done: (state: StateView, all: StateView[]) => boolean, ms 
 const idleWith = (count: number) => (state: StateView) => !state.running && state.entries.length >= count;
 
 test("every API call needs the token; the files that hold secrets are private", async () => {
-	for (const path of ["/api/health", "/api/events", "/api/models", "/api/reminders", "/api/earlier?before=5"]) expect((await call(path, undefined, {})).status).toBe(401);
+	for (const path of ["/api/health", "/api/events", "/api/models", "/api/reminders", "/api/memory", "/api/workers", "/api/earlier?before=5"]) expect((await call(path, undefined, {})).status).toBe(401);
 	expect((await call("/api/submit", { text: "hi", requestId: "12345678" }, {})).status).toBe(401);
 	expect((await call("/api/health", undefined, { authorization: "Bearer wrong" })).status).toBe(401);
 	expect((await call("/api/health")).status).toBe(200);
@@ -256,6 +259,32 @@ test("reminders are listed and removed over the API", async () => {
 	expect((await call("/api/reminders/remove", {})).status).toBe(404);
 	expect((await call("/api/reminders/remove", { id: added.id })).status).toBe(200);
 	expect(await (await call("/api/reminders")).json()).toEqual({ items: [] });
+});
+
+test("memory is read over the API with the token: the file provider's three lists, and in words when there are none to list", async () => {
+	expect((await call("/api/memory", undefined, {})).status).toBe(401);
+	expect((await call("/api/memory", undefined, { authorization: "Bearer wrong" })).status).toBe(401);
+	expect(await (await call("/api/memory")).json()).toEqual({ provider: "file", lists: { user: [], notes: [], models: [] } });
+	mkdirSync(join(dir, "memory"), { recursive: true });
+	writeFileSync(join(dir, "memory", "user.md"), "# About the person\n\n- Prefers short answers\n* Lives in Lisbon\n");
+	writeFileSync(join(dir, "memory", "notes.md"), `- ${"n".repeat(3_000)}\n`);
+	const read = (await (await call("/api/memory")).json()) as { provider: string; lists: Record<string, string[]> };
+	expect([read.provider, read.lists.user, read.lists.models]).toEqual(["file", ["Prefers short answers", "Lives in Lisbon"], []]); // a heading and a blank line are not entries
+	expect(read.lists.notes!.map((entry) => entry.length)).toEqual([2_000]); // an entry is cut, never the request refused
+	expect(JSON.stringify(read)).not.toContain(dir); // where the files are stays here
+	expect((await call("/api/memory", {})).status).toBe(404); // read only: there is nothing to post to
+	// Another provider keeps no lists on this machine; none at all is off. Both are said, not shown as empty lists.
+	const reopen = async (memory: MemoryProvider | null) => {
+		await server.stop();
+		await core.close();
+		core = await openCore({ dir, models: allModels, config: { model: `${faux.getModel().provider}/${faux.getModel().id}` }, memory });
+		server = await serve({ core, models: allModels, dir, port: 0 });
+		base = `http://127.0.0.1:${server.port}`;
+	};
+	await reopen({ label: "honcho: 127.0.0.1:8000", load: async () => undefined });
+	expect(await (await call("/api/memory")).json()).toEqual({ provider: "honcho: 127.0.0.1:8000", note: "Memory is kept by honcho: 127.0.0.1:8000, not in lists on this machine, so there is nothing to list here." });
+	await reopen(null);
+	expect(await (await call("/api/memory")).json()).toEqual({ provider: "off", note: "Memory is off. Rho keeps nothing about you between conversations." });
 });
 
 // A real 1x1 PNG. Its bytes are what is checked, so it must be one.

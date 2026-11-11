@@ -28,7 +28,7 @@ export function start(env) {
 	const el = {
 		status: $("status"), thread: $("thread"), entries: $("entries"), live: $("live"), empty: $("empty"), earlier: $("earlier"), latest: $("latest"),
 		notice: $("notice"), noticeText: $("notice-text"), queue: $("queue"), composer: $("composer"), input: $("input"), send: $("send"),
-		menuButton: $("menu-button"), title: $("title"), details: $("details"), detailsBack: $("details-back"), detailsTitle: $("details-title"), detailsBody: $("details-body"),
+		menuButton: $("menu-button"), title: $("title"), details: $("details"), detailsBack: $("details-back"), detailsTitle: $("details-title"), detailsBody: $("details-body"), detailsNotice: $("details-notice"),
 		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
 		workers: $("workers"), workerThread: $("worker-thread"), footer: $("composer"),
 	};
@@ -846,6 +846,7 @@ export function start(env) {
 	let info = {}; // what the page asked the daemon for when it opened: the commit, the lists
 	let detailsKey; // what is drawn, so a snapshot that changes none of it moves nothing under a finger
 	let optionsFor; // the model list the picker was last filled from
+	const UNDER = [$("top"), el.thread, $("bottom"), el.latest];
 	let ticks = []; // what the open level writes again each second without being rebuilt: a worker's time
 	const picker = (id, label) => {
 		const select = make("select", { id });
@@ -906,9 +907,11 @@ export function start(env) {
 	const shortModel = () => (state?.model ? state.model.slice(state.model.indexOf("/") + 1) : "");
 
 	// The sections, in the order of the page. `value` is what the row shows at its right: a count, or a word.
+	const MEMORY_LISTS = [["user", "About you"], ["notes", "Rho's notes"], ["models", "Model preferences"]];
 	const SECTIONS = [
 		{ id: "workers", title: "Workers", sub: () => (liveWorkers().length > 0 ? `${liveWorkers().length} running` : "Jobs rho handed off"), value: () => allWorkers().length, data: () => [state?.conversation, allWorkers()], draw: drawWorkers },
 		{ id: "artifacts", title: "Artifacts", sub: "Photos, files changed, reports", value: () => { const found = artifacts(); return found.photos.length + found.files.length + found.reports.length; }, data: () => [conversation, artifacts(), moreEarlier], draw: drawArtifacts },
+		{ id: "memory", title: "Preferences and memory", sub: "What rho knows about you", value: () => (info.memory ? (info.memory.lists ? MEMORY_LISTS.reduce((sum, [name]) => sum + (info.memory.lists[name]?.length ?? 0), 0) : info.memory.provider === "off" ? "off" : "elsewhere") : ""), data: () => [info.memory], draw: drawMemory },
 		{ id: "reminders", title: "Reminders", sub: "What rho checks on its own", value: () => info.reminders?.length ?? "", data: () => [info.reminders], draw: drawReminders },
 		{ id: "settings", title: "Settings", sub: "Model, thinking, context", value: () => shortModel(), data: () => [state?.cwd, Boolean(state?.workerThread)], draw: drawSettings },
 		{ id: "conversations", title: "Conversations", sub: "Open another, or start one", value: () => info.conversations?.length ?? "", data: () => [conversation, info.conversations], draw: drawConversations },
@@ -1032,6 +1035,18 @@ export function start(env) {
 		out.push(found.reports.length === 0 ? quiet("No reports.") : rows(found.reports.map((report) => row({ title: report.title, sub: `${VERDICT_WORDS[report.verdict] ?? report.verdict} · ${report.who}`, kind: `report-row ${report.verdict}`, go: () => jumpTo(report.id) }))));
 		return out;
 	}
+	function drawMemory() {
+		const memory = info.memory;
+		if (!memory) return [quiet("Loading")];
+		// Another provider, or none: the daemon says which in words, and there are no lists to draw.
+		if (!memory.lists) return [quiet(memory.note ?? "There is nothing to list here.")];
+		const out = [quiet("Rho reads these at the start of a conversation. To change one, tell rho in chat.")];
+		for (const [name, title] of MEMORY_LISTS) {
+			const entries = memory.lists[name] ?? [];
+			out.push(heading(`${title} · ${entries.length}`), entries.length === 0 ? quiet("Nothing yet.") : rows(entries.map(textRow)));
+		}
+		return out;
+	}
 	const UNITS = [["d", 86_400_000], ["h", 3_600_000], ["m", 60_000]];
 	function cadenceWords(cadence) {
 		if (cadence.kind === "once") return "once";
@@ -1113,6 +1128,11 @@ export function start(env) {
 	function drawDetails(moved = false) {
 		const view = trail.at(-1);
 		el.details.hidden = view === undefined;
+		// What is under the page is out of reach while it is open: not tabbed into, not read out.
+		for (const under of UNDER) under.inert = view !== undefined;
+		// What went wrong is said on the page too: the status line is under it.
+		el.detailsNotice.textContent = flashText;
+		el.detailsNotice.hidden = flashText === "";
 		el.menuButton.setAttribute("aria-expanded", view === undefined ? "false" : "true");
 		if (view === undefined) return void ((detailsKey = undefined), (ticks = []));
 		syncPickers();
@@ -1128,7 +1148,7 @@ export function start(env) {
 		if (moved) el.detailsBack.focus?.();
 	}
 	/** Ask the daemon for what the state does not carry. Each answer is drawn as it comes; one that fails leaves its list as it was. */
-	const SOURCES = [["commit", "health", (data) => data.commit ?? ""], ["conversations", "conversations", (data) => data.items], ["models", "models", (data) => data.items], ["workers", "workers", (data) => data.items], ["reminders", "reminders", (data) => data.items]];
+	const SOURCES = [["commit", "health", (data) => data.commit ?? ""], ["conversations", "conversations", (data) => data.items], ["models", "models", (data) => data.items], ["workers", "workers", (data) => data.items], ["reminders", "reminders", (data) => data.items], ["memory", "memory", (data) => data]];
 	let loading = 0;
 	const busy = () => el.detailsBody.setAttribute("aria-busy", loading > 0 ? "true" : "false");
 	async function loadInfo(names = SOURCES.map(([name]) => name)) {

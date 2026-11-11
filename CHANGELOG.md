@@ -11,6 +11,9 @@ See [MIGRATION.md](MIGRATION.md).
   continues an answer or a tool call after it is killed.
 - A web page served on loopback: streaming answers, stop, steering while rho works, a
   message queue, several conversations, a model picker, tool cards with output and diffs.
+- A details page behind ⋯ and the title, as a chat app's info screen: the conversation's
+  workers, its artifacts (photos sent, files changed, reports), what rho remembers, the
+  reminders, the settings and the other conversations. Back returns to the thread.
 - Photos in a message: picked or pasted in the page, up to four, scaled to what a model takes.
 - A `background` tool: a shell command that runs outside rho's turn and reports how it
   ended. One at a time; the same rules as `bash`.

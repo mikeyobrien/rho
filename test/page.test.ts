@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -11,6 +11,7 @@ import { openModels } from "../src/providers.ts";
 import { Approvals } from "../src/tools/guard.ts";
 import { serve, type Server } from "../src/http.ts";
 import { noticeCard } from "../src/view.ts";
+import type { MemoryProvider } from "../src/memory/provider.ts";
 import { start } from "../web/app.js";
 import { El, fakeDocument, fakeHistory } from "./fixtures/dom.ts";
 
@@ -24,10 +25,11 @@ let faux: ReturnType<typeof fauxProvider>;
 let models: ReturnType<typeof createModels>;
 let gate: { release(): void; started: Promise<void> };
 let down = false; // when true, the page cannot reach the daemon
+let memoryOption: MemoryProvider | null | undefined; // undefined: the configured memory, which is the files
 const pages: { stop(): void }[] = [];
 
 async function boot(port = 0) {
-	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: work }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })], workerRetryMs: 40 });
+	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: work }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })], workerRetryMs: 40, ...(memoryOption === undefined ? {} : { memory: memoryOption }) });
 	server = await serve({ core, models, dir, port, workerPollMs: 100, commit: "0123abc456def7890123abc456def7890123abc4" });
 }
 function waitTool() {
@@ -49,6 +51,7 @@ beforeEach(async () => {
 	models = createModels();
 	models.setProvider(faux.provider);
 	down = false;
+	memoryOption = undefined;
 	await boot();
 });
 afterEach(async () => {
@@ -308,17 +311,21 @@ test("the details page opens over the thread from ⋯ and from the title, and cl
 	await page.$("menu-button").click();
 	expect([page.$("details").hidden, page.$("menu-button").attrs["aria-expanded"], page.history.depth]).toEqual([false, "true", 1]);
 	expect(El.focused).toBe(page.$("details-back"));
+	const under = () => ["top", "thread", "bottom"].map((id) => page.$(id).inert);
+	expect(under()).toEqual([true, true, true]); // what is under the page cannot be reached while it is open
+	expect(page.$("details-notice").hidden).toBe(true);
 	expect([page.$("details-title").textContent, page.$("details-back").attrs["aria-label"]]).toEqual(["Details", "Back to the conversation"]);
 	await loaded(page);
 	// The header block: the name, the status line, the commit this rho runs, where the conversation works.
 	const head = (name: string) => inside(page.$("details-body"), name)[0]?.textContent;
 	expect([head("details-name"), head("details-status"), head("details-line details-commit"), head("details-line details-cwd")]).toEqual(["rho", page.$("status").textContent, "Commit 0123abc", work]);
-	expect(detailRows(page)).toEqual(["Workers | Jobs rho handed off | 0", "Artifacts | Photos, files changed, reports | 0", "Reminders | What rho checks on its own | 0", "Settings | Model, thinking, context | faux-1", "Conversations | Open another, or start one | 1"]);
+	expect(detailRows(page)).toEqual(["Workers | Jobs rho handed off | 0", "Artifacts | Photos, files changed, reports | 0", "Preferences and memory | What rho knows about you | 0", "Reminders | What rho checks on its own | 0", "Settings | Model, thinking, context | faux-1", "Conversations | Open another, or start one | 1"]);
 	expect(inside(page.$("details-body"), "row").every((row) => row.tag === "button")).toBe(true);
 	// Its own back button is one step of the browser's history.
 	await page.$("details-back").click();
 	await until("closed", () => page.$("details").hidden);
 	expect([page.history.depth, El.focused === page.$("menu-button"), page.$("thread").scrollTop]).toEqual([0, true, 120]);
+	expect(under()).toEqual([false, false, false]);
 	// The title block opens it too; Escape closes it.
 	await page.$("title").click();
 	expect(page.$("details").hidden).toBe(false);
@@ -1038,6 +1045,49 @@ test("five workers: the card holds only the ones still at it; each that ended le
 	await until("the cards to go", () => runningCard(page) === undefined && runningCard(again) === undefined && reports(page).length === 4, 25_000);
 }, 90_000);
 
+test("preferences and memory on the details page: the three lists to read, and in words when memory is elsewhere or off", async () => {
+	mkdirSync(join(dir, "memory"), { recursive: true });
+	writeFileSync(join(dir, "memory", "user.md"), "# About the person\n\n- Prefers short answers\n- Treats research older than three months as stale, and wants the date of anything older said beside it\n");
+	writeFileSync(join(dir, "memory", "models.md"), "- Haiku for running checks\n");
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.$("menu-button").click();
+	await loaded(page);
+	expect(detailRows(page)[2]).toBe("Preferences and memory | What rho knows about you | 3");
+	await section(page, "Preferences and memory");
+	const body = () => page.$("details-body");
+	expect(inside(body(), "section-label").map((node) => node.textContent)).toEqual(["About you · 2", "Rho's notes · 0", "Model preferences · 1"]);
+	expect(inside(body(), "row-text").map((node) => node.textContent)).toEqual(["Prefers short answers", "Treats research older than three months as stale, and wants the date of anything older said beside it", "Haiku for running checks"]);
+	expect(body().all().some((node) => node.tag === "button")).toBe(false); // to read: nothing here changes memory
+	expect(inside(body(), "quiet-line").map((node) => node.textContent)).toEqual(["Rho reads these at the start of a conversation. To change one, tell rho in chat.", "Nothing yet."]);
+	// Memory kept by another provider is not listed, and the page says where it is.
+	const restart = async (memory: MemoryProvider | null) => {
+		for (const open of pages.splice(0)) open.stop();
+		await server.stop();
+		await core.close();
+		memoryOption = memory;
+		await boot();
+	};
+	await restart({ label: "honcho: 127.0.0.1:8000", load: async () => undefined });
+	const elsewhere = await open();
+	await until("live again", () => idle(elsewhere));
+	await elsewhere.$("menu-button").click();
+	await loaded(elsewhere);
+	expect(detailRows(elsewhere)[2]).toBe("Preferences and memory | What rho knows about you | elsewhere");
+	await section(elsewhere, "Preferences and memory");
+	expect(inside(elsewhere.$("details-body"), "quiet-line").map((node) => node.textContent)).toEqual(["Memory is kept by honcho: 127.0.0.1:8000, not in lists on this machine, so there is nothing to list here."]);
+	expect(inside(elsewhere.$("details-body"), "row-text")).toEqual([]);
+	// And off is said as off.
+	await restart(null);
+	const off = await open();
+	await until("live a third time", () => idle(off));
+	await off.$("menu-button").click();
+	await loaded(off);
+	expect(detailRows(off)[2]).toBe("Preferences and memory | What rho knows about you | off");
+	await section(off, "Preferences and memory");
+	expect(inside(off.$("details-body"), "quiet-line").map((node) => node.textContent)).toEqual(["Memory is off. Rho keeps nothing about you between conversations."]);
+}, 30_000);
+
 test("reminders on the details page: each with its cadence and next time, and Remove asks once before it removes", async () => {
 	const kept = await core.reminders!.add({ text: "Check the build and say only what broke, with the name of the test and the commit that broke it", every: "2h" });
 	await core.reminders!.add({ text: "Morning summary", daily: "08:00" });
@@ -1045,7 +1095,7 @@ test("reminders on the details page: each with its cadence and next time, and Re
 	await until("live", () => idle(page));
 	await page.$("menu-button").click();
 	await loaded(page);
-	expect(detailRows(page)[2]).toBe("Reminders | What rho checks on its own | 2");
+	expect(detailRows(page)[3]).toBe("Reminders | What rho checks on its own | 2");
 	await section(page, "Reminders");
 	await loaded(page);
 	const lines = () => detailRows(page).map((line) => line.replace(/ · next .*$/, (next) => (/^ · next (\d+ \w{3} )?\d\d:\d\d \| $/.test(next) ? " · next (time)" : next)));
@@ -1060,10 +1110,18 @@ test("reminders on the details page: each with its cadence and next time, and Re
 	await remove().click();
 	await until("one reminder left", () => detailRows(page).length === 1);
 	expect((await core.reminders!.list()).map((item) => item.text)).toEqual([kept.text]);
+	// One that is already gone: the daemon's refusal is said on this page, and the list is read again.
+	await core.reminders!.remove(kept.id);
+	const last = inside(page.$("details-body"), "row-action")[0]!;
+	await last.click();
+	await last.click();
+	await until("the list read again", () => detailRows(page).length === 0);
+	expect([page.$("details-notice").hidden, page.$("details-notice").textContent]).toEqual([false, "No such reminder."]);
+	expect(inside(page.$("details-body"), "quiet-line")[0]!.textContent).toBe("No reminders.");
 	await leave(page);
 	await page.$("menu-button").click();
 	await loaded(page);
-	expect(detailRows(page)[2]).toBe("Reminders | What rho checks on its own | 1");
+	expect(detailRows(page)[3]).toBe("Reminders | What rho checks on its own | 0");
 });
 
 test("a background command is a row too: its command, its time, a Stop; and how it ended is a report card", async () => {

@@ -422,6 +422,17 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			if (typeof id !== "string" || !(await core.reminders?.remove(id))) throw new Refusal(404, "No such reminder.");
 			return { ok: true };
 		},
+		// What rho remembers about the person, to read. It leaves the machine's storage only for a
+		// client that holds the token, on loopback, and that client is the person it is about. Only
+		// the entries go: no path, no cap, and nothing a provider other than the files keeps.
+		"GET /api/memory": async () => {
+			if (!core.memory) return { provider: "off", note: "Memory is off. Rho keeps nothing about you between conversations." };
+			const { label } = core.memory;
+			const lists = await core.memory.lists?.();
+			if (!lists) return { provider: label, note: `Memory is kept by ${label}, not in lists on this machine, so there is nothing to list here.` };
+			const shown = (entries: string[]) => entries.slice(0, 500).map((entry) => entry.slice(0, 2_000));
+			return { provider: label, lists: { user: shown(lists.user), notes: shown(lists.notes), models: shown(lists.models) } };
+		},
 		"GET /api/models": async () => ({ items: (await models.getAvailable()).map((model) => ({ id: `${model.provider}/${model.id}`, name: model.name ?? model.id, provider: model.provider })) }),
 		"GET /api/earlier": async (_request, url) => {
 			const before = Number(url.searchParams.get("before"));

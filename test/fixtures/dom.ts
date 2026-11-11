@@ -9,6 +9,7 @@ export class El {
 	hidden = false;
 	open = false;
 	disabled = false;
+	inert = false;
 	selected = false;
 	value = "";
 	className = "";
@@ -49,7 +50,7 @@ export class TextNode {
 export function fakeDocument() {
 	const byId = new Map<string, El>();
 	const listeners: Record<string, ((event: any) => unknown)[]> = {};
-	const hiddenAtStart = new Set(["earlier", "empty", "latest", "notice", "details", "release", "workers", "worker-thread"]);
+	const hiddenAtStart = new Set(["earlier", "empty", "latest", "notice", "details", "details-notice", "release", "workers", "worker-thread"]);
 	return {
 		visibilityState: "visible",
 		getElementById(id: string) {

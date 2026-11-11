@@ -14,6 +14,8 @@ export interface MemoryTurn {
 	role: "user" | "assistant";
 	text: string;
 }
+/** The three lists of the file provider: about the person, rho's own notes, and which model suits which work. */
+export interface MemoryLists { user: string[]; notes: string[]; models: string[] }
 export interface MemoryProvider {
 	/** What the log calls it: "file", "honcho: 127.0.0.1:8000". */
 	readonly label: string;
@@ -23,6 +25,8 @@ export interface MemoryProvider {
 	observe?(turn: MemoryTurn): void;
 	/** The person's preferences on which model suits which work, one a line, as they stand now (not as a conversation was shown them). Read when a job is handed to a worker. */
 	preferences?(): Promise<string[]>;
+	/** What the store holds as lists a person can read, one entry a string; absent when the provider keeps none on this machine. Read by the details page. */
+	lists?(): Promise<MemoryLists>;
 	/** Tools that write the store. */
 	readonly tools?: readonly ToolRegistration[];
 }

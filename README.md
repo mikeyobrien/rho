@@ -86,6 +86,20 @@ open the address it prints on your device. The address works once.
 
 If rho has no key, `rho status` and the page say so and name the command to run.
 
+### The details page
+
+Tap ⋯ or the title to open the details of the conversation, as a chat app's info screen.
+The back arrow, or your device's back, returns to the thread where you left it.
+
+| Row | What it holds |
+| --- | --- |
+| Workers | Every job rho handed off in this conversation: how it stands, how long, on which model, when. Tap one to read its thread; one still at work has a Stop. |
+| Artifacts | The photos you sent, the files rho changed (newest first, with how many times) and the reports of side work. Tap one to go to its place in the thread. It covers the messages loaded so far; "Load earlier" brings in more. |
+| Preferences and memory | What rho remembers: about you, its own notes, and which model you want for which work. To read; tell rho in chat to change one. With Honcho, or memory off, it says so instead. |
+| Reminders | Each check-in, how often, and when it is next. Remove asks once more before it removes. |
+| Settings | The model and thinking level, the working directory, and Clear context. |
+| Conversations | Open another conversation, or start one. |
+
 ### Signing in with a subscription instead
 
 ```sh
@@ -166,7 +180,7 @@ Rho cannot open this file. It can propose a change to `model`, `thinking`, `cwd`
 | --- | --- |
 | `model` | `provider/model` for new conversations. Default: the first of `anthropic/claude-sonnet-5-5`, `openai/gpt-5.5`, `google/gemini-3.1-pro-preview`, `openrouter/anthropic/claude-sonnet-5.5` whose provider has a key. |
 | `thinking` | `off`, `minimal`, `low`, `medium` (default), `high`, `xhigh` or `max`, for new conversations. |
-| `cwd` | The directory new conversations work in. Default: your home directory. `~` is your home directory. A conversation keeps the directory it was made with; change an existing one from the page's menu. |
+| `cwd` | The directory new conversations work in. Default: your home directory. `~` is your home directory. A conversation keeps the directory it was made with; the page's details show it. |
 | `maxTurns` | Most tool rounds in one run. Default 200. |
 | `memory` | `{"kind": "file"}` (default), `{"kind": "honcho", "url": "...", "workspace": "...", "user": "...", "agent": "..."}`, or `{"kind": "off"}`. Honcho also takes `"apiKey"`, which is then stored in this file as plain text. |
 | `decider` | `{"baseUrl": "http://127.0.0.1:8098", "model": "clef-flash"}`: a decision model (the System One API) that labels each shell command with a type and a confidence. It only watches: nothing is blocked. Read its log with `rho decisions`. Default: off. |

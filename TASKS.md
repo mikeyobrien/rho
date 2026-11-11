@@ -57,6 +57,9 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
 - 15 skills. 16 a question tool (the same as `ask_person` under "Taken from dobo").
   18 usage and cost. 21 a terminal client. 23 transcript search. 24 a memory page.
   25 vault, Termux tools, channels. 26 the phone agent as a host for this core.
+- 27 the details page is built (2026-11-11) and not in the installed rho yet. It was never
+  seen in a real browser: that look is the owner's to take. It reads memory in the page,
+  which is the first half of item 24; editing there is still open.
 - From "Taken from dobo", proposed for 2.0 and not built: `request_secret` (`rho key`
   covers API keys only); a decision log (the answer log covers approvals; steer and queue
   choices and guard refusals are not logged).
@@ -1535,9 +1538,71 @@ is used only through Claude Code.
 25. Vault, Termux tools, channels (Telegram, email) with effect records.
 26. The phone agent becomes a host for this core.
 27. Details page: ⋯ and the title open a page over the thread, as a chat app's info screen.
-    Asked by the owner 2026-11-11. **Under way** 2026-11-11: the page, its header block,
-    Settings and Conversations are built and the dropdown menu is gone; the sections that
-    follow are added in the next commits, and this item is then written in full.
+    Asked by the owner 2026-11-11 ("improve the '...' to allow segue to a details page that
+    include all artifacts, delegations, preferences, etc. model after whatsapp/telegram").
+    **Built** 2026-11-11, first version, on what the daemon already holds. It replaces the
+    dropdown menu, and so the "menu" of items 9 and 20 above: those records are left as
+    they were written.
+    - Built: `web/app.js` ("details"), `#details` in `web/index.html`. ⋯ and the title block
+      open a full page over the thread: a back arrow, a header block (rho, the status
+      line, the running commit, the working directory), then six rows, each with a count
+      and its own list. Each level is one `history.pushState`, so the back gesture and
+      Escape close a level and never leave the page; a row that leads into the thread
+      (a conversation, a worker, an artifact, Clear context) closes every level with one
+      `history.go`. The thread is not redrawn or scrolled by any of it. Focus goes to the
+      back button on each level and to ⋯ on close; while the page is open what is under
+      it is `inert`. A refusal from the daemon is said on the page, since the status line
+      is under it. Nothing about the page is stored: a reload shows the thread.
+      - Workers: the state's workers over `GET /api/workers` (which now also names each
+        worker's thread), so one that ended more than a day ago is still listed while the
+        daemon knows it. Live first, then newest. A row opens the thread; a live one has
+        Stop. The menu's "Workers: N ended" and the Running card's ended rows are gone:
+        the card holds live rows only.
+      - Artifacts: rho has no artifact store. An artifact here is what the page can read
+        in the entries it holds: photos the person sent (a grid, each asked for once and
+        shared with the thread), files an `edit` or `write` changed (newest first, with a
+        count; a failed call is not a change; a path under the working directory and the
+        same path in full are one row), and notices that carry a report card. A row jumps
+        to its place: out of its fold, opened, marked for two seconds. The page says
+        whether it covers the whole conversation and offers "Load earlier".
+      - Preferences and memory: the three lists, read only.
+      - Reminders: text, cadence, next time; Remove takes two taps because it cannot be
+        taken back.
+      - Settings: the model and thinking pickers and Clear context, as they were; the
+        working directory is shown.
+      - Conversations: the list and "New conversation", as they were.
+    - **Decision: memory goes over the wire, to read.** `GET /api/memory` returns the file
+      provider's entries, one string each, at most 500 a list and 2,000 characters an
+      entry. Until now memory reached only the model. Why it is allowed: the server is
+      loopback only, the call needs the token, and the reader is the person the entries
+      are about, who can already read the same files on the machine. What still stays:
+      the files' paths and caps, anything Honcho holds (the answer is the provider's
+      label and a sentence), and it is not in `StateView`, so it is sent only when the
+      page asks. There is no way to write memory over HTTP: the `memory` tool's rule (a
+      fact about the person only from their own words) would not hold for a form.
+      `GET /api/health` also gained the running commit, behind the same token.
+    - Checked: `test/page.test.ts` on the stand-in DOM against a real daemon with a
+      scripted model: open and close by ⋯, the title, the back button, Escape and the back
+      gesture, with focus, `inert` and the thread's scroll position; every section's count
+      and rows; model and thinking changed and redrawn by a second page from the daemon's
+      state; a conversation made and opened; a worker's thread opened from the page, a
+      worker stopped from it, five workers in order; a reminder removed in two taps and a
+      refusal said on the page; artifacts with a photo, two files (one named two ways, one
+      failed edit, one read) and a report, a jump to each kind, and "Load earlier" over a
+      run longer than one snapshot; memory as lists, with a stand-in provider that keeps
+      none, and off. `test/http.test.ts`: `/api/memory` and `/api/workers` refuse without
+      the token; the lists, the cut of a long entry, no path in the answer.
+      `test/conversations.test.ts` moved to the page.
+    - Not checked: anything a real browser adds. The stand-in DOM has no layout, so the
+      slide, the 44 px targets, wrapping, the thumbnail grid, `scrollIntoView`, `inert`
+      and what Android's back gesture really does to an installed page are untried. The
+      Honcho case was tested with a stand-in provider, not Honcho's own.
+    - Not built: editing or removing a memory entry in the page (item 24); an artifact
+      store, so files rho made with `bash`, files a worker changed (they are in the
+      worker's thread) and anything in messages not yet loaded are not listed; changing
+      the working directory in the page (`POST /api/cwd` exists; no page ever had the
+      control, and the README said otherwise until now); adding a reminder in the page;
+      a search of the lists; usage and cost (item 18) as a row.
 
 ## Taken from dobo and mov-agent
 

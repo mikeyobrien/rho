@@ -125,6 +125,8 @@ export interface Core {
 	picksIdle?: () => Promise<void>;
 	/** The reminder book; undefined when check-ins are off. */
 	reminders?: { list(): Promise<Reminder[]>; add(spec: ReminderSpec): Promise<Reminder>; remove(id: string): Promise<Reminder | undefined>; stop(): Promise<boolean> };
+	/** The memory provider in use, to name and to read; undefined when memory is off. */
+	memory?: Pick<MemoryProvider, "label" | "lists">;
 	/** The first conversation; it always exists. */
 	root: Conversation;
 	rootId: string;
@@ -344,6 +346,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 		harness,
 		...(decider ? { deciderIdle: decider.idle } : {}),
 		...(picks ? { picksIdle: picks.idle } : {}),
+		...(memory ? { memory: { label: memory.label, ...(memory.lists ? { lists: () => memory.lists!() } : {}) } } : {}),
 		reminders: reminders ? { list: reminders.list, add: reminders.add, remove: reminders.remove, stop: reminders.stop } : undefined,
 		root,
 		rootId,
