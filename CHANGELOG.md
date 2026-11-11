@@ -12,6 +12,8 @@ See [MIGRATION.md](MIGRATION.md).
 - A web page served on loopback: streaming answers, stop, steering while rho works, a
   message queue, several conversations, a model picker, tool cards with output and diffs.
 - Photos in a message: picked or pasted in the page, up to four, scaled to what a model takes.
+- An answer log: each request for your yes and what you answered, read with `rho answers`.
+  Nothing acts on it yet.
 - A release shows in the page while it runs (its stage and time, and the restart), and its
   approval card lists the commits it brings in.
 - A `settings` tool: rho proposes a change to one of five of its own settings, and it is written

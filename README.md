@@ -101,6 +101,8 @@ for and can refuse or limit requests. An API key is the supported way to use rho
 | `rho key [provider]` | Store an API key, or list the providers that have one. `--remove` deletes it. |
 | `rho login <provider>`, `rho logout <provider>` | Sign in with a subscription through the provider's own flow, or remove that login. |
 | `rho logs [lines]` | The last lines of rho's log. |
+| `rho answers [last]` | What rho asked your yes for and what you answered, by kind. |
+| `rho decisions [last]` | What the decider said of each shell command, when one is configured. |
 | `rho service install` | Run rho as a service that restarts it and starts it at boot. |
 | `rho service uninstall`, `rho service status` | Remove the service, or show its state. |
 | `rho release [commit]` | Release a commit from a work checkout into the running rho. |

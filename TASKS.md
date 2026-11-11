@@ -663,6 +663,32 @@ is used only through Claude Code.
     - Known: the guard's text rules refused three of the agent's own commands that day
       because test text in them named a push. Text for a file goes through the file tools.
 
+21d. An answer log: what rho asked the person's yes for and what they said. **Done**
+    2026-11-11 (`src/answers.ts`, `test/answers.test.ts`, `rho answers`).
+    - Why: the person's answers are the one signal of their own judgement rho gets, and it
+      was thrown away. A threshold for the decider, or asking less often for a kind of
+      command, needs it. (From a talk the owner sent, "proactive agent engineering": human
+      feedback is the present-tense signal; start narrow and widen with trust.)
+    - `<data dir>/answers.jsonl`: a line when a request is first shown (not when it is asked
+      again while it waits), and a line when it is answered, with allow or deny and how long
+      the card waited. Shell commands and settings changes alike. A request with no answer
+      line was never answered. What rho refuses outright asks nobody and is not in it.
+    - The request's id is the tool call's, which the decider's log also carries, so
+      `rho answers` can say how the person answered by the decider's command type.
+    - Nothing reads the log to decide anything. Asking is exactly as it was.
+    - It is a log beside the durable state: a kill between a commit and its line loses the
+      line. Writing it never fails a command or an answer.
+    - Checked: 3 tests in a real core and server with a scripted model. They found that a
+      line cut short by a kill swallowed the next line written; both logs now start a new
+      line after a broken one. Not checked: a real browser; any real answers (the log is
+      empty until this is released).
+    - Seen while checking: three Honcho tests in `test/memory.test.ts` failed in 2 of about
+      20 runs that day, on a loaded phone. One asserts a 3 s timeout ends within 3.8 s and
+      measured 4.3 s; the other two then run into the slow stand-in server. They passed 14
+      of 14 times run alone, with and without this change. The test was left as it is.
+    - Not built: acting on it (asking less for a kind that is always allowed, a threshold);
+      a reason with a deny; noticing a card that was left unanswered; a size limit.
+
 ## Rho's own features, after it can build itself
 
 22. Check-ins: a sleeping task, due-ness decided in code, a missed one fires once. **Done**

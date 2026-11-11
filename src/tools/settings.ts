@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { obj, oneOf, opt, str } from "@earendil-works/pi-schema";
+import { recordAnswer } from "../answers.ts";
 import { readDecider } from "../decider.ts";
 import { Approvals } from "./guard.ts";
 import { isProtected } from "./protected.ts";
@@ -120,14 +121,17 @@ export function settingsTool(dir: string, options: SettingsOptions): Extension {
 			// Rho's own side work (a check-in) has nobody watching: there is no one to ask.
 			if (!(await options.persons(String(api.conversationId)))) throw new Error("Not done: a change to rho's settings needs the person's yes, and nobody is here to give it. Report that it was not done and why.");
 			// One commit: take a waiting yes for this exact change, or leave the request for the person.
-			const granted = await api.commit(async (tx) => {
+			const what = `changing rho's own setting "${name}"`;
+			const outcome = await api.commit(async (tx) => {
 				const doc = await tx.doc(Approvals, api.conversationId);
 				const index = (doc.grants ?? []).findIndex((grant) => grant.tool === "settings" && grant.command === change);
-				if (index >= 0) return (doc.grants = doc.grants!.filter((_, at) => at !== index)), true;
-				if (!doc.pending.some((pending) => pending.tool === "settings" && pending.command === change)) doc.pending.push({ id: api.callId, tool: "settings", command: change, what: `changing rho's own setting "${name}"`, at: api.now() });
-				return false;
+				if (index >= 0) return (doc.grants = doc.grants!.filter((_, at) => at !== index)), "granted" as const;
+				if (doc.pending.some((pending) => pending.tool === "settings" && pending.command === change)) return "waiting" as const;
+				doc.pending.push({ id: api.callId, tool: "settings", command: change, what, at: api.now() });
+				return "asked" as const;
 			}, context);
-			if (!granted) throw new Error(`Not done: a change to rho's settings waits for the person's yes. They are shown it with Allow and Deny: ${change}. Stop here and say what it changes; after their yes, call settings again with the same arguments.`);
+			if (outcome === "asked") recordAnswer(dir, { at: api.now(), event: "asked", id: api.callId, conversation: String(api.conversationId), tool: "settings", what, command: change });
+			if (outcome !== "granted") throw new Error(`Not done: a change to rho's settings waits for the person's yes. They are shown it with Allow and Deny: ${change}. Stop here and say what it changes; after their yes, call settings again with the same arguments.`);
 			// The yes was for this change from this value, read just above: write it, and only it.
 			const after = { ...all };
 			if (next === undefined) delete after[name];

@@ -12,6 +12,7 @@ import type { ImageProcessor } from "@earendil-works/pi-durable/tools";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
 import { answerApproval, Approvals } from "./tools/guard.ts";
+import { recordAnswer } from "./answers.ts";
 import { releaseView } from "./gate.ts";
 import { MAX_PHOTO_BYTES, PhotoRefused, takePhotos } from "./photos.ts";
 import { setupOf } from "./providers.ts";
@@ -278,6 +279,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			if (typeof id !== "string" || typeof allow !== "boolean") throw new Refusal(400, "id and allow are required.");
 			const answered = await answerApproval(channel.conversation, id, allow, context);
 			if (!answered) throw new Refusal(409, "That request is no longer waiting."); // an approval answers once
+			recordAnswer(dir, { at: Date.now(), event: allow ? "allow" : "deny", id: answered.id, conversation: channel.id, tool: answered.tool, what: answered.what, command: answered.command, waitedMs: Date.now() - answered.at });
 			await channel.refresh();
 			// The person's answer reaches the agent as their message, at its next step.
 			const shell = answered.tool === "bash"; // another tool's request (a settings change) is not something to run

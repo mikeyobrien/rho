@@ -98,6 +98,9 @@ Rho is an agent with a shell. This page states what protects you and what does n
 - Everything rho 2 writes is under `~/.rho/v2/`: conversations, memory, keys, token, logs.
   It is not encrypted. Deleting that directory removes rho 2's state.
 - Photos you send are kept inside the conversations, in the same database.
+- Two logs are kept there as plain text and grow without limit: each request for your yes
+  with your answer, and, with a decider, each shell command it was shown. Both hold the
+  commands' text. Delete them when you like; nothing depends on them.
 
 ## Reporting a problem
 

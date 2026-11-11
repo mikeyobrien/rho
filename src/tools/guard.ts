@@ -16,6 +16,7 @@ import { basename, dirname, sep } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import { defineDoc, defineExtension, wrapTool, type Conversation, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
+import { recordAnswer } from "../answers.ts";
 import { isProtected, protect } from "./protected.ts";
 import { findTool, grepTool, lsTool } from "./search.ts";
 
@@ -134,16 +135,18 @@ export function guard(dataDir: string, persons: (conversation: string) => Promis
 				// Worked out before the commit, and again on every ask, so the card says what is true now.
 				const details = (await explain?.({ what: verdict.what, command, ...(cwd?.ok ? { cwd: cwd.value } : {}) }).catch(() => undefined))?.slice(0, 14);
 				// One commit: take a waiting grant for this exact command, or leave the request for the person.
-				const granted = await api.commit(async (tx) => {
+				const outcome = await api.commit(async (tx) => {
 					const doc = await tx.doc(Approvals, api.conversationId);
 					const index = doc.granted.indexOf(command);
-					if (index >= 0) return doc.granted.splice(index, 1), true;
+					if (index >= 0) return doc.granted.splice(index, 1), "granted" as const;
 					const waits = doc.pending.some((pending) => pending.tool === "bash" && pending.command === command);
 					if (!waits) doc.pending.push({ id: api.callId, tool: "bash", command, what: verdict.what, at: api.now(), ...(details ? { details } : {}) });
 					else doc.pending = doc.pending.map(({ details: _old, ...pending }) => (pending.tool === "bash" && pending.command === command ? { ...pending, ...(details ? { details } : {}) } : { ...pending, ...(_old ? { details: _old } : {}) }));
-					return false;
+					return waits ? ("waiting" as const) : ("asked" as const);
 				}, context);
-				if (!granted) throw new Error(`Not run: ${verdict.what} cannot be undone, so it waits for the person's yes. They are shown the command with Allow and Deny. Stop here and say what it will do; do not try it another way.`);
+				// A request shown for the first time is a line in the answer log; asking again while it waits is not.
+				if (outcome === "asked") recordAnswer(dataDir, { at: api.now(), event: "asked", id: api.callId, conversation: String(api.conversationId), tool: "bash", what: verdict.what, command });
+				if (outcome !== "granted") throw new Error(`Not run: ${verdict.what} cannot be undone, so it waits for the person's yes. They are shown the command with Allow and Deny. Stop here and say what it will do; do not try it another way.`);
 			}
 			return inner.execute(args, api, context);
 		},

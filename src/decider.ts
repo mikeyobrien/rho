@@ -10,7 +10,8 @@
 // What it is shown: the person's last message, the working directory and the command. Never the
 // agent's own words, which could argue for the command, and never tool output, where planted
 // instructions arrive. Those three things do leave rho for the decider's host.
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { appendLine } from "./answers.ts";
 import { join } from "node:path";
 import { classify } from "@earendil-works/pi-ai/api/typesafe-system-one";
 import type { ClassifierContext, ClassifierModel } from "@earendil-works/pi-ai";
@@ -137,7 +138,7 @@ export function openDecider(config: DeciderConfig, dir: string, options: { now?:
 				.then((asked) => classifyCommand(config, { ...seen, ...(asked ? { asked } : {}) }, options))
 				.then((answer) => {
 					const line: DecisionLine = { at: (options.now ?? Date.now)(), mode: "shadow", conversation: seen.conversation, call: seen.call, command: cut(seen.command, 2_000), rule: seen.rule, model: config.model, ...answer };
-					appendFileSync(join(dir, LOG), `${JSON.stringify(line)}\n`, { mode: 0o600 });
+					appendLine(join(dir, LOG), JSON.stringify(line));
 					if ("error" in answer && !warned) (warned = true), options.log?.(`decider: no answer from ${config.baseUrl} (${answer.error}). Commands run as before; later misses are only in ${LOG}.`);
 				})
 				.catch((error: unknown) => options.log?.(`decider: could not log a decision: ${String((error as Error)?.message ?? error)}`))
