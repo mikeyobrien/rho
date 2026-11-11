@@ -83,6 +83,11 @@ th, td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; ver
 .release { padding: 8px 12px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; font-variant-numeric: tabular-nums; }
 .release.bad { color: var(--bad); }
 .workers { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 14px; max-height: 34vh; overflow-y: auto; }
+.worker-summary { display: block; width: 100%; min-height: 32px; padding: 2px 0; text-align: left; background: none; border: 0; color: var(--dim); font: inherit; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worker-summary.asking { color: var(--warn); }
+.worker-summary.failed { color: var(--bad); }
+.worker-ended { text-align: left; background: none; border: 0; padding: 0; color: var(--dim); font: inherit; }
+.workers ul:empty { display: none; }
 .workers ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .worker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
 .worker-open { grid-column: 1; text-align: left; background: none; border: 0; padding: 0; color: var(--text); font: inherit; overflow-wrap: anywhere; }

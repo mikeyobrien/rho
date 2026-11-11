@@ -24,6 +24,7 @@
 		<label for="thinking">Thinking</label>
 		<select id="thinking"></select>
 		<button id="new-chat">Clear context</button>
+		<button id="show-workers" hidden></button>
 		<p class="menu-label">Conversations</p>
 		<ul id="conversations"></ul>
 		<button id="new-conversation">New conversation</button>
@@ -44,6 +45,7 @@
 
 <section id="workers" class="workers" aria-label="Workers" hidden>
 	<p id="worker-thread" class="worker-thread" hidden></p>
+	<button id="worker-summary" type="button" class="worker-summary" aria-expanded="false" aria-controls="worker-list" hidden></button>
 	<ul id="worker-list"></ul>
 </section>
 

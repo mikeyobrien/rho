@@ -31,7 +31,7 @@ export function start(env) {
 		menuButton: $("menu-button"), menu: $("menu"), model: $("model"), thinking: $("thinking"), newChat: $("new-chat"),
 		conversations: $("conversations"), newConversation: $("new-conversation"),
 		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
-		workers: $("workers"), workerList: $("worker-list"), workerThread: $("worker-thread"), footer: $("composer"),
+		showWorkers: $("show-workers"), workers: $("workers"), workerSummary: $("worker-summary"), workerList: $("worker-list"), workerThread: $("worker-thread"), footer: $("composer"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -498,8 +498,29 @@ export function start(env) {
 	}
 
 	// --- workers -------------------------------------------------------------------------------------
-	// Jobs the agent handed off. Each row: the job, where it runs, how it stands, how long, the step
-	// it is on. A live one can be stopped; any that has a thread can be opened, to read.
+	// Jobs the agent handed off, shown a level at a time so that many of them cost one line:
+	//   1. one line that counts them ("2 working · 1 needs your yes · 4 ended"), always there;
+	//   2. opened: a row for each that is live or failed (the job, how it stands, how long, where,
+	//      the step it is on, Stop), and one row that counts the rest that ended;
+	//   3. that row opened: the ended ones;
+	//   4. a row opens the worker's own thread, to read.
+	// What is open is kept in this browser. All of it is there only while a worker is live: once
+	// every one has ended, their reports are in the thread and the list takes no space. The menu
+	// brings the ended ones back for a look.
+	let pinned = false; // asked for from the menu; not kept
+	const liveWorkers = () => (state?.workers ?? []).filter((worker) => worker.endedAt === undefined);
+	let workersOpen = store.get("workersOpen", false);
+	let endedOpen = store.get("workersEndedOpen", false);
+	const several = (n, one, many = one) => `${n} ${n === 1 ? one : many}`;
+	/** The counting line, and the worst thing in it. */
+	function workerSummary(workers) {
+		const count = (test) => workers.filter(test).length;
+		const [working, asking, waiting] = ["working", "asking", "waiting"].map((status) => count((worker) => worker.status === status));
+		const failed = count((worker) => worker.status === "failed");
+		const ended = count((worker) => worker.endedAt !== undefined && worker.status !== "failed");
+		const parts = [asking && `${asking} ${asking === 1 ? "needs" : "need"} your yes`, working && `${working} working`, waiting && `${waiting} waiting`, failed && `${failed} failed`, ended && `${ended} ended`].filter(Boolean);
+		return { text: `${several(workers.length, "worker", "workers")}: ${parts.join(" · ")}`, tone: asking ? "asking" : failed ? "failed" : "" };
+	}
 	const WORKER_WORDS = { waiting: "waiting for a slot", working: "working", asking: "needs your yes", done: "done", partial: "partial", failed: "failed", stopped: "stopped" };
 	let workerTimer;
 	function workerLine(worker) {
@@ -511,7 +532,10 @@ export function start(env) {
 	function renderWorkers() {
 		const workers = state?.workers ?? [];
 		const thread = state?.workerThread;
-		el.workers.hidden = workers.length === 0 && !thread;
+		const visible = workers.length > 0 && (liveWorkers().length > 0 || pinned);
+		el.workers.hidden = !visible && !thread;
+		el.showWorkers.hidden = workers.length === 0 || visible;
+		el.showWorkers.textContent = `Workers: ${workers.length} ended`;
 		// In a worker's own thread: say whose it is, and how to go back. There is nothing to send there.
 		el.workerThread.hidden = !thread;
 		if (thread) {
@@ -520,8 +544,30 @@ export function start(env) {
 			el.workerThread.replaceChildren(document.createTextNode(`Worker ${thread.id}: ${thread.title}. Its thread is read only.`), back);
 		}
 		el.footer.hidden = Boolean(thread);
-		el.workerList.replaceChildren(
-			...workers.map((worker) => {
+		el.workerSummary.hidden = !visible;
+		const summary = workerSummary(workers);
+		const only = pinned && liveWorkers().length === 0; // asked for from the menu, to see the ended ones: they are shown at once
+		el.workerSummary.textContent = `${workersOpen || only ? "▾" : "▸"} ${summary.text}`;
+		el.workerSummary.setAttribute("aria-expanded", String(workersOpen || only));
+		el.workerSummary.classList.toggle("asking", summary.tone === "asking");
+		el.workerSummary.classList.toggle("failed", summary.tone === "failed");
+		// A failed worker is shown with the live ones: it is the ended one worth seeing.
+		const quiet = workers.filter((worker) => worker.endedAt !== undefined && worker.status !== "failed");
+		const shown = only ? workers : !workersOpen ? [] : workers.filter((worker) => !quiet.includes(worker) || endedOpen);
+		const more = make("li", {});
+		if (workersOpen && !only && quiet.length > 0) {
+			const toggle = make("button", { type: "button", className: "worker-ended", textContent: `${endedOpen ? "▾" : "▸"} ${quiet.length} ended` });
+			toggle.setAttribute("aria-expanded", String(endedOpen));
+			toggle.addEventListener("click", () => {
+				endedOpen = !endedOpen;
+				store.set("workersEndedOpen", endedOpen);
+				renderWorkers();
+			});
+			more.append(toggle);
+		}
+		// Live and failed first, then the row that counts the rest, then the rest when that row is open.
+		const rowsOf = (list) =>
+			list.map((worker) => {
 				const ended = worker.endedAt !== undefined;
 				const row = make("li", { className: `worker ${worker.status}${ended ? " ended" : ""}` });
 				const open = make("button", { type: "button", className: "worker-open", textContent: worker.title, disabled: worker.conversation === undefined });
@@ -542,13 +588,28 @@ export function start(env) {
 					row.append(stop);
 				}
 				return row;
-			}),
-		);
-		// The time counts on between the daemon's snapshots.
-		const counting = workers.some((worker) => worker.endedAt === undefined && worker.startedAt !== undefined);
+			});
+		el.workerList.replaceChildren(...rowsOf(shown.filter((worker) => !quiet.includes(worker))), ...(more.children.length > 0 ? [more] : []), ...rowsOf(shown.filter((worker) => quiet.includes(worker))));
+		// The time counts on between the daemon's snapshots, while a row that shows it is open.
+		const counting = workersOpen && workers.some((worker) => worker.endedAt === undefined && worker.startedAt !== undefined);
 		if (counting && !workerTimer) workerTimer = setInterval(renderWorkers, 1000);
 		if (!counting && workerTimer) workerTimer = void clearInterval(workerTimer);
 	}
+
+	el.workerSummary.addEventListener("click", () => {
+		// With nothing live the list is only there because the menu asked for it: the same tap puts it away.
+		if (pinned && liveWorkers().length === 0) pinned = false;
+		else {
+			workersOpen = !workersOpen;
+			store.set("workersOpen", workersOpen);
+		}
+		renderWorkers();
+	});
+	el.showWorkers.addEventListener("click", () => {
+		pinned = true;
+		closeMenu();
+		renderWorkers();
+	});
 
 	// --- a step that is running ----------------------------------------------------------------------
 	// The daemon does not say when a call began, so the time is counted from when this page first

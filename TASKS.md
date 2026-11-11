@@ -888,6 +888,23 @@ is used only through Claude Code.
       Checked by 2 more tests in a real core. Not built: a follow-up job for an ended
       worker with its context kept; queueing work onto a worker; the person steering a
       worker from the page (its thread stays read only).
+    - The worker list, second version (2026-11-12, after the owner saw the first in the
+      installed rho: "wouldn't a lot of delegations take up a lot of vertical space", and
+      of a finished one, "the done one just takes up space now"). The list is there only
+      while a worker is live. It is one line that counts them ("3 workers: 1 needs your
+      yes · 2 working"), amber when one asks and red when one failed. A tap opens a row for
+      each live or failed worker and one row that counts the rest; that row opens the ended
+      ones. What is open is kept in the browser. When the last live worker ends the list
+      goes: the reports are in the thread. The menu then has "Workers: N ended", which
+      shows them all until the line is tapped again. This narrows criterion 7, which asked
+      for ended workers to stay listed for a day: they are a tap away, not on screen.
+      Checked by 4 page tests on the stand-in DOM. Not seen in a real browser. A failed
+      worker with nothing else live is also put away: its report in the thread is what
+      says so.
+    - First use in the installed rho (2026-11-12, `1e38411`): the owner asked for a dummy
+      job; worker w1 slept twice and reported done after 1:42. The owner saw its row. Its
+      report waited 20 s behind the main thread, which was itself held in a `sleep`: a
+      report is a follow-up and arrives when the thread is free.
     - Live check, once, on Haiku through the Claude plan, in a scratch home (2026-11-12).
       Asked to hand off "sleep 12, fix two typos in hello.txt, read it back": the agent
       called `delegate(start)` with a 424-character brief and its turn ended at 4.9 s.

@@ -666,7 +666,10 @@ function scriptWorker(worker: (seen: { results: number; lastRole: string }) => R
 }
 const BRIEF = "The person asked for the branch to be published. Wait for the build, then push main to origin, and report what was pushed and how you checked it.";
 const PUSH = "git push --dry-run origin main"; // held by the guard like any push, and changes nothing if it runs
-const rows = (page: Page) => (page.$("worker-list").children as El[]).map((row) => row.all().filter((node) => node.tag === "span" || node.className === "worker-open").map((node) => node.textContent).join(" | "));
+/** A browser in which the worker list and its ended rows were left open. */
+const opened = () => new Map([["workersOpen", "true"], ["workersEndedOpen", "true"]]);
+const workerRows = (page: Page) => (page.$("worker-list").children as El[]).filter((row) => row.className.startsWith("worker "));
+const rows = (page: Page) => workerRows(page).map((row) => row.all().filter((node) => node.tag === "span" || node.className === "worker-open").map((node) => node.textContent).join(" | "));
 
 test("a worker is listed with its step; its command that needs a yes shows a card here, and Allow lets it go on to one report", async () => {
 	scriptWorker(({ results, lastRole }) => {
@@ -675,7 +678,7 @@ test("a worker is listed with its step; its command that needs a yes shows a car
 		if (results === 2) return fauxAssistantMessage("The push waits for the person's yes.");
 		return fauxAssistantMessage("DONE\nI ran the push as a dry run after the person allowed it.");
 	}, [fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off."), fauxAssistantMessage("The worker is done.")]);
-	const page = await open();
+	const page = await open({ stored: opened() });
 	await until("live", () => idle(page));
 	expect(page.$("workers").hidden).toBe(true);
 	await page.send("publish it");
@@ -701,10 +704,18 @@ test("a worker is listed with its step; its command that needs a yes shows a car
 	expect(card()).toBeUndefined();
 	expect(page.messages().some((line) => line.startsWith("msg user|Yes. Run it"))).toBe(false);
 	expect(page.messages().filter((line) => line.includes("[worker w1] Publish the branch")).length).toBe(1);
-	await until("the row to say done", () => /^Publish the branch \| done · 0:\d\d · local$/.test(rows(page)[0] ?? ""));
+	// Ended, with nothing else live: its report is in the thread, and the list takes no space any more.
+	await until("the list to go away", () => page.$("workers").hidden === true);
 	expect(page.$("status").textContent).not.toContain("worker");
-	// An ended worker has no Stop, and is still listed.
-	expect((page.$("worker-list").children as El[])[0]!.all().some((node) => node.className === "worker-stop")).toBe(false);
+	// The menu brings it back for a look: its row, without a Stop. The same line puts it away again.
+	expect([page.$("show-workers").hidden, page.$("show-workers").textContent]).toEqual([false, "Workers: 1 ended"]);
+	await page.$("show-workers").click();
+	expect(page.$("workers").hidden).toBe(false);
+	expect(page.$("show-workers").hidden).toBe(true);
+	expect(rows(page)[0]).toMatch(/^Publish the branch \| done · 0:\d\d · local$/);
+	expect(workerRows(page)[0]!.all().some((node) => node.className === "worker-stop")).toBe(false);
+	await page.$("worker-summary").click();
+	expect(page.$("workers").hidden).toBe(true);
 }, 60_000);
 
 test("a worker's No is told to it; a worker is stopped from its row; its thread opens to read and takes no message", async () => {
@@ -714,7 +725,7 @@ test("a worker's No is told to it; a worker is stopped from its row; its thread 
 		if (results === 1) return fauxAssistantMessage(fauxToolCall("wait", { why: "what is left" }), { stopReason: "toolUse" }); // told no: it goes on with the rest
 		return fauxAssistantMessage("PARTIAL\nNot pushed: the person said no.");
 	}, [fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off.")]);
-	const page = await open();
+	const page = await open({ stored: opened() });
 	await until("live", () => idle(page));
 	await page.send("publish it");
 	const card = () => (page.$("live").children as El[]).find((node) => node.className === "approval");
@@ -727,7 +738,7 @@ test("a worker's No is told to it; a worker is stopped from its row; its thread 
 	const told = (await thread!.entries({ order: "descending" }, 10, undefined, context)).items.map((entry) => JSON.stringify(entry.model?.[0] ?? "")).find((text) => text.includes("The person said no"));
 	expect(told).toContain(`Do not run: \`${PUSH}\``);
 	// Its thread opens from the row: read only, with a way back, and nothing can be sent into it.
-	const row = () => (page.$("worker-list").children as El[])[0]!;
+	const row = () => workerRows(page)[0]!;
 	await row().all().find((node) => node.className === "worker-open")!.fire("click");
 	await until("the worker's thread", () => page.$("worker-thread").hidden === false && page.messages().some((line) => line.startsWith("msg user|You are a worker.")));
 	expect(page.$("worker-thread").textContent).toContain("Worker w1: Publish the branch. Its thread is read only.");
@@ -743,9 +754,85 @@ test("a worker's No is told to it; a worker is stopped from its row; its thread 
 	expect(page.$("composer").hidden).toBe(false);
 	// Stop, from the row: it ends, reports nothing, and keeps its row.
 	await row().all().find((node) => node.className === "worker-stop")!.fire("click");
-	await until("the row to say stopped", () => rows(page)[0]!.includes("stopped"), 15_000);
+	await until("the list to go away, the only worker being stopped", () => page.$("workers").hidden === true, 15_000);
 	await Bun.sleep(200);
 	expect(page.messages().some((line) => line.includes("[worker w1]"))).toBe(false);
 	expect((await core.workers.list())[0]).toMatchObject({ status: "stopped" });
 	expect(page.$("status").textContent).not.toContain("worker");
 }, 60_000);
+
+test("many workers cost one line: it counts them, opens to the live and the failed, and the ended open from a row of their own", async () => {
+	// Five jobs: two end done, one fails, one is held at work, one waits for a slot (two run at once).
+	const jobs = ["done-a", "done-b", "fails", "held", "queued"];
+	scriptWorker(() => fauxAssistantMessage("(unused)"), []);
+	faux.setResponses(Array.from({ length: 80 }, () => (asked: { messages: { role: string; content: unknown }[] }) => {
+		const first = asked.messages.find((message) => message.role === "user")?.content;
+		const text = typeof first === "string" ? first : ((first ?? []) as { text?: string }[]).map((part) => part.text ?? "").join("");
+		const results = asked.messages.filter((message) => message.role === "toolResult").length;
+		if (!text.startsWith("You are a worker.")) {
+			// The agent hands off one job per step, then answers; later turns (the reports) get a word.
+			const handed = asked.messages.filter((message) => message.role === "toolResult").length;
+			if (asked.messages.filter((message) => message.role === "user").length === 1 && handed < jobs.length) return fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: `Job ${jobs[handed]}`, brief: `${BRIEF} KIND=${jobs[handed]}` }), { stopReason: "toolUse" });
+			return fauxAssistantMessage(handed >= jobs.length && asked.messages.at(-1)!.role === "toolResult" ? "All handed off." : "Noted.");
+		}
+		const kind = /KIND=([\w-]+)/.exec(text)![1]!;
+		if (kind === "fails") return fauxAssistantMessage("FAILED\nThe remote does not exist.");
+		if (kind.startsWith("done")) return fauxAssistantMessage("DONE\nNothing to push.");
+		return results === 0 ? fauxAssistantMessage(fauxToolCall("wait", { why: "the build" }), { stopReason: "toolUse" }) : fauxAssistantMessage("DONE\nWaited.");
+	}));
+	const page = await open();
+	await until("live", () => idle(page));
+	expect(page.$("worker-summary").hidden).toBe(true);
+	await page.send("hand off five jobs");
+	const summary = () => page.$("worker-summary").textContent;
+	// Collapsed, which is how it starts: one line, no rows, whatever the number of workers.
+	await until("the counting line to settle", () => summary() === "▸ 5 workers: 2 working · 1 failed · 2 ended" || summary() === "▸ 5 workers: 1 working · 1 waiting · 1 failed · 2 ended", 20_000);
+	await until("the last job to get its slot", () => summary() === "▸ 5 workers: 2 working · 1 failed · 2 ended", 20_000);
+	expect(page.$("worker-summary").hidden).toBe(false);
+	expect(page.$("worker-summary").attrs["aria-expanded"]).toBe("false");
+	expect(page.$("worker-list").children.length).toBe(0);
+	expect(page.$("worker-summary").classList.contains("failed")).toBe(true);
+	// Opened: the live ones and the failed one, each with its row, and one row that counts the rest.
+	await page.$("worker-summary").click();
+	expect(summary()).toStartWith("▾ 5 workers:");
+	expect(page.$("worker-summary").attrs["aria-expanded"]).toBe("true");
+	expect(rows(page).map((row) => row.split(" | ")[0]).sort()).toEqual(["Job fails", "Job held", "Job queued"]);
+	expect(rows(page).find((row) => row.startsWith("Job fails"))).toMatch(/^Job fails \| failed · 0:\d\d · local$/);
+	const ended = () => (page.$("worker-list").children as El[]).flatMap((row) => row.all()).find((node) => node.className === "worker-ended")!;
+	expect(ended().textContent).toBe("▸ 2 ended");
+	expect(workerRows(page).filter((row) => row.all().some((node) => node.className === "worker-stop")).length).toBe(2); // only the live ones can be stopped
+	// The ended ones open from their own row, after the others.
+	await ended().click();
+	expect(ended().textContent).toBe("▾ 2 ended");
+	expect(rows(page).map((row) => row.split(" | ")[0])).toEqual(expect.arrayContaining(["Job done-a", "Job done-b"]));
+	expect(rows(page).length).toBe(5);
+	expect(rows(page).slice(-2).every((row) => row.includes("| done ·"))).toBe(true);
+	// What is open is kept in this browser: a reload shows the same.
+	expect([page.stored.get("workersOpen"), page.stored.get("workersEndedOpen")]).toEqual(["true", "true"]);
+	const again = await open({ pair: false, stored: page.stored });
+	await until("the reloaded page's rows", () => rows(again).length === 5);
+	// Closed again: back to one line.
+	await again.$("worker-summary").click();
+	expect(again.$("worker-list").children.length).toBe(0);
+	expect(again.$("worker-summary").textContent).toStartWith("▸ 5 workers:");
+	expect(again.stored.get("workersOpen")).toBe("false");
+	// The last live ones end: the line goes too, on both pages, and the menu offers all five.
+	gate.release();
+	await until("the list to go away", () => again.$("workers").hidden === true && page.$("workers").hidden === true, 20_000);
+	expect(again.$("show-workers").textContent).toBe("Workers: 5 ended");
+	await again.$("show-workers").click();
+	expect(rows(again).length).toBe(5); // asked for by name, so shown at once, also in a browser that had the list closed
+	expect(again.$("worker-summary").textContent).toBe("▾ 5 workers: 1 failed · 4 ended");
+}, 90_000);
+
+test("the counting line says when a worker needs a yes, before anything else", async () => {
+	scriptWorker(({ results }) => (results === 0 ? fauxAssistantMessage(fauxToolCall("bash", { command: PUSH }), { stopReason: "toolUse" }) : fauxAssistantMessage("The push waits for the person's yes.")),
+		[fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("publish it");
+	await until("the line to say it asks", () => page.$("worker-summary").textContent === "▸ 1 worker: 1 needs your yes", 15_000);
+	expect(page.$("worker-summary").classList.contains("asking")).toBe(true);
+	expect(page.$("worker-list").children.length).toBe(0); // still one line: the card in the thread is where the yes is given
+	expect((page.$("live").children as El[]).some((node) => node.className === "approval")).toBe(true);
+}, 40_000);
