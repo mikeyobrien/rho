@@ -86,9 +86,15 @@ reviewers wanted first is a release killed part-way, which leaves rho stopped. A
   refused and rewritten). The decider (21a) is the candidate fix; nothing is built.
 - The test suite is 22 files and about a minute, and on the phone it loads the machine
   enough to fail its own timing tests. Two were loosened (item 21d); item 20a is the fix.
-- The guard remembers data directories by inode for the life of a process, so a test's
-  scratch directory can be refused as rho's data. Four test files work around it
-  (decider, settings, answers, notify); the others are exposed (item 21a).
+- Fixed 2026-11-11, overnight: the guard remembered a data directory by inode for the
+  life of the process, so a test's later scratch directory, handed the inode of a deleted
+  one, was refused as rho's data. It blocked commits four times that day, in test files
+  that had no workaround. Now a core ends its directory's protection when it closes
+  (`src/tools/protected.ts`, counted, so two owners do not end each other's). A running
+  rho never closes its core, so nothing changes for it. Six full runs in a row passed
+  afterwards; before, about one in four failed. The four files' workarounds were left in:
+  they are harmless. Not proven: that this was the only cause of those four failures,
+  because their text was never captured when they happened.
 - `answers.jsonl` and `decisions.jsonl` grow without limit.
 
 **Built, and not yet seen to work for real:**

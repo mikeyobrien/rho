@@ -100,7 +100,9 @@ export type Watch = (seen: { conversation: string; call: string; command: string
 export type Explain = (ask: { what: string; command: string; cwd?: string }) => Promise<string[] | undefined>;
 
 export function guard(dataDir: string, persons: (conversation: string) => Promise<boolean> = async () => true, watch?: Watch, explain?: Explain): Extension {
-	protect(dataDir);
+	// The data directory is marked as rho's own by whoever owns it (the core), which also ends
+	// that when it closes. A guard made without a core marks it for the life of the process.
+	if (!isProtected(dataDir)) protect(dataDir);
 	/** Refuse a path in rho's data, also when a link leads there. */
 	const checkPath = async (path: unknown, api: Parameters<ToolRegistration["execute"]>[1], context: Context): Promise<void> => {
 		const env = api.env;

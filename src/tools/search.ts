@@ -12,9 +12,9 @@ const MAX_FILES = 50_000; // files one search will consider
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // larger files are not searched
 const MAX_LINE = 500; // characters of a line shown, and tested against the pattern
 const SKIP = new Set([".git", "node_modules"]);
-/** Directories no search looks into, as absolute paths: rho's own data. Set once by the core. */
-export function excludeFromSearch(dir: string): void {
-	protect(dir);
+/** Directories no search looks into, as absolute paths: rho's own data. Set by the core, which ends it when it closes. */
+export function excludeFromSearch(dir: string): () => void {
+	return protect(dir);
 }
 /** Rho's own data is never listed or searched, whatever name the path reaches it by. */
 const hidden = (path: string, seen: Map<string, boolean>): boolean => isProtected(path, seen);

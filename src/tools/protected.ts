@@ -8,8 +8,15 @@
 import { lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 
-const names = new Set<string>();
-const ids = new Set<string>();
+// Counted, so that two owners of one directory do not end each other's protection.
+const names = new Map<string, number>();
+const ids = new Map<string, number>();
+const hold = (counts: Map<string, number>, key: string): void => void counts.set(key, (counts.get(key) ?? 0) + 1);
+const drop = (counts: Map<string, number>, key: string): void => {
+	const left = (counts.get(key) ?? 0) - 1;
+	if (left > 0) counts.set(key, left);
+	else counts.delete(key);
+};
 const idOf = (path: string): string | undefined => {
 	try {
 		const stat = statSync(path);
@@ -19,13 +26,26 @@ const idOf = (path: string): string | undefined => {
 	}
 };
 
-/** Mark a directory as rho's own. */
-export function protect(dir: string): void {
-	for (const name of [dir, (() => { try { return realpathSync(dir); } catch { return dir; } })()]) names.add(name);
+/**
+ * Mark a directory as rho's own. Returns what ends that, for the owner to call when it closes:
+ * a directory is remembered by device and inode, and a system hands a deleted directory's inode
+ * to a new one, which would then be refused as rho's data for as long as this process lived.
+ * A running rho never calls it: its data directory is its own until the process ends.
+ */
+export function protect(dir: string): () => void {
+	const held = [dir, (() => { try { return realpathSync(dir); } catch { return dir; } })()];
 	const id = idOf(dir);
-	if (id) ids.add(id);
+	for (const name of held) hold(names, name);
+	if (id) hold(ids, id);
+	let ended = false;
+	return () => {
+		if (ended) return;
+		ended = true;
+		for (const name of held) drop(names, name);
+		if (id) drop(ids, id);
+	};
 }
-const named = (path: string): boolean => [...names].some((dir) => path === dir || path.startsWith(dir + sep));
+const named = (path: string): boolean => [...names.keys()].some((dir) => path === dir || path.startsWith(dir + sep));
 
 /** Whether an absolute path is, or is inside, a protected directory, by any name. `seen` remembers directories across calls of one walk. */
 export function isProtected(path: string, seen?: Map<string, boolean>): boolean {

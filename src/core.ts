@@ -186,9 +186,10 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	// A release that waits for a yes says what it would bring in.
 	const releaseDir = options.releaseDir ?? resolve(import.meta.dir, "..");
 	const explain: Explain = async (ask) => (ask.what === RELEASE && ask.cwd ? describeRelease(releaseDir, ask.cwd, ask.command) : undefined);
+	// Marked before the guard is made, and unmarked when this core closes (see protected.ts).
+	const unprotect = [...new Set([options.dir, realpathSync(options.dir)])].map((dir) => excludeFromSearch(dir));
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
 	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), settingsTool(options.dir, { persons: (id) => persons(id) }) /* settings */, guard(options.dir, (id) => persons(id), watch, explain)]) registry.install(tidy(extension));
-	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
 	// Only the person's own conversations are mirrored to memory or may ask for a yes, not rho's side work.
 	let persons: (id: string) => Promise<boolean> = async () => false;
 	const memory = options.memory === undefined ? openMemory(config, { dir: options.dir, log }) : (options.memory ?? undefined);
@@ -291,6 +292,6 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 				if (item && item.title === "") item.title = words;
 			}, context);
 		},
-		close: () => harness.close(context).finally(release),
+		close: () => harness.close(context).finally(() => (release(), unprotect.forEach((end) => end()))),
 	};
 }

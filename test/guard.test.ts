@@ -7,6 +7,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { context, openCore, type Core } from "../src/core.ts";
 import { serve, type Server } from "../src/http.ts";
 import { answerApproval, Approvals, judgeCommand } from "../src/tools/guard.ts";
+import { isProtected, protect } from "../src/tools/protected.ts";
 import { entryView, type EntryView, type StateView } from "../src/view.ts";
 
 type ToolEntry = Extract<EntryView, { role: "tool" }>;
@@ -311,3 +312,29 @@ test("a waiting release carries what it would bring in, said again each time it 
 	expect(state.approvals.find((item) => item.command === "rho release")!.details![0]).toBe(`Rho will run ${third} (now ${first}).`);
 	expect(Object.keys(state.approvals.find((item) => item.what === "git push")!).sort()).toEqual(["command", "id", "tool", "what"]);
 }, 40_000);
+
+test("a closed rho's data directory is no longer protected, so a new directory that takes its inode is ordinary", async () => {
+	const first = await open();
+	expect(isProtected(first.dir)).toBe(true);
+	expect(isProtected(join(first.dir, "token"))).toBe(true);
+	// A second core on another directory, open at the same time, has its own protection.
+	const second = await open();
+	await first.core.close();
+	expect(isProtected(first.dir)).toBe(false);
+	expect(isProtected(second.dir)).toBe(true);
+	// The same directory opened again is protected again, and closing twice ends it once.
+	const again = await open({}, { dir: first.dir, work: first.work });
+	expect(isProtected(first.dir)).toBe(true);
+	await again.core.close();
+	await again.core.close().catch(() => undefined);
+	expect(isProtected(first.dir)).toBe(false);
+	expect(isProtected(second.dir)).toBe(true);
+	// Two owners of one name: the second's end does not end the first's.
+	const shared = scratch("rho-guard-shared-");
+	const [endA, endB] = [protect(shared), protect(shared)];
+	endB();
+	endB();
+	expect(isProtected(shared)).toBe(true);
+	endA();
+	expect(isProtected(shared)).toBe(false);
+}, 30_000);
