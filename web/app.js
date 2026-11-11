@@ -31,7 +31,7 @@ export function start(env) {
 		menuButton: $("menu-button"), menu: $("menu"), model: $("model"), thinking: $("thinking"), newChat: $("new-chat"),
 		conversations: $("conversations"), newConversation: $("new-conversation"),
 		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
-		showWorkers: $("show-workers"), workers: $("workers"), workerSummary: $("worker-summary"), workerList: $("worker-list"), workerThread: $("worker-thread"), footer: $("composer"),
+		showWorkers: $("show-workers"), workers: $("workers"), workerThread: $("worker-thread"), footer: $("composer"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -262,6 +262,31 @@ export function start(env) {
 		return card;
 	}
 
+	/**
+	 * How a piece of side work ended, as a card: whose it was and how it ended, then one line.
+	 * The rest opens on a tap. Built from stored fields with textContent only; nothing in it runs.
+	 */
+	const VERDICT_WORDS = { done: "done", partial: "partial", failed: "failed" };
+	function reportCard(card) {
+		const node = make("details", { className: `report ${card.verdict}` });
+		const head = make("summary", {});
+		const top = make("div", { className: "report-line" });
+		top.append(make("span", { className: "report-verdict", textContent: VERDICT_WORDS[card.verdict] ?? card.verdict }), make("span", { className: "report-title", textContent: card.title }));
+		// The summary line: the sender's own, or the first words of the body that are not the verdict word itself.
+		const lines = (card.body ?? "").split("\n").map((line) => line.trim()).filter((line) => line !== "" && !/^\W*(done|partial|failed)\W*$/i.test(line));
+		const brief = card.summary ?? (lines[0] ?? "").replace(/^[#*\s]+|[*\s]+$/g, "");
+		const second = make("div", { className: "report-line" });
+		second.append(make("span", { className: "report-summary", textContent: brief }), make("span", { className: "report-who", textContent: card.who }));
+		head.append(top, second);
+		node.append(head);
+		if (card.body) {
+			const body = make("div", { className: "report-body" });
+			renderMarkdown(body, card.body, document);
+			node.append(body);
+		}
+		return node;
+	}
+
 	const picture = (n, src) => make("img", { className: "photo", alt: `Photo ${n + 1}`, ...(src ? { src } : {}) });
 	const sourceOf = (photo) => `data:${photo.type};base64,${photo.data}`;
 	/** A message of the person's: its photos, then its words. */
@@ -362,7 +387,7 @@ export function start(env) {
 		if (existing) return existing;
 		let node;
 		if (entry.role === "divider") node = make("div", { className: "divider", textContent: entry.text });
-		else if (entry.role === "notice") node = make("div", { className: "notice-entry", textContent: entry.text });
+		else if (entry.role === "notice") node = entry.card?.kind === "report" ? reportCard(entry.card) : make("div", { className: "notice-entry", textContent: entry.text });
 		else if (entry.role === "user") node = bubble("msg user", entry.text, Array.from({ length: entry.images ?? 0 }, (_, n) => sentPhoto(entry, n)));
 		else if (entry.role === "tool") node = toolCard(entry.name, calls.get(entry.callId), entry.summary, entry.text, entry.error, entry.diff);
 		else {
@@ -425,6 +450,8 @@ export function start(env) {
 			const text = state.failure.detail ? `${state.failure.text} ${state.failure.detail}` : state.failure.text;
 			live.push(note(text, state.failure.reason === "aborted" ? "note" : "note failure"));
 		}
+		const running = runningCard();
+		if (running) live.push(running);
 		tickRunning();
 		el.live.replaceChildren(...live);
 		el.empty.hidden = entries.length > 0 || live.length > 0 || state === undefined;
@@ -487,56 +514,91 @@ export function start(env) {
 	function renderRelease() {
 		if (state?.release) lastRelease = state.release;
 		else if (connection === "live") lastRelease = undefined; // the daemon is there and says there is none
-		const text = releaseText();
-		el.release.hidden = text === "";
-		el.releaseText.textContent = text;
-		el.release.classList.toggle("bad", /did not start|was not released/.test(text));
-		// The time counts on between the daemon's snapshots, and while rho is down for its restart.
-		const counting = text.startsWith("Releasing");
-		if (counting && !releaseTimer) releaseTimer = setInterval(renderRelease, 1000);
-		if (!counting && releaseTimer) releaseTimer = void clearInterval(releaseTimer);
+		el.release.hidden = true; // the release is a row of the Running card, in the thread
 	}
 
-	// --- workers -------------------------------------------------------------------------------------
-	// Jobs the agent handed off, shown a level at a time so that many of them cost one line:
-	//   1. one line that counts them ("2 working · 1 needs your yes · 4 ended"), always there;
-	//   2. opened: a row for each that is live or failed (the job, how it stands, how long, where,
-	//      the step it is on, Stop), and one row that counts the rest that ended;
-	//   3. that row opened: the ended ones;
-	//   4. a row opens the worker's own thread, to read.
-	// What is open is kept in this browser. All of it is there only while a worker is live: once
-	// every one has ended, their reports are in the thread and the list takes no space. The menu
-	// brings the ended ones back for a look.
-	let pinned = false; // asked for from the menu; not kept
+	// --- what is running -----------------------------------------------------------------------------
+	// One card at the tail of the thread says what goes on beside the conversation: a release, the
+	// background command, and each worker that is working, waiting or asking. A row is there while
+	// its job is; when the job ends the row goes, and the report it leaves in the thread is the
+	// record. Nothing sits outside the thread for them. The header counts what is live, and the
+	// menu lists the workers that ended.
 	const liveWorkers = () => (state?.workers ?? []).filter((worker) => worker.endedAt === undefined);
-	let workersOpen = store.get("workersOpen", false);
-	let endedOpen = store.get("workersEndedOpen", false);
-	const several = (n, one, many = one) => `${n} ${n === 1 ? one : many}`;
-	/** The counting line, and the worst thing in it. */
-	function workerSummary(workers) {
-		const count = (test) => workers.filter(test).length;
-		const [working, asking, waiting] = ["working", "asking", "waiting"].map((status) => count((worker) => worker.status === status));
-		const failed = count((worker) => worker.status === "failed");
-		const ended = count((worker) => worker.endedAt !== undefined && worker.status !== "failed");
-		const parts = [asking && `${asking} ${asking === 1 ? "needs" : "need"} your yes`, working && `${working} working`, waiting && `${waiting} waiting`, failed && `${failed} failed`, ended && `${ended} ended`].filter(Boolean);
-		return { text: `${several(workers.length, "worker", "workers")}: ${parts.join(" · ")}`, tone: asking ? "asking" : failed ? "failed" : "" };
-	}
 	const WORKER_WORDS = { waiting: "waiting for a slot", working: "working", asking: "needs your yes", done: "done", partial: "partial", failed: "failed", stopped: "stopped" };
-	let workerTimer;
+	let runningTimer;
+	let endedShown = false; // the ended workers, asked for from the menu; not kept
 	function workerLine(worker) {
 		const now = env.now?.() ?? Date.now();
 		const ended = worker.endedAt !== undefined;
 		const span = worker.startedAt === undefined ? "" : ` · ${clock(Math.max(0, (worker.endedAt ?? now) - worker.startedAt))}`;
 		return `${WORKER_WORDS[worker.status] ?? worker.status}${span} · ${worker.place}${worker.model ? ` · ${worker.model.slice(worker.model.indexOf("/") + 1)}` : ""}${!ended && worker.step ? ` · ${worker.step}` : ""}`;
 	}
+	/** One row: what it is, how it stands, and a Stop when it can be stopped. */
+	function runningRow(className, title, state, open, stop) {
+		const row = make("li", { className: `running-row ${className}` });
+		const name = make(open ? "button" : "span", { className: "running-title", textContent: title, ...(open ? { type: "button" } : {}) });
+		if (open) name.addEventListener("click", open.go), name.setAttribute("aria-label", open.label);
+		row.append(name, make("span", { className: "running-state", textContent: state }));
+		if (stop) {
+			const button = make("button", { type: "button", className: "running-stop", textContent: "Stop" });
+			button.setAttribute("aria-label", stop.label);
+			button.addEventListener("click", async () => {
+				button.disabled = true;
+				try {
+					await api(stop.path, stop.body);
+				} catch (error) {
+					flash(error.message);
+				}
+			});
+			row.append(button);
+		}
+		return row;
+	}
+	const workerRow = (worker) =>
+		runningRow(
+			`worker ${worker.status}${worker.endedAt !== undefined ? " ended" : ""}`,
+			worker.title,
+			workerLine(worker),
+			worker.conversation === undefined ? undefined : { go: () => switchTo(worker.conversation, false), label: `Open the thread of worker ${worker.id}: ${worker.title}` },
+			worker.endedAt === undefined ? { path: "workers/stop", body: { id: worker.id }, label: `Stop worker ${worker.id}` } : undefined,
+		);
+	/** The card, or nothing when nothing runs. Drawn after everything else in the thread. */
+	function runningCard() {
+		const now = env.now?.() ?? Date.now();
+		const rows = [];
+		const release = releaseText();
+		if (release !== "") rows.push(runningRow(`release${/did not start|was not released/.test(release) ? " failed" : ""}`, "Release", release.replace(/^Releasing /, "")));
+		const job = state?.background;
+		if (job) rows.push(runningRow("background", job.command, `running · ${clock(Math.max(0, now - job.startedAt))} · background command`, undefined, { path: "background/stop", body: {}, label: "Stop the background command" }));
+		const workers = state?.workers ?? [];
+		rows.push(...liveWorkers().map(workerRow));
+		// Asked for from the menu: the workers that ended in the last day, until the card is closed.
+		const ended = endedShown ? workers.filter((worker) => worker.endedAt !== undefined) : [];
+		rows.push(...ended.map(workerRow));
+		if (rows.length === 0) return undefined;
+		const card = make("section", { className: "running" });
+		card.setAttribute("aria-label", "Running now");
+		const head = make("div", { className: "running-head" });
+		head.append(make("span", { textContent: ended.length > 0 && rows.length === ended.length ? "Ended today" : "Running" }));
+		if (ended.length > 0) {
+			const close = make("button", { type: "button", className: "running-close", textContent: "Hide ended" });
+			close.addEventListener("click", () => {
+				endedShown = false;
+				render();
+			});
+			head.append(close);
+		}
+		const list = make("ul", {});
+		list.append(...rows);
+		card.append(head, list);
+		return card;
+	}
+	/** The parts that are not in the thread: the worker thread's banner, the menu entry, and the clock that redraws the card. */
 	function renderWorkers() {
 		const workers = state?.workers ?? [];
 		const thread = state?.workerThread;
-		const visible = workers.length > 0 && (liveWorkers().length > 0 || pinned);
-		el.workers.hidden = !visible && !thread;
-		el.showWorkers.hidden = workers.length === 0 || visible;
-		el.showWorkers.textContent = `Workers: ${workers.length} ended`;
 		// In a worker's own thread: say whose it is, and how to go back. There is nothing to send there.
+		el.workers.hidden = !thread;
 		el.workerThread.hidden = !thread;
 		if (thread) {
 			const back = make("button", { type: "button", className: "worker-back", textContent: "Back" });
@@ -544,71 +606,19 @@ export function start(env) {
 			el.workerThread.replaceChildren(document.createTextNode(`Worker ${thread.id}: ${thread.title}. Its thread is read only.`), back);
 		}
 		el.footer.hidden = Boolean(thread);
-		el.workerSummary.hidden = !visible;
-		const summary = workerSummary(workers);
-		const only = pinned && liveWorkers().length === 0; // asked for from the menu, to see the ended ones: they are shown at once
-		el.workerSummary.textContent = `${workersOpen || only ? "▾" : "▸"} ${summary.text}`;
-		el.workerSummary.setAttribute("aria-expanded", String(workersOpen || only));
-		el.workerSummary.classList.toggle("asking", summary.tone === "asking");
-		el.workerSummary.classList.toggle("failed", summary.tone === "failed");
-		// A failed worker is shown with the live ones: it is the ended one worth seeing.
-		const quiet = workers.filter((worker) => worker.endedAt !== undefined && worker.status !== "failed");
-		const shown = only ? workers : !workersOpen ? [] : workers.filter((worker) => !quiet.includes(worker) || endedOpen);
-		const more = make("li", {});
-		if (workersOpen && !only && quiet.length > 0) {
-			const toggle = make("button", { type: "button", className: "worker-ended", textContent: `${endedOpen ? "▾" : "▸"} ${quiet.length} ended` });
-			toggle.setAttribute("aria-expanded", String(endedOpen));
-			toggle.addEventListener("click", () => {
-				endedOpen = !endedOpen;
-				store.set("workersEndedOpen", endedOpen);
-				renderWorkers();
-			});
-			more.append(toggle);
-		}
-		// Live and failed first, then the row that counts the rest, then the rest when that row is open.
-		const rowsOf = (list) =>
-			list.map((worker) => {
-				const ended = worker.endedAt !== undefined;
-				const row = make("li", { className: `worker ${worker.status}${ended ? " ended" : ""}` });
-				const open = make("button", { type: "button", className: "worker-open", textContent: worker.title, disabled: worker.conversation === undefined });
-				open.setAttribute("aria-label", `Open the thread of worker ${worker.id}: ${worker.title}`);
-				open.addEventListener("click", () => switchTo(worker.conversation, false));
-				row.append(open, make("span", { className: "worker-state", textContent: workerLine(worker) }));
-				if (!ended) {
-					const stop = make("button", { type: "button", className: "worker-stop", textContent: "Stop" });
-					stop.setAttribute("aria-label", `Stop worker ${worker.id}`);
-					stop.addEventListener("click", async () => {
-						stop.disabled = true;
-						try {
-							await api("workers/stop", { id: worker.id });
-						} catch (error) {
-							flash(error.message);
-						}
-					});
-					row.append(stop);
-				}
-				return row;
-			});
-		el.workerList.replaceChildren(...rowsOf(shown.filter((worker) => !quiet.includes(worker))), ...(more.children.length > 0 ? [more] : []), ...rowsOf(shown.filter((worker) => quiet.includes(worker))));
-		// The time counts on between the daemon's snapshots, while a row that shows it is open.
-		const counting = workersOpen && workers.some((worker) => worker.endedAt === undefined && worker.startedAt !== undefined);
-		if (counting && !workerTimer) workerTimer = setInterval(renderWorkers, 1000);
-		if (!counting && workerTimer) workerTimer = void clearInterval(workerTimer);
+		const ended = workers.filter((worker) => worker.endedAt !== undefined).length;
+		el.showWorkers.hidden = ended === 0 || endedShown;
+		el.showWorkers.textContent = `Workers: ${ended} ended`;
+		// The times count on between the daemon's snapshots.
+		const counting = liveWorkers().some((worker) => worker.startedAt !== undefined) || Boolean(state?.background) || releaseText().startsWith("Releasing");
+		if (counting && !runningTimer) runningTimer = setInterval(render, 1000);
+		if (!counting && runningTimer) runningTimer = void clearInterval(runningTimer);
 	}
-
-	el.workerSummary.addEventListener("click", () => {
-		// With nothing live the list is only there because the menu asked for it: the same tap puts it away.
-		if (pinned && liveWorkers().length === 0) pinned = false;
-		else {
-			workersOpen = !workersOpen;
-			store.set("workersOpen", workersOpen);
-		}
-		renderWorkers();
-	});
 	el.showWorkers.addEventListener("click", () => {
-		pinned = true;
+		endedShown = true;
+		stick = true; // the card is at the tail: go to it
 		closeMenu();
-		renderWorkers();
+		render();
 	});
 
 	// --- a step that is running ----------------------------------------------------------------------
@@ -649,8 +659,8 @@ export function start(env) {
 		let text = words[connection];
 		if (connection === "live") text = state?.running ? (queued > 0 ? `Working · ${queued} waiting` : "Working") : (state?.model ?? "Ready");
 		// Workers still at it are counted beside it, whatever this thread itself is doing.
-		const busy = (state?.workers ?? []).filter((worker) => worker.endedAt === undefined).length;
-		if (connection === "live" && busy > 0) text += ` · ${busy} ${busy === 1 ? "worker" : "workers"}`;
+		const busy = liveWorkers().length + (state?.background ? 1 : 0);
+		if (connection === "live" && busy > 0) text += ` · ${busy} running`;
 		const restart = connection === "offline" && lastRelease?.status === "running";
 		el.status.textContent = flashText || (restart ? "Restarting" : text);
 		el.status.classList.toggle("warn", flashText !== "" || (connection === "offline" && !restart) || connection === "unpaired");
@@ -916,7 +926,7 @@ export function start(env) {
 			clearTimeout(flashTimer);
 			clearInterval(releaseTimer);
 			clearInterval(runTimer);
-			clearInterval(workerTimer);
+			clearInterval(runningTimer);
 		},
 	};
 }

@@ -13,11 +13,25 @@ export interface ToolCallView {
 	/** The call's arguments, without `reasoning`. */
 	args: Record<string, unknown>;
 }
+/**
+ * A notice as a card. Data, never markup: the page draws each kind with its own code, so a
+ * restart redraws it from the stored entry and nothing a model wrote runs.
+ *  - report: how a piece of side work ended. The verdict and one line show; the body opens on a tap.
+ */
+export type NoticeCard = { kind: "report"; title: string; verdict: "done" | "partial" | "failed"; /** Whose report: "worker w2", "background command". */ who: string; /** One line; when absent the page takes the body's first words. */ summary?: string; /** The rest, shown when the card is opened. */ body?: string };
+const VERDICTS = new Set(["done", "partial", "failed"]);
+/** The card a stored notice carries, checked field by field: what was stored is not trusted to be a card. */
+export function noticeCard(data: unknown): NoticeCard | undefined {
+	const card = (data as { card?: Record<string, unknown> } | undefined)?.card;
+	if (typeof card !== "object" || card === null || card.kind !== "report") return undefined;
+	if (typeof card.title !== "string" || typeof card.who !== "string" || typeof card.verdict !== "string" || !VERDICTS.has(card.verdict)) return undefined;
+	return { kind: "report", title: card.title.slice(0, 300), verdict: card.verdict as NoticeCard["verdict"], who: card.who.slice(0, 60), ...(typeof card.summary === "string" ? { summary: card.summary.slice(0, 400) } : {}), ...(typeof card.body === "string" ? { body: card.body.slice(0, 6_000) } : {}) };
+}
 export type EntryView =
 	| { id: number; role: "user"; text: string; /** How many photos came with it. The pictures are not in the view: a client asks for each (`GET /api/image`). */ images?: number }
 	| { id: number; role: "assistant"; text: string; calls: ToolCallView[]; model?: string; cut?: true }
 	| { id: number; role: "tool"; callId: string; name: string; text: string; /** The result in a few words. */ summary: string; /** What an edit changed. */ diff?: string; error?: true; /** How long it ran, in milliseconds, when the engine measured it. */ ms?: number }
-	| { id: number; role: "notice"; text: string; /** Who sent it: "gate", "check-in". */ from: string }
+	| { id: number; role: "notice"; text: string; /** Who sent it: "gate", "check-in". */ from: string; /** How to draw it, when its sender said: a card, not a block of text. */ card?: NoticeCard }
 	| { id: number; role: "divider"; text: string };
 
 /** A worker as a client is shown it. The job line is the agent's words; `step` names a tool and what it acts on. */
@@ -57,6 +71,8 @@ export interface StateView {
 	approvals: { id: string; tool: string; command: string; what: string; /** What it would do, in lines. */ details?: string[]; /** The worker that asks, when it is not the agent itself: its id and job. */ worker?: string }[];
 	/** Workers this conversation handed jobs to: live ones, and those that ended in the last day. */
 	workers?: WorkerView[];
+	/** A shell command the agent started outside its turn and that still runs. Its command line is the agent's own text. */
+	background?: { id: string; command: string; startedAt: number };
 	/** Set when this is a worker's own thread, which is read only: whose it is and where to go back to. */
 	workerThread?: { id: string; title: string; from: string };
 	/** The directory this conversation's tools work in. */
@@ -124,7 +140,10 @@ export function entryView(entry: EntryRecord): EntryView | undefined {
 		const diff = typeof details?.diff === "string" ? details.diff : undefined;
 		return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text, summary: summarize(text, message.isError, diff), ...(diff !== undefined ? { diff } : {}), ...(message.isError ? { error: true as const } : {}), ...(typeof message.durationMs === "number" ? { ms: Math.round(message.durationMs) } : {}) };
 	}
-	if (entry.kind === "rho.notice") return { id, role: "notice", text: textOf(message?.content), from: String((entry.data as { from?: unknown } | undefined)?.from ?? "rho") };
+	if (entry.kind === "rho.notice") {
+		const card = noticeCard(entry.data);
+		return { id, role: "notice", text: textOf(message?.content), from: String((entry.data as { from?: unknown } | undefined)?.from ?? "rho"), ...(card ? { card } : {}) };
+	}
 	if (entry.kind === "pi.reset") return { id, role: "divider", text: "Context cleared" };
 	if (entry.kind === "pi.compaction") return { id, role: "divider", text: "Earlier messages were summarized" };
 	return undefined;

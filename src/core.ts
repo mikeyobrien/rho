@@ -16,7 +16,7 @@ import { entryView, textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { describeRelease } from "./gate.ts";
 import { openPicks, readPickCheck } from "./picks.ts";
-import { backgroundTool } from "./tools/background.ts";
+import { backgroundTool, Jobs, type BackgroundJob } from "./tools/background.ts";
 import { delegateTool, live as liveWorker, localPlace, Workers, type Worker } from "./tools/delegate.ts";
 import { commandCheck, guard, RELEASE, type Explain } from "./tools/guard.ts";
 import { settingsTool } from "./tools/settings.ts";
@@ -135,6 +135,8 @@ export interface Core {
 	create(options?: { cwd?: string }): Promise<ConversationInfo>;
 	/** The workers the agent handed jobs to: live ones and those that ended lately. */
 	workers: { list(): Promise<Worker[]>; /** End one. False when it is not running or waiting. */ stop(id: string): Promise<boolean>; /** Told after each change to the list. Returns how to stop being told. */ onChange(listener: () => void): () => void };
+	/** The shell command running outside the agent's turn, if one is. */
+	background: { running(): Promise<BackgroundJob | undefined>; /** End it. False when none runs. */ stop(): Promise<boolean> };
 	/** Whether a conversation is one of the person's own (not a worker's or a check-in's). */
 	persons(id: string): Promise<boolean>;
 	/** Put a message the person did not write into a conversation: a gate report, a check-in. The model reads it; memory never takes it as the person's words. */
@@ -222,7 +224,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	let peekWorker: (worker: Worker) => Promise<string> = async () => "";
 	let deliverWorker: (worker: Worker, text: string) => Promise<void> = async () => undefined;
 	let endTask: (task: never, ctx: typeof context) => Promise<unknown> = async () => undefined;
-	if (config.background !== false) registry.install(tidy(backgroundTool({ check: (args, api, ctx) => commandCheck(options.dir)(args, api, ctx), noticeKind: NOTICE, stop: (task, ctx) => endTask(task as never, ctx), now, log })));
+	if (config.background !== false) registry.install(tidy(backgroundTool({ check: (args, api, ctx) => commandCheck(options.dir)(args, api, ctx), noticeKind: NOTICE, changed: () => workerListeners.forEach((listener) => listener()), stop: (task, ctx) => endTask(task as never, ctx), now, log })));
 	// A whole job handed to a worker: a second agent in its own conversation, which cannot delegate or start background commands.
 	const workers = typeof config.delegates === "object" && config.delegates !== null ? config.delegates : {};
 	// Each handoff made while the person has model preferences is logged, with what a small model says of the pick. It watches; it blocks nothing.
@@ -369,6 +371,16 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 				return true;
 			},
 			onChange: (listener) => (workerListeners.add(listener), () => void workerListeners.delete(listener)),
+		},
+		background: {
+			running: async () => (await harness.snapshot(Jobs, context))?.running[0],
+			stop: async () => {
+				const job = (await harness.snapshot(Jobs, context))?.running[0];
+				if (!job) return false;
+				await endTask(job.task as never, context);
+				log(`background: ${job.id} stopped by the person`);
+				return true;
+			},
 		},
 		persons: (id) => persons(id),
 		close: () => harness.close(context).finally(() => (release(), unprotect.forEach((end) => end()))),

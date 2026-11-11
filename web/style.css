@@ -82,22 +82,35 @@ th, td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; ver
 .latest { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); }
 .release { padding: 8px 12px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; font-variant-numeric: tabular-nums; }
 .release.bad { color: var(--bad); }
-.workers { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 14px; max-height: 34vh; overflow-y: auto; }
-.worker-summary { display: block; width: 100%; min-height: 32px; padding: 2px 0; text-align: left; background: none; border: 0; color: var(--dim); font: inherit; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.worker-summary.asking { color: var(--warn); }
-.worker-summary.failed { color: var(--bad); }
-.worker-ended { text-align: left; background: none; border: 0; padding: 0; color: var(--dim); font: inherit; }
-.workers ul:empty { display: none; }
-.workers ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.worker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
-.worker-open { grid-column: 1; text-align: left; background: none; border: 0; padding: 0; color: var(--text); font: inherit; overflow-wrap: anywhere; }
-.worker-state { grid-column: 1; color: var(--dim); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.worker.asking .worker-state { color: var(--warn); }
-.worker.failed .worker-state { color: var(--bad); }
-.worker.ended .worker-open { color: var(--dim); }
-.worker-stop { grid-column: 2; grid-row: 1 / span 2; }
-.worker-thread { margin: 0 0 6px; color: var(--dim); }
+.workers { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 14px; }
+.worker-thread { margin: 0; color: var(--dim); }
 .worker-thread button { margin-left: 8px; }
+.running { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 14px; }
+.running-head { display: flex; justify-content: space-between; align-items: center; color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.running-close { min-height: 32px; padding: 0 8px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.running ul { margin: 4px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.running-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; align-items: center; }
+.running-title { grid-column: 1; text-align: left; background: none; border: 0; padding: 0; min-height: 0; color: var(--text); font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.running-state { grid-column: 1; color: var(--dim); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.running-row.asking .running-state { color: var(--warn); }
+.running-row.failed .running-state { color: var(--bad); }
+.running-row.ended .running-title { color: var(--dim); }
+.running-row.background .running-title { font: 13px ui-monospace, monospace; }
+.running-stop { grid-column: 2; grid-row: 1 / span 2; }
+.report { border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+.report.failed { border-color: var(--bad); }
+.report.partial { border-color: var(--warn); }
+.report summary { display: grid; gap: 2px; min-height: 44px; align-content: center; padding: 6px 12px; cursor: pointer; list-style: none; }
+.report summary::-webkit-details-marker { display: none; }
+.report-line { display: flex; gap: 8px; min-width: 0; }
+.report-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-verdict { flex: none; font-weight: 600; }
+.report.failed .report-verdict { color: var(--bad); }
+.report.partial .report-verdict { color: var(--warn); }
+.report-title { flex: 1; }
+.report-summary { flex: 1; color: var(--dim); }
+.report-who { flex: none; color: var(--dim); font-size: 12px; }
+.report-body { padding: 4px 12px 10px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .release p { margin: 0; }
 .notice { padding: 10px 12px; border-top: 1px solid var(--line); color: var(--warn); }
 .notice p { margin: 0; }

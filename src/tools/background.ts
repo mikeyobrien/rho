@@ -24,7 +24,7 @@ import { num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 export type BackgroundJob = { id: string; command: string; conversation: string; startedAt: number; /** The task's id, kept as the engine gives it (a number in SQLite): as text it names no task. */ task: string | number };
 export type EndedJob = { id: string; command: string; endedAt: number; ms: number; how: "passed" | "failed" | "timed out" | "interrupted" | "stopped"; exit?: number };
 type Book = { running: BackgroundJob[]; ended: EndedJob[]; seq: number }; // `running` holds none or one
-const Jobs = defineDoc<Book>({ kind: "rho.background", version: 1, scope: "session", initial: () => ({ running: [], ended: [], seq: 0 }), checkpointWhen: () => true });
+export const Jobs = defineDoc<Book>({ kind: "rho.background", version: 1, scope: "session", initial: () => ({ running: [], ended: [], seq: 0 }), checkpointWhen: () => true });
 
 type State = { phase: "run" } | { phase: "report"; how: EndedJob["how"]; exit?: number; tail: string; ms: number };
 type Input = { id: string; command: string; timeoutSeconds: number; conversation: string | number };
@@ -47,10 +47,13 @@ export interface BackgroundOptions {
 	stop: (task: TaskId<null>, context: Context) => Promise<unknown>;
 	now?: () => number;
 	log?: (line: string) => void;
+	/** Told when a job starts or ends, so a page can show it. A cache: a restart reads the record. */
+	changed?: () => void;
 }
 export function backgroundTool(options: BackgroundOptions): Extension {
 	const now = options.now ?? Date.now;
 	const log = options.log ?? (() => {});
+	const changed = () => { try { options.changed?.(); } catch { /* a listener's failure is not the job's */ } };
 	const Job = defineTask<Input, State, null>({
 		name: "rho.background",
 		version: 1,
@@ -101,9 +104,10 @@ export function backgroundTool(options: BackgroundOptions): Extension {
 					if (doc.running[0]?.id === id) doc.running = [];
 					doc.ended = [...doc.ended.map(plain), { id, command: command.slice(0, 300), endedAt: now(), ms, how, ...(exit === undefined ? {} : { exit }) }].slice(-10);
 					// Passed or not, it starts a run: the agent was told it would hear, and may be waiting to commit.
-					if (handle) await handle.submit(tx, { type: "input", content: text, requestId: `background:${id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "background" } } });
+					if (handle) await handle.submit(tx, { type: "input", content: text, requestId: `background:${id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "background", card: { kind: "report", title: command.split("\n")[0]!.slice(0, 200), verdict: how === "passed" ? "done" : "failed", who: "background command", summary: words, ...(tail && how !== "passed" ? { body: tail } : {}) } } } });
 					return { status: "terminal", outcome: { status: "completed", result: null } };
 				}, ctx);
+				changed();
 			},
 		},
 		// Stopped by the person or by the agent: the record is cleared and nothing more is said.
@@ -118,7 +122,8 @@ export function backgroundTool(options: BackgroundOptions): Extension {
 					doc.running = [];
 				}
 				return { status: "terminal", outcome: { status: "aborted" } };
-			}, ctx))),
+			}, ctx)),
+			changed()),
 	});
 
 	const tool = defineTool({
@@ -156,6 +161,7 @@ export function backgroundTool(options: BackgroundOptions): Extension {
 				doc.running = [{ id, command: command.slice(0, 300), conversation: String(api.conversationId), startedAt: now(), task: task as unknown as string | number }];
 				return { id, busy: undefined };
 			}, context);
+			changed();
 			if (started.busy) throw new Error(`One is already running (for ${span(now() - started.busy.startedAt)}): ${started.busy.command.split("\n")[0]!.slice(0, 120)}. Wait for its report, or stop it first.`);
 			return { output: [{ type: "text", text: `Started in the background (${started.id}). You will be told how it ends in a later message; go on with other work or answer the person now. Do not wait for it or check on it.` }] };
 		},

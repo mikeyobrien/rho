@@ -905,6 +905,28 @@ is used only through Claude Code.
       job; worker w1 slept twice and reported done after 1:42. The owner saw its row. Its
       report waited 20 s behind the main thread, which was itself held in a `sleep`: a
       report is a follow-up and arrives when the thread is free.
+    - The worker list, third version: in the thread (2026-11-12). The owner asked for
+      generated UI inside the one chat thread and as little as possible outside it. Worker
+      w3 researched it (its report is in the conversation; three of its sources were from
+      the last three months, the rest older or undated) and advised a small fixed set of
+      card kinds drawn by the page from stored data, never model-written markup. Built:
+      - A notice may carry a card beside its text (`NoticeCard` in `src/view.ts`, checked
+        field by field by `noticeCard`). One kind exists, `report`: verdict, title, one
+        line, whose it is, and a body that opens on a tap. Worker reports and background
+        reports carry one. The text is unchanged and is what the model reads. Gate and
+        check-in notices are still plain text.
+      - One Running card, the last thing in the thread: a row for a release under way, the
+        background command, and each worker that is working, waiting or asking. A row has a
+        Stop where one applies, and a worker's row opens its thread. A row goes when its job
+        ends; with no rows there is no card. The counting line above the message box and
+        the release strip are gone. The header says "N running". The menu's "Workers: N
+        ended" adds the ended ones to the card until "Hide ended".
+      - `StateView` gains `background` (id, first line of the command, start time) and
+        `card` on a notice. `POST /api/background/stop` is new.
+      - Checked: 5 page tests on the stand-in DOM (30 in the file), the whole check three
+        times in a row (254 tests). Not seen in a real browser. Not built: list cards for
+        reminders, goals and open items; cards for gate and check-in notices; the queue of
+        waiting messages is still above the message box.
     - Live check, once, on Haiku through the Claude plan, in a scratch home (2026-11-12).
       Asked to hand off "sleep 12, fix two typos in hello.txt, read it back": the agent
       called `delegate(start)` with a 424-character brief and its turn ended at 4.9 s.

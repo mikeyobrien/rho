@@ -39,7 +39,7 @@ export class TextNode {
 export function fakeDocument() {
 	const byId = new Map<string, El>();
 	const listeners: Record<string, ((event: any) => unknown)[]> = {};
-	const hiddenAtStart = new Set(["earlier", "empty", "latest", "notice", "menu", "release", "workers", "worker-thread", "worker-summary", "show-workers"]);
+	const hiddenAtStart = new Set(["earlier", "empty", "latest", "notice", "menu", "release", "workers", "worker-thread", "show-workers"]);
 	return {
 		visibilityState: "visible",
 		getElementById(id: string) {

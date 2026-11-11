@@ -200,22 +200,25 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			const target = args.path ?? args.command ?? args.pattern ?? args.url ?? args.query ?? "";
 			return `${tool.name}${typeof target === "string" && target !== "" ? ` ${target.split("\n")[0]!.slice(0, 120)}` : ""}`;
 		};
-		const workers = async (): Promise<Pick<StateView, "workers" | "workerThread">> => {
+		const workers = async (): Promise<Pick<StateView, "workers" | "workerThread" | "background">> => {
 			if (!own) {
 				const worker = (await core.workers.list()).find((candidate) => String(candidate.conversation) === id);
 				return worker ? { workerThread: { id: worker.id, title: worker.title, from: worker.from === core.rootId ? "" : worker.from } } : {};
 			}
 			const shown = (await mine()).filter((worker) => worker.endedAt === undefined || worker.endedAt > Date.now() - 24 * 3600_000);
-			if (shown.length === 0) return {};
+			// The one background command belongs to the conversation that started it.
+			const job = await core.background.running();
+			const background = job && job.conversation === id ? { background: { id: job.id, command: job.command.split("\n")[0]!.slice(0, 200), startedAt: job.startedAt } } : {};
+			if (shown.length === 0) return background;
 			const views: WorkerView[] = [];
 			for (const worker of shown) {
 				const step = await stepOf(worker).catch(() => undefined);
 				views.push({ id: worker.id, title: worker.title, place: worker.place, status: worker.status, createdAt: worker.createdAt, ...(worker.startedAt ? { startedAt: worker.startedAt } : {}), ...(worker.endedAt ? { endedAt: worker.endedAt } : {}), ...(worker.conversation !== undefined ? { conversation: String(worker.conversation) } : {}), ...(worker.model ? { model: worker.model } : {}), ...(worker.picked ? { picked: true } : {}), ...(step ? { step } : {}) });
 			}
-			return { workers: views };
+			return { workers: views, ...background };
 		};
 		const whole = async (view: StateView): Promise<StateView> => {
-			const { workers: _old, workerThread: _was, ...rest } = view;
+			const { workers: _old, workerThread: _was, background: _job, ...rest } = view;
 			return ready({ ...rest, ...(await workers()) });
 		};
 		const channel: Channel = {
@@ -407,6 +410,10 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			const { id } = await bodyOf(request);
 			if (typeof id !== "string") throw new Refusal(400, "id is required.");
 			if (!(await core.workers.stop(id))) throw new Refusal(409, "That worker is not running.");
+			return { ok: true };
+		},
+		"POST /api/background/stop": async () => {
+			if (!(await core.background.stop())) throw new Refusal(409, "No background command is running.");
 			return { ok: true };
 		},
 		"GET /api/reminders": async () => ({ items: (await core.reminders?.list()) ?? [] }),

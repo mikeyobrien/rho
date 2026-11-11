@@ -10,6 +10,7 @@ import { context, openCore, type Core } from "../src/core.ts";
 import { openModels } from "../src/providers.ts";
 import { Approvals } from "../src/tools/guard.ts";
 import { serve, type Server } from "../src/http.ts";
+import { noticeCard } from "../src/view.ts";
 import { start } from "../web/app.js";
 import { El, fakeDocument } from "./fixtures/dom.ts";
 
@@ -489,19 +490,23 @@ test("a release shows in the page as it goes: its stage and time, the restart as
 	let now = 0;
 	const page = await open({ now: () => now });
 	await until("live", () => idle(page));
-	expect(page.$("release").hidden).toBe(true);
+	expect(runningRows(page)).toEqual([]);
 	// What the gate, another process, writes as it works. Its pid here is this test's, which lives.
 	const [commit, previous] = ["a".repeat(40), "b".repeat(40)];
 	const stage = (name: string, at: number) => writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "running", stage: name, commit, previous, pid: process.pid, started: 1_000, at }));
-	const line = () => page.$("release-text").textContent;
+	// The release is a row of the Running card at the tail of the thread, not a strip of its own.
+	const row = () => runningRowEls(page).find((item) => item.className.includes("release"));
+	const line = () => runningRows(page).find((text) => text.startsWith("Release | "))?.slice("Release | ".length) ?? "";
 	now = 42_000;
 	stage("check", 2_000);
-	await until("the release line", () => !page.$("release").hidden);
-	expect(line()).toBe("Releasing aaaaaaa · running the checks · 0:41");
-	expect(page.$("release").classList.contains("bad")).toBe(false);
+	await until("the release row", () => line() !== "");
+	expect(line()).toBe("aaaaaaa · running the checks · 0:41");
+	expect(row()!.className).not.toContain("failed");
+	expect((page.$("live").children as El[]).at(-1)!.className).toBe("running"); // the card is the last thing in the thread
+	expect(page.$("release").hidden).toBe(true); // nothing outside the thread
 	// The time counts on its own between the daemon's snapshots.
 	now = 65_000;
-	await until("the clock to move", () => line() === "Releasing aaaaaaa · running the checks · 1:04", 15_000);
+	await until("the clock to move", () => line() === "aaaaaaa · running the checks · 1:04", 15_000);
 	stage("wait for idle", 66_000);
 	await until("the next stage", () => line().includes("waiting for rho to finish its answer"));
 	stage("restart", 70_000);
@@ -513,7 +518,7 @@ test("a release shows in the page as it goes: its stage and time, the restart as
 	expect(page.$("status").classList.contains("warn")).toBe(false);
 	expect(page.$("notice").hidden).toBe(true);
 	now = 75_000;
-	await until("the line to count through the restart", () => line() === "Releasing aaaaaaa · restarting rho · 1:14", 15_000);
+	await until("the line to count through the restart", () => line() === "aaaaaaa · restarting rho · 1:14", 15_000);
 	// It comes back on the new commit.
 	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "released", commit, previous, at: Date.now() }));
 	down = false;
@@ -522,14 +527,14 @@ test("a release shows in the page as it goes: its stage and time, the restart as
 	// A release that failed, and one that went back, say so in the colour of a fault.
 	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "failed", commit, previous, reason: "Its checks failed (exit 1):\nlots", at: Date.now() }));
 	await until("the failure", () => line() === "aaaaaaa was not released. Rho still runs bbbbbbb.");
-	expect(page.$("release").classList.contains("bad")).toBe(true);
-	expect(JSON.stringify(page.$("release").textContent)).not.toContain("lots");
+	expect(row()!.className).toContain("failed");
+	expect(runningCard(page)!.textContent).not.toContain("lots");
 	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "rolled-back", commit, previous, at: Date.now() }));
 	await until("the roll back", () => line() === "aaaaaaa did not start, so rho is back on bbbbbbb.");
 	// After five minutes it is no longer news.
 	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "released", commit, previous, at: Date.now() - 6 * 60_000 }));
-	await until("the line to go", () => page.$("release").hidden);
-	expect(line()).toBe("");
+	await until("the row to go", () => line() === "");
+	expect(runningCard(page)).toBeUndefined(); // nothing runs: no card
 }, 40_000);
 
 test("when rho is unreachable with no release under way, it is still said as a fault", async () => {
@@ -666,173 +671,210 @@ function scriptWorker(worker: (seen: { results: number; lastRole: string }) => R
 }
 const BRIEF = "The person asked for the branch to be published. Wait for the build, then push main to origin, and report what was pushed and how you checked it.";
 const PUSH = "git push --dry-run origin main"; // held by the guard like any push, and changes nothing if it runs
-/** A browser in which the worker list and its ended rows were left open. */
-const opened = () => new Map([["workersOpen", "true"], ["workersEndedOpen", "true"]]);
-const workerRows = (page: Page) => (page.$("worker-list").children as El[]).filter((row) => row.className.startsWith("worker "));
-const rows = (page: Page) => workerRows(page).map((row) => row.all().filter((node) => node.tag === "span" || node.className === "worker-open").map((node) => node.textContent).join(" | "));
 
-test("a worker is listed with its step; its command that needs a yes shows a card here, and Allow lets it go on to one report", async () => {
+// --- what runs beside the conversation is shown in the thread ---------------------------------------
+/** The Running card at the tail of the thread, or undefined when nothing runs. */
+const runningCard = (page: Page) => (page.$("live").children as El[]).find((node) => node.className === "running");
+const runningRowEls = (page: Page) => (runningCard(page)?.all() ?? []).filter((node) => node.tag === "li");
+const part = (node: El, name: string) => node.all().find((child) => child.className === name);
+/** Its rows, each as "title | state". */
+const runningRows = (page: Page) => runningRowEls(page).map((row) => `${part(row, "running-title")!.textContent} | ${part(row, "running-state")!.textContent}`);
+/** The report cards in the thread, oldest first. */
+const reports = (page: Page) => (page.$("entries").children as El[]).filter((node) => node.className.startsWith("report "));
+const reportWords = (card: El) => ["report-verdict", "report-title", "report-summary", "report-who"].map((name) => part(card, name)!.textContent);
+/** The thread's lines without the Running card, which is always last. */
+const thread = (page: Page) => page.messages().filter((line) => !line.startsWith("running|"));
+
+test("a worker is a row of the Running card at the tail of the thread; its request for a yes is a card; its report is a card", async () => {
 	scriptWorker(({ results, lastRole }) => {
 		if (results === 0) return fauxAssistantMessage(fauxToolCall("wait", { why: "the build" }), { stopReason: "toolUse" });
 		if (results === 1 || (results === 2 && lastRole === "user")) return fauxAssistantMessage(fauxToolCall("bash", { command: PUSH }), { stopReason: "toolUse" });
 		if (results === 2) return fauxAssistantMessage("The push waits for the person's yes.");
-		return fauxAssistantMessage("DONE\nI ran the push as a dry run after the person allowed it.");
+		return fauxAssistantMessage("DONE\nI ran the push as a dry run after the person allowed it.\n\nChecked: the command exited 0.");
 	}, [fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off."), fauxAssistantMessage("The worker is done.")]);
-	const page = await open({ stored: opened() });
+	const page = await open();
 	await until("live", () => idle(page));
-	expect(page.$("workers").hidden).toBe(true);
+	expect(runningCard(page)).toBeUndefined();
 	await page.send("publish it");
 	await gate.started;
-	// The row: the job, how it stands, how long, where, and the step it is on. The header counts it.
-	await until("the worker's row with its step", () => /^Publish the branch \| working · 0:\d\d · local · faux-1 · wait$/.test(rows(page)[0] ?? ""), 15_000);
-	expect(page.$("workers").hidden).toBe(false);
+	// The row: the job, how it stands, how long, where, on which model, and the step it is on.
+	await until("the worker's row with its step", () => /^Publish the branch \| working · 0:\d\d · local · .+ · wait$/.test(runningRows(page)[0] ?? ""), 15_000);
+	expect((page.$("live").children as El[]).at(-1)!.className).toBe("running"); // after everything else in the thread
+	expect(page.$("workers").hidden).toBe(true); // nothing above the message box
 	await until("the main thread idle", () => idle(page));
-	expect(page.$("status").textContent).toEndWith(" · 1 worker");
-	expect(page.messages().at(-1)).toBe("msg assistant|Handed off."); // none of the worker's steps are in this thread
-	// Its push needs a yes: the card is here, under the worker's name.
+	expect(page.$("status").textContent).toEndWith(" · 1 running");
+	expect(thread(page).at(-1)).toBe("msg assistant|Handed off."); // none of the worker's steps are in this thread
+	// Its push needs a yes: the card is here, under the worker's name, above the Running card.
 	gate.release();
 	const card = () => (page.$("live").children as El[]).find((node) => node.className === "approval");
 	await until("the worker's card", () => card() !== undefined, 15_000);
 	expect(card()!.textContent).toContain("Worker w1: Publish the branch");
 	expect(card()!.textContent).toContain("Needs your yes: git push");
 	expect(card()!.all().find((node) => node.tag === "pre")!.textContent).toBe(PUSH);
-	await until("the row to say it asks", () => rows(page)[0]!.includes("needs your yes"));
+	await until("the row to say it asks", () => (runningRows(page)[0] ?? "").includes("needs your yes"));
+	expect(runningRowEls(page)[0]!.className).toContain("asking");
+	const order = (page.$("live").children as El[]).map((node) => node.className);
+	expect(order.indexOf("approval")).toBeLessThan(order.indexOf("running"));
 	expect((await core.workers.list())[0]).toMatchObject({ status: "asking" });
 	// Allow: the worker is told, runs it, and reports. The agent in this thread is not sent a "Yes. Run it".
 	await card()!.all().find((node) => node.textContent === "Allow")!.fire("click");
-	await until("the report and the answer to it", () => page.messages().at(-1) === "msg assistant|The worker is done." && idle(page), 20_000);
+	await until("the report and the answer to it", () => thread(page).at(-1) === "msg assistant|The worker is done." && idle(page), 20_000);
 	expect(card()).toBeUndefined();
 	expect(page.messages().some((line) => line.startsWith("msg user|Yes. Run it"))).toBe(false);
-	expect(page.messages().filter((line) => line.includes("[worker w1] Publish the branch")).length).toBe(1);
-	// Ended, with nothing else live: its report is in the thread, and the list takes no space any more.
-	await until("the list to go away", () => page.$("workers").hidden === true);
-	expect(page.$("status").textContent).not.toContain("worker");
-	// The menu brings it back for a look: its row, without a Stop. The same line puts it away again.
+	// The report is one card: how it ended and what it was, then one line and whose it is. The rest opens on a tap.
+	expect(reports(page).length).toBe(1);
+	const report = reports(page)[0]!;
+	expect(report.className).toBe("report done");
+	expect(reportWords(report)).toEqual(["done", "Publish the branch", "I ran the push as a dry run after the person allowed it.", "worker w1"]);
+	expect(report.open).toBe(false);
+	expect(part(report, "report-body")!.textContent).toContain("Checked: the command exited 0.");
+	expect(page.messages().some((line) => line.startsWith("notice-entry|"))).toBe(false); // not also as a block of text
+	// Its job over, the row is gone, and with nothing else running so is the card.
+	await until("the card to go", () => runningCard(page) === undefined);
+	expect(page.$("status").textContent).not.toContain("running");
+	// The menu brings the ended ones back, in the same card, without a Stop; and puts them away again.
 	expect([page.$("show-workers").hidden, page.$("show-workers").textContent]).toEqual([false, "Workers: 1 ended"]);
 	await page.$("show-workers").click();
-	expect(page.$("workers").hidden).toBe(false);
+	expect(part(runningCard(page)!, "running-head")!.textContent).toStartWith("Ended today");
+	expect(runningRows(page)[0]).toMatch(/^Publish the branch \| done · 0:\d\d · local · .+$/);
+	expect(part(runningRowEls(page)[0]!, "running-stop")).toBeUndefined();
 	expect(page.$("show-workers").hidden).toBe(true);
-	expect(rows(page)[0]).toMatch(/^Publish the branch \| done · 0:\d\d · local · faux-1$/);
-	expect(workerRows(page)[0]!.all().some((node) => node.className === "worker-stop")).toBe(false);
-	await page.$("worker-summary").click();
-	expect(page.$("workers").hidden).toBe(true);
+	await part(runningCard(page)!, "running-close")!.click();
+	expect(runningCard(page)).toBeUndefined();
 }, 60_000);
 
-test("a worker's No is told to it; a worker is stopped from its row; its thread opens to read and takes no message", async () => {
+test("a worker's No is told to it; its thread opens from its row, to read; Stop on the row ends it and leaves no report", async () => {
 	scriptWorker(({ results, lastRole }) => {
 		if (results === 0) return fauxAssistantMessage(fauxToolCall("bash", { command: PUSH }), { stopReason: "toolUse" });
 		if (results === 1 && lastRole === "toolResult") return fauxAssistantMessage("The push waits for the person's yes.");
 		if (results === 1) return fauxAssistantMessage(fauxToolCall("wait", { why: "what is left" }), { stopReason: "toolUse" }); // told no: it goes on with the rest
 		return fauxAssistantMessage("PARTIAL\nNot pushed: the person said no.");
 	}, [fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off.")]);
-	const page = await open({ stored: opened() });
+	const page = await open();
 	await until("live", () => idle(page));
 	await page.send("publish it");
 	const card = () => (page.$("live").children as El[]).find((node) => node.className === "approval");
 	await until("the worker's card", () => card() !== undefined, 15_000);
 	await card()!.all().find((node) => node.textContent === "Deny")!.fire("click");
 	await gate.started; // the worker was told no and went on
-	await until("the row to say working again", () => rows(page)[0]!.includes("working"));
+	await until("the row to say working again", () => (runningRows(page)[0] ?? "").includes("working"));
 	const worker = (await core.workers.list())[0]!;
-	const thread = await core.harness.conversation(worker.conversation as never, context);
-	const told = (await thread!.entries({ order: "descending" }, 10, undefined, context)).items.map((entry) => JSON.stringify(entry.model?.[0] ?? "")).find((text) => text.includes("The person said no"));
+	const its = await core.harness.conversation(worker.conversation as never, context);
+	const told = (await its!.entries({ order: "descending" }, 10, undefined, context)).items.map((entry) => JSON.stringify(entry.model?.[0] ?? "")).find((text) => text.includes("The person said no"));
 	expect(told).toContain(`Do not run: \`${PUSH}\``);
 	// Its thread opens from the row: read only, with a way back, and nothing can be sent into it.
-	const row = () => workerRows(page)[0]!;
-	await row().all().find((node) => node.className === "worker-open")!.fire("click");
+	await part(runningRowEls(page)[0]!, "running-title")!.fire("click");
 	await until("the worker's thread", () => page.$("worker-thread").hidden === false && page.messages().some((line) => line.startsWith("msg user|You are a worker.")));
 	expect(page.$("worker-thread").textContent).toContain("Worker w1: Publish the branch. Its thread is read only.");
 	expect(page.$("composer").hidden).toBe(true);
+	expect(runningCard(page)).toBeUndefined(); // a worker's own thread lists no workers
 	const token = JSON.parse(page.stored.get("token")!);
 	const post = (path: string, body: object) => fetch(`http://127.0.0.1:${server.port}/api/${path}?c=${worker.conversation}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
 	for (const [path, body] of [["submit", { text: "do something else", requestId: "worker-thread-1" }], ["stop", {}], ["new", {}], ["cwd", { path: work }]] as const) {
 		const refused = await post(path, body);
 		expect([path, refused.status, ((await refused.json()) as { error?: string }).error]).toEqual([path, 403, "A worker's thread is read only."]);
 	}
-	await page.$("worker-thread").all().find((node) => node.className === "worker-back")!.fire("click");
+	await part(page.$("worker-thread"), "worker-back")!.fire("click");
 	await until("back in the main thread", () => page.$("worker-thread").hidden === true && page.messages().includes("msg assistant|Handed off."));
 	expect(page.$("composer").hidden).toBe(false);
-	// Stop, from the row: it ends, reports nothing, and keeps its row.
-	await row().all().find((node) => node.className === "worker-stop")!.fire("click");
-	await until("the list to go away, the only worker being stopped", () => page.$("workers").hidden === true, 15_000);
+	await until("its row again", () => runningRows(page).length === 1);
+	// Stop, from the row: it ends, its row and the card go, and it reports nothing.
+	await part(runningRowEls(page)[0]!, "running-stop")!.fire("click");
+	await until("the card to go, the only worker being stopped", () => runningCard(page) === undefined, 15_000);
 	await Bun.sleep(200);
-	expect(page.messages().some((line) => line.includes("[worker w1]"))).toBe(false);
+	expect(reports(page)).toEqual([]);
 	expect((await core.workers.list())[0]).toMatchObject({ status: "stopped" });
-	expect(page.$("status").textContent).not.toContain("worker");
+	expect(page.$("status").textContent).not.toContain("running");
 }, 60_000);
 
-test("many workers cost one line: it counts them, opens to the live and the failed, and the ended open from a row of their own", async () => {
+test("five workers: the card holds only the ones still at it; each that ended left a report card, a failed one in red", async () => {
 	// Five jobs: two end done, one fails, one is held at work, one waits for a slot (two run at once).
 	const jobs = ["done-a", "done-b", "fails", "held", "queued"];
-	scriptWorker(() => fauxAssistantMessage("(unused)"), []);
 	faux.setResponses(Array.from({ length: 80 }, () => (asked: { messages: { role: string; content: unknown }[] }) => {
 		const first = asked.messages.find((message) => message.role === "user")?.content;
-		const text = typeof first === "string" ? first : ((first ?? []) as { text?: string }[]).map((part) => part.text ?? "").join("");
+		const text = typeof first === "string" ? first : ((first ?? []) as { text?: string }[]).map((item) => item.text ?? "").join("");
 		const results = asked.messages.filter((message) => message.role === "toolResult").length;
 		if (!text.startsWith("You are a worker.")) {
 			// The agent hands off one job per step, then answers; later turns (the reports) get a word.
-			const handed = asked.messages.filter((message) => message.role === "toolResult").length;
-			if (asked.messages.filter((message) => message.role === "user").length === 1 && handed < jobs.length) return fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: `Job ${jobs[handed]}`, brief: `${BRIEF} KIND=${jobs[handed]}` }), { stopReason: "toolUse" });
-			return fauxAssistantMessage(handed >= jobs.length && asked.messages.at(-1)!.role === "toolResult" ? "All handed off." : "Noted.");
+			if (asked.messages.filter((message) => message.role === "user").length === 1 && results < jobs.length) return fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: `Job ${jobs[results]}`, brief: `${BRIEF} KIND=${jobs[results]}` }), { stopReason: "toolUse" });
+			return fauxAssistantMessage(results >= jobs.length && asked.messages.at(-1)!.role === "toolResult" ? "All handed off." : "Noted.");
 		}
 		const kind = /KIND=([\w-]+)/.exec(text)![1]!;
 		if (kind === "fails") return fauxAssistantMessage("FAILED\nThe remote does not exist.");
-		if (kind.startsWith("done")) return fauxAssistantMessage("DONE\nNothing to push.");
+		if (kind.startsWith("done")) return fauxAssistantMessage("DONE\nNothing to send.");
 		return results === 0 ? fauxAssistantMessage(fauxToolCall("wait", { why: "the build" }), { stopReason: "toolUse" }) : fauxAssistantMessage("DONE\nWaited.");
 	}));
 	const page = await open();
 	await until("live", () => idle(page));
-	expect(page.$("worker-summary").hidden).toBe(true);
 	await page.send("hand off five jobs");
-	const summary = () => page.$("worker-summary").textContent;
-	// Collapsed, which is how it starts: one line, no rows, whatever the number of workers.
-	await until("the counting line to settle", () => summary() === "▸ 5 workers: 2 working · 1 failed · 2 ended" || summary() === "▸ 5 workers: 1 working · 1 waiting · 1 failed · 2 ended", 20_000);
-	await until("the last job to get its slot", () => summary() === "▸ 5 workers: 2 working · 1 failed · 2 ended", 20_000);
-	expect(page.$("worker-summary").hidden).toBe(false);
-	expect(page.$("worker-summary").attrs["aria-expanded"]).toBe("false");
-	expect(page.$("worker-list").children.length).toBe(0);
-	expect(page.$("worker-summary").classList.contains("failed")).toBe(true);
-	// Opened: the live ones and the failed one, each with its row, and one row that counts the rest.
-	await page.$("worker-summary").click();
-	expect(summary()).toStartWith("▾ 5 workers:");
-	expect(page.$("worker-summary").attrs["aria-expanded"]).toBe("true");
-	expect(rows(page).map((row) => row.split(" | ")[0]).sort()).toEqual(["Job fails", "Job held", "Job queued"]);
-	expect(rows(page).find((row) => row.startsWith("Job fails"))).toMatch(/^Job fails \| failed · 0:\d\d · local · faux-1$/);
-	const ended = () => (page.$("worker-list").children as El[]).flatMap((row) => row.all()).find((node) => node.className === "worker-ended")!;
-	expect(ended().textContent).toBe("▸ 2 ended");
-	expect(workerRows(page).filter((row) => row.all().some((node) => node.className === "worker-stop")).length).toBe(2); // only the live ones can be stopped
-	// The ended ones open from their own row, after the others.
-	await ended().click();
-	expect(ended().textContent).toBe("▾ 2 ended");
-	expect(rows(page).map((row) => row.split(" | ")[0])).toEqual(expect.arrayContaining(["Job done-a", "Job done-b"]));
-	expect(rows(page).length).toBe(5);
-	expect(rows(page).slice(-2).every((row) => row.includes("| done ·"))).toBe(true);
-	// What is open is kept in this browser: a reload shows the same.
-	expect([page.stored.get("workersOpen"), page.stored.get("workersEndedOpen")]).toEqual(["true", "true"]);
+	const titles = () => runningRows(page).map((row) => row.split(" | ")[0]).sort();
+	// Three ended at once; the two that are left hold the two slots.
+	await until("two rows, both working", () => JSON.stringify(titles()) === JSON.stringify(["Job held", "Job queued"]) && runningRows(page).every((row) => row.includes("| working")), 25_000);
+	expect(runningRowEls(page).filter((row) => part(row, "running-stop") !== undefined).length).toBe(2);
+	await until("three report cards", () => reports(page).length === 3 && idle(page), 20_000);
+	expect(reports(page).map((card) => `${card.className}: ${reportWords(card).join(" / ")}`).sort()).toEqual([
+		"report done: done / Job done-a / Nothing to send. / worker w1",
+		"report done: done / Job done-b / Nothing to send. / worker w2",
+		"report failed: failed / Job fails / The remote does not exist. / worker w3",
+	]);
+	expect(page.$("status").textContent).toEndWith(" · 2 running");
+	// The ended ones on request, in the same card after the live ones; then away again.
+	expect(page.$("show-workers").textContent).toBe("Workers: 3 ended");
+	await page.$("show-workers").click();
+	expect(runningRows(page).length).toBe(5);
+	expect(part(runningCard(page)!, "running-head")!.textContent).toStartWith("Running");
+	expect(runningRows(page).slice(0, 2).every((row) => row.includes("| working"))).toBe(true);
+	await part(runningCard(page)!, "running-close")!.click();
+	expect(runningRows(page).length).toBe(2);
+	// A second browser is shown the same, from the daemon's state alone.
 	const again = await open({ pair: false, stored: page.stored });
-	await until("the reloaded page's rows", () => rows(again).length === 5);
-	// Closed again: back to one line.
-	await again.$("worker-summary").click();
-	expect(again.$("worker-list").children.length).toBe(0);
-	expect(again.$("worker-summary").textContent).toStartWith("▸ 5 workers:");
-	expect(again.stored.get("workersOpen")).toBe("false");
-	// The last live ones end: the line goes too, on both pages, and the menu offers all five.
+	await until("the second page's rows", () => runningRows(again).length === 2 && reports(again).length === 3);
+	// The last two end: no card on either page, five reports, and the menu offers all five.
 	gate.release();
-	await until("the list to go away", () => again.$("workers").hidden === true && page.$("workers").hidden === true, 20_000);
+	await until("the cards to go", () => runningCard(page) === undefined && runningCard(again) === undefined && reports(page).length === 5, 25_000);
 	expect(again.$("show-workers").textContent).toBe("Workers: 5 ended");
-	await again.$("show-workers").click();
-	expect(rows(again).length).toBe(5); // asked for by name, so shown at once, also in a browser that had the list closed
-	expect(again.$("worker-summary").textContent).toBe("▾ 5 workers: 1 failed · 4 ended");
 }, 90_000);
 
-test("the counting line says when a worker needs a yes, before anything else", async () => {
-	scriptWorker(({ results }) => (results === 0 ? fauxAssistantMessage(fauxToolCall("bash", { command: PUSH }), { stopReason: "toolUse" }) : fauxAssistantMessage("The push waits for the person's yes.")),
-		[fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off.")]);
+test("a background command is a row too: its command, its time, a Stop; and how it ended is a report card", async () => {
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("background", { action: "start", command: "sleep 30" }), { stopReason: "toolUse" }), fauxAssistantMessage("Started."),
+		fauxAssistantMessage(fauxToolCall("background", { action: "start", command: "echo hi" }), { stopReason: "toolUse" }), fauxAssistantMessage("Started again."), fauxAssistantMessage("It passed."),
+		fauxAssistantMessage(fauxToolCall("background", { action: "start", command: "echo no; exit 3" }), { stopReason: "toolUse" }), fauxAssistantMessage("Started a third."), fauxAssistantMessage("It failed."),
+	]);
 	const page = await open();
 	await until("live", () => idle(page));
-	await page.send("publish it");
-	await until("the line to say it asks", () => page.$("worker-summary").textContent === "▸ 1 worker: 1 needs your yes", 15_000);
-	expect(page.$("worker-summary").classList.contains("asking")).toBe(true);
-	expect(page.$("worker-list").children.length).toBe(0); // still one line: the card in the thread is where the yes is given
-	expect((page.$("live").children as El[]).some((node) => node.className === "approval")).toBe(true);
-}, 40_000);
+	await page.send("run the long job");
+	await until("its row", () => /^sleep 30 \| running · 0:\d\d · background command$/.test(runningRows(page)[0] ?? "") && idle(page), 15_000);
+	expect(runningRowEls(page)[0]!.className).toContain("background");
+	expect(page.$("status").textContent).toEndWith(" · 1 running");
+	// Stop, from the row: the command ends and says nothing more.
+	await part(runningRowEls(page)[0]!, "running-stop")!.fire("click");
+	await until("the card to go", () => runningCard(page) === undefined, 15_000);
+	expect(reports(page)).toEqual([]);
+	expect(await core.background.running()).toBeUndefined();
+	const token = JSON.parse(page.stored.get("token")!);
+	const again = await fetch(`http://127.0.0.1:${server.port}/api/background/stop`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" });
+	expect([again.status, ((await again.json()) as { error?: string }).error]).toEqual([409, "No background command is running."]);
+	// One that passes: a card with one line and nothing to open.
+	await page.send("run the short one");
+	await until("the report and the answer to it", () => thread(page).at(-1) === "msg assistant|It passed." && idle(page), 20_000);
+	expect(reports(page).length).toBe(1);
+	expect(reports(page)[0]!.className).toBe("report done");
+	expect(reportWords(reports(page)[0]!).join(" / ")).toMatch(/^done \/ echo hi \/ passed in \d+ s\. \/ background command$/);
+	expect(part(reports(page)[0]!, "report-body")).toBeUndefined();
+	// One that fails: red, and its last lines open on a tap.
+	await page.send("run the bad one");
+	await until("the second report", () => thread(page).at(-1) === "msg assistant|It failed." && idle(page), 20_000);
+	expect(reports(page)[1]!.className).toBe("report failed");
+	expect(reportWords(reports(page)[1]!).slice(0, 2)).toEqual(["failed", "echo no; exit 3"]);
+	expect(part(reports(page)[1]!, "report-body")!.textContent).toContain("no");
+	expect(runningCard(page)).toBeUndefined();
+}, 60_000);
+
+test("a notice is drawn as a card only when what was stored is a card, field by field", () => {
+	const good = { kind: "report", title: "Fix it", verdict: "partial", who: "worker w4", body: "PARTIAL\nHalf." };
+	expect(noticeCard({ from: "worker", card: good })).toEqual(good as never);
+	expect(noticeCard({ from: "worker", card: { ...good, summary: "One line", extra: "<script>" } })).toEqual({ ...good, summary: "One line" } as never); // unknown fields are dropped
+	for (const bad of [undefined, {}, { card: "report" }, { card: { ...good, kind: "html" } }, { card: { ...good, verdict: "great" } }, { card: { ...good, title: 7 } }, { card: { kind: "report", verdict: "done" } }]) expect(noticeCard(bad)).toBeUndefined();
+	expect(noticeCard({ card: { ...good, body: "x".repeat(9_000) } })!.body!.length).toBe(6_000);
+});

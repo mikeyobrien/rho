@@ -17,8 +17,9 @@ See [MIGRATION.md](MIGRATION.md).
 - A `delegate` tool: rho hands a whole job to a worker in its own thread and stays free.
   The page lists workers with their status and a Stop; a worker's command that needs your
   yes shows its card in your thread. Rho can look at what a worker is doing and send it a
-  message while it works. The list is one line while workers run, opens on a tap, and goes
-  away when the last one ends; the menu shows the ended ones.
+  message while it works. What runs beside the conversation (workers, a background command, a
+  release) is one card at the end of the thread, and each report is a card that opens on a
+  tap. Nothing sits above the message box for them.
 - A model per job: say which model suits which work and rho keeps it in a third memory
   list, `models`. `delegate` takes a `model` and `thinking` for a worker, chosen by those
   preferences; with none the worker runs as the conversation does. The model is shown on

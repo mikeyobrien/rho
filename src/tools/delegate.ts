@@ -223,7 +223,7 @@ export function delegateTool(options: DelegateOptions): Extension {
 					}
 					const ended = book.workers.filter((worker) => !live(worker));
 					if (ended.length > KEPT) book.workers = book.workers.filter((worker) => live(worker) || ended.slice(-KEPT).includes(worker)).map(plain);
-					if (handle) await handle.submit(tx, { type: "input", content: words, requestId: `worker-report:${task.input.id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "worker" } } });
+					if (handle) await handle.submit(tx, { type: "input", content: words, requestId: `worker-report:${task.input.id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "worker", card: { kind: "report", title: task.input.title, verdict: outcome, who: `worker ${task.input.id}`, body: text.slice(0, 6_000) } } } });
 					return { status: "terminal", outcome: { status: "completed", result: null } };
 				}, ctx);
 				log(`worker ${task.input.id}: ${outcome}`);
