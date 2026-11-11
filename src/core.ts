@@ -39,6 +39,8 @@ export interface RhoConfig {
 	memory?: unknown;
 	/** A decision model that classifies each shell command: `{ "baseUrl": "http://127.0.0.1:8098", "model": "clef-flash" }`. It only watches and logs. Default: off. */
 	decider?: unknown;
+	/** Notifications when rho needs a yes, a run fails or a report arrives. `false` turns them off. */
+	notifications?: boolean;
 	/** Check-ins (reminders rho runs unattended). `false` turns them off. */
 	checkins?: boolean | { maxTurns?: number };
 	/** Most tool rounds one run takes before it stops and says so. Default: 200. */

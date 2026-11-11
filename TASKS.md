@@ -531,7 +531,38 @@ is used only through Claude Code.
     Not built: an external-module provider (dobo has one); migrating rho 1's `brain.jsonl`.
 15. Skills: `SKILL.md` directories listed in a prompt section and loaded with `read`.
 16. A question tool: the model asks the person a structured question and waits.
-17. Notices through `termux-notification`: needs you, failed, looks stuck. Not on done.
+17. Notices through `termux-notification`: needs you, failed, a report. Not on done.
+    **Built** 2026-11-11, Android first (`src/notify.ts`, `test/notify.test.ts`); **not yet
+    seen on a phone**: the Termux:API app is not installed on the owner's.
+    - The daemon sends, so a notification arrives with the page closed. With a notifier the
+      server watches every one of the person's conversations from its start, not only those
+      a client has opened.
+    - One rule (`attention`, pure): a request that waits for a yes; a run that failed, unless
+      the person stopped it; a message they did not write (a check-in's report, the gate's).
+      A finished answer never notifies.
+    - Nothing notifies while a client has that conversation open. A request shown in the page
+      and still waiting when the client leaves is notified then. A failure or report that
+      arrived while it was open was seen there and is not notified later.
+    - A request's notification is taken away when the request is answered. What was notified
+      is `<data dir>/notified.json`, so a restart does not ring again for a waiting card. At
+      the first look after a start, old failures and reports are history and do not ring.
+    - The sender is found by its command (`termux-notification`); the note's text is passed
+      as arguments, never through a shell. A tap opens the page. There are no Allow or Deny
+      buttons on the notification: a yes is given where the whole request can be read.
+      A sender that hangs (the command without its app) is killed after 10 s.
+    - No sender: one log line that says what to install, and rho runs as before.
+      `"notifications": false` turns them off; the settings tool can propose it.
+    - Checked: 6 tests, no model: the rule; ring once, not while watched, ring on leaving,
+      removed when answered; across a restart; a stand-in `termux-notification` that records
+      its arguments; and a real core and server with a recording sender.
+    - Not checked: any real notification. Whether `termux-notification` works on Android 17
+      with this Termux build, whether its tap action opens Chrome, how it looks, and whether
+      Android's battery limits delay it.
+    - Not built: other systems (`notify-send`, macOS) and a command of the person's own;
+      "looks stuck" (nothing detects it yet); buttons; a check-in that notifies without
+      also writing to the first conversation; quiet hours; grouping several at once.
+    - Changed from the first plan: the plan named `notify-send` beside Termux. The owner
+      asked for Android first, so only Termux is built.
 18. Usage and cost per conversation, shown in the page.
 19. Image input: a pasted or picked photo reaches the model. **Done** 2026-11-10
     (`src/photos.ts`, `POST /api/submit` takes `images`, `GET /api/image`, the page's + button).
@@ -615,7 +646,8 @@ is used only through Claude Code.
       had just built (the decider). Opening the data directory to it would also open the
       token and the API keys.
     - `settings` takes `list`, `set {name, value}` and `unset {name}`. Only `model`,
-      `thinking`, `cwd`, `checkins` and `decider` can be proposed, each with its own check.
+      `thinking`, `cwd`, `notifications` (added with item 17), `checkins` and `decider` can
+      be proposed, each with its own check.
       `memory`, `providers`, `claudePlan`, `maxTurns` and anything else stay the person's to
       edit: they hold keys, say where conversations are sent, or bound a run.
     - A change is an approval like a push: a card with the change as `set thinking to "high"
@@ -686,6 +718,12 @@ is used only through Claude Code.
       20 runs that day, on a loaded phone. One asserts a 3 s timeout ends within 3.8 s and
       measured 4.3 s; the other two then run into the slow stand-in server. They passed 14
       of 14 times run alone, with and without this change. The test was left as it is.
+      Later that day it blocked three commits in a row (load average 10 to 13, most of it
+      the suite's own 22 files), so it was changed: the stand-in server now waits 30 s, not
+      4 s, and ends when the client gives up; the 3 s timeout must end within 12 s; and a
+      failure puts the server back to normal, so it no longer takes two more tests with it.
+      The release-line page test, which timed out once in the same hour, waits 15 s for
+      its clock, not 4 s. Both still fail if the thing they test does not happen.
     - Not built: acting on it (asking less for a kind that is always allowed, a threshold);
       a reason with a deny; noticing a card that was left unanswered; a size limit.
 

@@ -13,6 +13,7 @@ import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
 import { answerApproval, Approvals } from "./tools/guard.ts";
 import { recordAnswer } from "./answers.ts";
+import type { Notifier } from "./notify.ts";
 import { releaseView } from "./gate.ts";
 import { MAX_PHOTO_BYTES, PhotoRefused, takePhotos } from "./photos.ts";
 import { setupOf } from "./providers.ts";
@@ -27,6 +28,8 @@ export interface ServerOptions {
 	commit?: string;
 	/** Scales a photo that is larger than a model takes. Without one, such a photo is refused. */
 	images?: ImageProcessor;
+	/** Told of every change in every one of the person's conversations, so it can notify them. */
+	notifier?: Notifier;
 	/** How often `release.json` is looked at while a client is connected. Default 2 s. Tests change it. */
 	releasePollMs?: number;
 	log?: (line: string) => void;
@@ -130,14 +133,19 @@ export async function serve(options: ServerOptions): Promise<Server> {
 
 	const encoder = new TextEncoder();
 	const frame = (channel: Channel) => encoder.encode(`data: ${JSON.stringify(channel.current)}\n\n`);
+	/** Tell the notifier where a conversation stands, and whether a client has it open. */
+	const attend = (channel: Channel) => options.notifier?.update(channel.id, channel.current, channel.streams.size > 0);
 	const send = (channel: Channel, bytes: Uint8Array) => {
+		let left = false;
 		for (const stream of [...channel.streams]) {
 			try {
 				stream.enqueue(bytes);
 			} catch {
 				channel.streams.delete(stream); // the client went away
+				left = true;
 			}
 		}
+		if (left) attend(channel);
 	};
 	// Whether a model can be used is asked at most once a second: a snapshot is sent per streamed token.
 	const checked = new Map<string, { at: number; note: string | undefined }>();
@@ -171,6 +179,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			refresh: async () => {
 				channel.current = await ready({ ...channel.current, approvals: await approvals() });
 				send(channel, frame(channel));
+				attend(channel);
 			},
 			stop: () => watch.stop(),
 		};
@@ -178,11 +187,12 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			if (call.kind !== "value") return;
 			channel.current = await ready(stateView(call.value, await approvals()));
 			send(channel, frame(channel));
+			attend(channel);
 		});
+		attend(channel);
 		return channel;
 	};
-	const channelOf = (url: URL): Promise<Channel> => {
-		const id = url.searchParams.get("c") || core.rootId;
+	const channelFor = (id: string): Promise<Channel> => {
 		let found = channels.get(id);
 		if (!found) {
 			found = open(id);
@@ -191,6 +201,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		}
 		return found;
 	};
+	const channelOf = (url: URL): Promise<Channel> => channelFor(url.searchParams.get("c") || core.rootId);
 	const opened = async (): Promise<Channel[]> => (await Promise.allSettled(channels.values())).flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
 	/** Look at the release again; when it moved, every open conversation is told. */
 	const syncRelease = async (): Promise<void> => {
@@ -304,7 +315,9 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		}),
 		"POST /api/conversations": async (request) => {
 			const { cwd } = await bodyOf(request);
-			return { id: (await core.create(cwd === undefined ? {} : { cwd: directory(cwd) })).id };
+			const made = await core.create(cwd === undefined ? {} : { cwd: directory(cwd) });
+			if (options.notifier) void channelFor(made.id).catch(() => undefined); // watched from its first moment
+			return { id: made.id };
 		},
 		// What the first conversation's model needs before it can answer, for `rho status`.
 		"GET /api/setup": async () => {
@@ -378,9 +391,11 @@ export async function serve(options: ServerOptions): Promise<Server> {
 							mine = controller;
 							controller.enqueue(frame(channel));
 							channel.streams.add(controller);
+							attend(channel); // someone is looking: what is on the page now needs no notification
 						},
 						cancel() {
 							channel.streams.delete(mine);
+							attend(channel); // they left: a request still waiting is notified now
 						},
 					});
 					return new Response(body, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" } });
@@ -398,6 +413,8 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		},
 	});
 	savePairCode();
+	// To notify with the page closed, every one of the person's conversations is watched from the start.
+	if (options.notifier) for (const info of await core.conversations()) await channelFor(info.id).catch((error: Error) => log(`notifications: ${info.id} is not watched: ${error.message}`));
 	writeFileSync(join(dir, "daemon.json"), JSON.stringify({ pid: process.pid, port: server.port, startedAt, commit: options.commit, root: resolve(import.meta.dir, "..") }), { mode: 0o600 });
 	return {
 		port: server.port ?? options.port,

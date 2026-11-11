@@ -46,6 +46,7 @@ export const SETTINGS: Record<string, { about: string; check(value: Json, checks
 			return { value: path };
 		},
 	},
+	notifications: { about: "notify when rho needs a yes, a run fails or a report arrives: true or false", check: (value) => (typeof value === "boolean" ? { value } : { refused: "notifications is true or false." }) },
 	checkins: { about: "reminders rho runs unattended: true or false", check: (value) => (typeof value === "boolean" ? { value } : { refused: "checkins is true or false." }) },
 	decider: {
 		about: 'a decision model that labels each shell command: {"baseUrl": "http://127.0.0.1:8098", "model": "clef-flash", "timeoutMs": 4000}. It only watches',

@@ -46,11 +46,16 @@ Rho is an agent with a shell. This page states what protects you and what does n
 - A run stops after 200 tool rounds by default. A check-in stops after 20.
 - A check-in runs with nobody watching. An action that needs your Allow is refused there,
   and the model is told to report that it was not done.
-- The agent cannot read or write rho's data directory. It can propose a change to five
-  settings (`model`, `thinking`, `cwd`, `checkins`, `decider`), which is written only after
+- The agent cannot read or write rho's data directory. It can propose a change to six
+  settings (`model`, `thinking`, `cwd`, `notifications`, `checkins`, `decider`), which is written only after
   you press Allow on a card that shows the old and the new value. It cannot propose a change
   to keys, providers, memory, the Claude plan or the turn limit. Read the card: a `decider`
   address or a `cwd` you allow is used from the next start.
+
+- A notification shows on the lock screen what it is about: the command that waits for
+  your yes, or the first line of a report. Android's own setting hides notification content
+  on the lock screen if you want that. A notification has no Allow button: a yes is given
+  in the page, where the whole request can be read.
 
 ## Text from the web
 

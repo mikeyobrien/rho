@@ -6,6 +6,7 @@ import { closeWarmProcesses, sweepStale } from "./claude/relay.ts";
 import { openCore, readConfig } from "./core.ts";
 import { rho1Notice, rhoHome } from "./home.ts";
 import { serve } from "./http.ts";
+import { findSender, NO_SENDER, openNotifier } from "./notify.ts";
 import { chooseModel, keyVariables, openModels, setupOf } from "./providers.ts";
 
 const log = (line: string) => console.error(line);
@@ -29,7 +30,11 @@ const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: import.meta.dir,
 const commit = head.exitCode === 0 ? head.stdout.toString().trim() : undefined;
 // Scales a photo the person sends to what a model takes. Without it rho still runs, and a large photo is refused.
 const images = await import("@earendil-works/pi-durable/images/node").then((module) => module.createNodePhotonImages()).catch((error: Error) => (log(`photos: no image scaling here, so a large photo is refused: ${error.message}`), undefined));
-const server = await serve({ core, models, dir, port, commit, images, log });
+// Notifications go out from here, so they arrive with the page closed. `"notifications": false` turns them off.
+const sender = config.notifications === false ? undefined : findSender();
+if (config.notifications !== false) log(sender ? `notifications: ${sender.label}` : NO_SENDER);
+const notifier = sender ? openNotifier({ dir, sender, open: `http://127.0.0.1:${port}/`, log }) : undefined;
+const server = await serve({ core, models, dir, port, commit, images, log, ...(notifier ? { notifier } : {}) });
 log(`rho: pid ${process.pid} on http://127.0.0.1:${server.port}, data in ${dir}${commit ? `, commit ${commit.slice(0, 7)}` : ""}`);
 const notice = rho1Notice(home);
 if (notice) log(notice);

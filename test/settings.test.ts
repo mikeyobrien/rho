@@ -151,11 +151,12 @@ test("what is not on the list, or is not a value the setting takes, is refused i
 		expect([args, result.error]).toEqual([args, true]);
 		return result.text;
 	};
-	for (const name of ["memory", "providers", "claudePlan", "maxTurns", "allowUsageCredits", "__proto__", "constructor", "token", ""]) expect(await refused({ action: "set", name, value: "true" })).toContain("You can propose: model, thinking, cwd, checkins, decider.");
+	for (const name of ["memory", "providers", "claudePlan", "maxTurns", "allowUsageCredits", "__proto__", "constructor", "token", ""]) expect(await refused({ action: "set", name, value: "true" })).toContain("You can propose: model, thinking, cwd, notifications, checkins, decider.");
 	expect(await refused({ action: "set", name: "thinking", value: "loud" })).toContain("thinking is one of: off, minimal");
 	expect(await refused({ action: "set", name: "thinking" })).toContain("value is required");
 	expect(await refused({ action: "set", name: "thinking", value: "null" })).toContain("use unset");
 	expect(await refused({ action: "set", name: "checkins", value: "yes" })).toContain("checkins is true or false.");
+	expect(await refused({ action: "set", name: "notifications", value: "loud" })).toContain("notifications is true or false.");
 	expect(await refused({ action: "set", name: "model", value: "nobody/nothing" })).toContain(`For example: ${model}`);
 	expect(await refused({ action: "set", name: "cwd", value: "relative/path" })).toContain("cwd is an absolute directory");
 	expect(await refused({ action: "set", name: "cwd", value: join(work, "missing") })).toContain("That directory does not exist.");

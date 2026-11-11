@@ -123,6 +123,20 @@ boot script holds a wake lock for as long as the phone is up, which costs batter
 On Linux it writes and enables a systemd user unit. For rho to start at boot without you
 logging in, turn on lingering once: `loginctl enable-linger $USER`.
 
+## Notifications
+
+On Android, rho notifies you when it needs your yes, when a run fails, and when a check-in or
+a release reports. It does not notify for a finished answer, or while you have that
+conversation open in the page. Tapping the notification opens rho.
+
+It needs the [Termux:API](https://f-droid.org/packages/com.termux.api/) app, from the same
+place you installed Termux, and its commands: `pkg install termux-api`. Allow the app to show
+notifications when Android asks. Restart rho afterwards; `rho logs` then says
+`notifications: termux-notification`. Without the app rho runs as before and says in its log
+that notifications are off. `"notifications": false` in the settings turns them off.
+
+Other systems do not notify yet.
+
 The service does not get your shell's environment. It keeps `PATH`, `RHO_HOME`, `RHO_PORT`
 and `RHO_CLAUDE` from the shell that installed it, and nothing else. **An API key that is
 only in an environment variable is not seen by the service.** Store it with `rho key`.
@@ -134,8 +148,8 @@ A reboot has not been tested on either platform.
 ## Settings
 
 Settings are in `~/.rho/v2/config.json`. All are optional. Restart rho after a change.
-Rho cannot open this file. It can propose a change to `model`, `thinking`, `cwd`, `checkins` or
-`decider`: you are shown the old and the new value, and it is written only after you press Allow.
+Rho cannot open this file. It can propose a change to `model`, `thinking`, `cwd`, `notifications`,
+`checkins` or `decider`: you are shown the old and the new value, and it is written only after you press Allow.
 
 | Setting | Meaning |
 | --- | --- |
@@ -145,6 +159,7 @@ Rho cannot open this file. It can propose a change to `model`, `thinking`, `cwd`
 | `maxTurns` | Most tool rounds in one run. Default 200. |
 | `memory` | `{"kind": "file"}` (default), `{"kind": "honcho", "url": "...", "workspace": "...", "user": "...", "agent": "..."}`, or `{"kind": "off"}`. Honcho also takes `"apiKey"`, which is then stored in this file as plain text. |
 | `decider` | `{"baseUrl": "http://127.0.0.1:8098", "model": "clef-flash"}`: a decision model (the System One API) that labels each shell command with a type and a confidence. It only watches: nothing is blocked. Read its log with `rho decisions`. Default: off. |
+| `notifications` | `false` turns notifications off. See Notifications above. |
 | `checkins` | `false` turns reminders off. `{"maxTurns": 20}` sets the limit of one check-in. |
 | `providers` | Servers that speak the OpenAI chat API, such as a local model: `[{"id": "local", "baseUrl": "http://127.0.0.1:8080/v1", "models": ["model-name"]}]`. Add `"apiKeyEnv": "NAME"` if the server needs a key. |
 | `claudePlan` | `true` adds Claude through your Claude Code login. See below. |

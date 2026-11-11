@@ -501,7 +501,7 @@ test("a release shows in the page as it goes: its stage and time, the restart as
 	expect(page.$("release").classList.contains("bad")).toBe(false);
 	// The time counts on its own between the daemon's snapshots.
 	now = 65_000;
-	await until("the clock to move", () => line() === "Releasing aaaaaaa · running the checks · 1:04", 4_000);
+	await until("the clock to move", () => line() === "Releasing aaaaaaa · running the checks · 1:04", 15_000);
 	stage("wait for idle", 66_000);
 	await until("the next stage", () => line().includes("waiting for rho to finish its answer"));
 	stage("restart", 70_000);
@@ -513,7 +513,7 @@ test("a release shows in the page as it goes: its stage and time, the restart as
 	expect(page.$("status").classList.contains("warn")).toBe(false);
 	expect(page.$("notice").hidden).toBe(true);
 	now = 75_000;
-	await until("the line to count through the restart", () => line() === "Releasing aaaaaaa · restarting rho · 1:14", 4_000);
+	await until("the line to count through the restart", () => line() === "Releasing aaaaaaa · restarting rho · 1:14", 15_000);
 	// It comes back on the new commit.
 	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "released", commit, previous, at: Date.now() }));
 	down = false;

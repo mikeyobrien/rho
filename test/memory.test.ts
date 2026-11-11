@@ -125,7 +125,12 @@ beforeAll(() => {
 		const url = new URL(request.url);
 		calls.push({ method: request.method, path: url.pathname, body: request.method === "POST" ? await request.json() : undefined, auth: request.headers.get("authorization") });
 		if (honchoMode === "down") return new Response("upstream down", { status: 502 });
-		if (honchoMode === "slow") await Bun.sleep(4_000);
+		// Far slower than the client's timeout, so a loaded machine cannot blur the two. It ends when the client gives up.
+		if (honchoMode === "slow") await new Promise<void>((resolve) => {
+			const timer = setTimeout(resolve, 30_000);
+			timer.unref?.();
+			request.signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
+		});
 		if (url.pathname.endsWith("/context")) return Response.json(honchoMode === "empty" ? { peer_card: null, representation: "" } : { peer_card: ["Name: Sam", ""], representation: "## Explicit Observations\n\n[2026-01-01] Sam likes tea\n[2026-02-01] Sam uses pnpm" });
 		return Response.json({ id: "x" });
 	} });
@@ -156,9 +161,13 @@ test("honcho: the read asks for the person's context, sends a key when given, an
 	honchoMode = "down";
 	expect(await honchoMemory(fake()).load()).toBeUndefined();
 	honchoMode = "slow";
-	const started = Date.now();
-	expect(await honchoMemory(fake()).load()).toBeUndefined(); // gives up at its timeout, not the server's pace
-	expect(Date.now() - started).toBeLessThan(3_800);
+	try {
+		const started = Date.now();
+		expect(await honchoMemory(fake()).load()).toBeUndefined(); // gives up at its 3 s timeout, not at the server's 30 s
+		expect(Date.now() - started).toBeLessThan(12_000);
+	} finally {
+		honchoMode = "ok"; // a failure here must not leave the slow server for the tests after it
+	}
 	honchoMode = "empty";
 	expect(await honchoMemory(fake()).load()).toContain("(nothing yet)");
 	expect(await honchoMemory({ ...fake(), url: "http://127.0.0.1:1" }).load()).toBeUndefined(); // nothing listens there
