@@ -788,9 +788,13 @@ is used only through Claude Code.
       delegate less than seems natural. The recent studies agree that delegation costs
       more and, for a frontier model on a bounded task, tends not to help the result.
       Delegate when the job is long (the checks, a build), stands alone (a brief can carry
-      all it needs), owns what it writes, and its result is short. Do not delegate reading
-      or searching to save the thread's context: the one study of that found the parent
-      reads it again. Handle it in the thread when it is a few steps, needs the
+      all it needs), owns what it writes, and its result is short. Delegate whole jobs, end
+      to end: the worker reads, searches, changes, checks and reports, and the main thread
+      reads none of it. What not to do is split a job, with a worker that only reads and a
+      main thread that then writes: the one study of that found the parent reads it all
+      again. (Corrected by the owner 2026-11-11: the first wording said "do not delegate
+      reading or searching", which was wider than the finding. A job that is only a
+      question, "find out X", is also whole: its result is the answer.) Handle it in the thread when it is a few steps, needs the
       conversation, or the person is waiting on the answer.
     - Where rho differs from every study above: they measure task success and speed for
       one user watching one session. Rho's first reason to delegate is to free the thread
