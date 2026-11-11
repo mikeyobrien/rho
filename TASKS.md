@@ -1280,6 +1280,39 @@ is used only through Claude Code.
         first (a node needs only SSH, git, `bwrap`), and add a daemon when one of its three
         remaining gains is actually missed. This would reverse the owner's choice, so it
         waits for their word.
+      - **Decided by the owner, 2026-11-12: a daemon on each node** ("let's do daemon since
+        that seems the best long term direction, prioritize easy UX and onboarding, users
+        shouldn't even know it's remote"). The no-daemon proposal above is set aside. What
+        the second sentence changes, proposed and not yet confirmed point by point:
+        - Placement is rho's choice, made in code. Nobody names a place: not the person,
+          and not the agent in a `delegate` call. A job runs on the phone while it has
+          room and goes to a node when it does not. The `place` argument proposed above is
+          dropped.
+        - Onboarding is one command, `rho host add <name>`, with no file to edit and no
+          port to open: it checks SSH, installs the daemon with its own runtime, starts it
+          as a user service, runs one trial job, and saves the node.
+        - The daemon is kept in step by rho, not by the person: at each connect the two
+          compare versions and the phone sends its own when they differ.
+        - A remote worker looks like a local one: the same row, report card, Stop and
+          approval card. Where it ran is a detail on the row, not something to act on.
+        - A node that cannot be reached is never the person's problem: the job runs on the
+          phone or waits its turn, and says which.
+        - A directory that is not a git repository runs on the phone.
+        - **The hard part, and it reverses a point of the pull-back plan:** a local worker
+          sees the files as they are, uncommitted work included, and leaves its changes in
+          place. For a remote job to be the same, the phone must send the working tree as
+          it stands (a commit made for the job, on no branch) and bring the result back
+          into the working tree when it applies cleanly, leaving it on a branch only when
+          it does not. The plan above says "never onto the branch the person has checked
+          out". Needs the owner's yes.
+      - **Step 1 measured, 2026-11-12**, phone to the owner's Linux machine over the
+        tailnet, one run: a fresh SSH connection took 705 to 840 ms (3 calls). On a kept
+        connection (`ControlMaster`) a call that runs `true` took 102 to 190 ms, median
+        148 ms (15 calls); reading 64 KB back as base64 took 235 ms. Each call still
+        starts an `ssh` client process on the phone, so a daemon spoken to over one open
+        channel should be faster; not measured. So an `edit` (three calls) is about half a
+        second as scripts over SSH: bearable, and worth cutting. Not measured: mobile data
+        (which network the phone was on was not established), a slow link, a second node.
       - **Order to build, each step useful by itself:**
         1. Measure the SSH round trip from the phone to the owner's Linux machine, kept
            connection, Wi-Fi and mobile data. An hour; decides if the rest is worth it.
