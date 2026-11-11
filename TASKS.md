@@ -110,8 +110,8 @@ how it ended, and nothing yet brings a hand-started rho back up. Added since:
 - From before: a rollback under the real service, a reboot of the phone, a check-in's sleep
   of hours under Android's battery limits, any provider with an API key.
 
-**Built 2026-11-12, not in the installed rho yet:** item 20, delegates (`de2c6a6`), less
-its live check; a queued message of one long line no longer widens the page.
+**Built 2026-11-12, not in the installed rho yet:** item 20, delegates (`de2c6a6`), with
+status and tell; a queued message of one long line no longer widens the page.
 
 **Built overnight (2026-11-11 to 12), released 2026-11-12 as `7cb3e48`:** 21e, tool cards that
 fold and a running step that shows its time; 20a, the `background` tool; a gate that died
@@ -874,12 +874,32 @@ is used only through Claude Code.
       stop is a line in rho's log with the brief's size. No separate log file.
     - Checked: 6 tests in a real core, 1 real-kill test, 2 page tests on the stand-in DOM;
       the whole check passed three times in a row (242 tests).
-    - Not checked: a live model (the Haiku run the proof asks for is not done); a real
+    - Not checked: a real
       browser; a notification from a worker's card on the phone; a kill while a worker
       waits for a yes; two workers editing the same files (nothing prevents it).
-    - Not built: the agent can list and stop its workers and nothing more. It cannot send
-      one a message while it works, give an ended one a follow-up, or read what one is
-      doing (the owner asked 2026-11-12).
+    - Status and tell, built 2026-11-12 after the owner asked whether the main thread can
+      steer, queue or look into a running worker. `delegate status {id}`: the step it is
+      on, its last six steps with what came of each, and its latest words; the answer says
+      not to check again as a way to wait. `delegate tell {id, message}`: the message is
+      recorded on the worker, put into its thread as a steer (read at its next step) and
+      waited for by the worker's own task, so a kill does not lose it and it is one request
+      however often it is sent. A worker that waits for a slot, waits for a yes, is writing
+      its report or has ended cannot be told, and the refusal says what to do instead.
+      Checked by 2 more tests in a real core. Not built: a follow-up job for an ended
+      worker with its context kept; queueing work onto a worker; the person steering a
+      worker from the page (its thread stays read only).
+    - Live check, once, on Haiku through the Claude plan, in a scratch home (2026-11-12).
+      Asked to hand off "sleep 12, fix two typos in hello.txt, read it back": the agent
+      called `delegate(start)` with a 424-character brief and its turn ended at 4.9 s.
+      Asked how it was going, it called `status` and answered at 7.9 s. Asked to tell the
+      worker to add a second line, it called `tell` (11.6 s). One report arrived at 39.4 s,
+      "done"; the file read "hello world" and "goodbye", so the worker had read the
+      message. The worker ran on the conversation's model, its five steps stayed in its own
+      thread, and the agent checked the file itself before answering. The agent was told
+      to use the tool each time: whether it chooses to delegate unprompted was not tried.
+      Not covered: a card for a worker's command, a kill, two workers, a job of minutes,
+      a failure. The status answer said "has not taken a step yet" three seconds in; the
+      wording for a worker on its first step was changed after.
     - Found while building: rho could not close while a test's fake model ignored the
       request's abort signal. The engine waits for task code to return; a real provider
       honours the signal. The fake now does.

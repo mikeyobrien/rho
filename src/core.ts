@@ -3,7 +3,7 @@
 // memory) is added around this.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models } from "@earendil-works/pi-ai";
-import { createRegistry, defineDoc, Harness, type Conversation, type ConversationId, type Extension } from "@earendil-works/pi-durable";
+import { createRegistry, defineDoc, Harness, LiveDoc, type Conversation, type ConversationId, type Extension } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import type { HarnessOptions } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { checkins as checkinFeature, type Reminder, type ReminderSpec } from "./checkins.ts";
 import { projectExtension, type ContextOptions } from "./context.ts";
 import { openDecider, readDecider } from "./decider.ts";
-import { textOf } from "./view.ts";
+import { entryView, textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { describeRelease } from "./gate.ts";
 import { backgroundTool } from "./tools/background.ts";
@@ -216,11 +216,13 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	// Who can be asked for a yes: the person's own conversations, and a worker that is still at work (its card is shown in the thread that handed it the job).
 	let asks: (conversation: string) => Promise<boolean> = async () => true;
 	const workerListeners = new Set<() => void>();
+	let peekWorker: (worker: Worker) => Promise<string> = async () => "";
+	let deliverWorker: (worker: Worker, text: string) => Promise<void> = async () => undefined;
 	let endTask: (task: never, ctx: typeof context) => Promise<unknown> = async () => undefined;
 	if (config.background !== false) registry.install(tidy(backgroundTool({ check: (args, api, ctx) => commandCheck(options.dir)(args, api, ctx), noticeKind: NOTICE, stop: (task, ctx) => endTask(task as never, ctx), now, log })));
 	// A whole job handed to a worker: a second agent in its own conversation, which cannot delegate or start background commands.
 	const workers = typeof config.delegates === "object" && config.delegates !== null ? config.delegates : {};
-	if (config.delegates !== false) registry.install(tidy(delegateTool({ place: localPlace({ ...(Number.isInteger(workers.max) && workers.max! >= 1 ? { ceiling: workers.max! } : {}), ...(options.freeMemory ? { free: options.freeMemory } : {}) }), noticeKind: NOTICE, maxTurns: Number.isInteger(workers.maxTurns) && workers.maxTurns! >= 1 ? workers.maxTurns! : 60, withhold: ["background", "settings", "reminder"], stop: (task, ctx) => endTask(task as never, ctx), now, log, changed: () => workerListeners.forEach((listener) => listener()), ...(options.workerRetryMs ? { retryMs: options.workerRetryMs } : {}) })));
+	if (config.delegates !== false) registry.install(tidy(delegateTool({ place: localPlace({ ...(Number.isInteger(workers.max) && workers.max! >= 1 ? { ceiling: workers.max! } : {}), ...(options.freeMemory ? { free: options.freeMemory } : {}) }), noticeKind: NOTICE, maxTurns: Number.isInteger(workers.maxTurns) && workers.maxTurns! >= 1 ? workers.maxTurns! : 60, withhold: ["background", "settings", "reminder"], stop: (task, ctx) => endTask(task as never, ctx), now, log, changed: () => workerListeners.forEach((listener) => listener()), peek: (worker) => peekWorker(worker), deliver: (worker, text) => deliverWorker(worker, text), ...(options.workerRetryMs ? { retryMs: options.workerRetryMs } : {}) })));
 	// The person's standing instructions live beside rho's data, where the agent cannot rewrite them.
 	registry.install(projectExtension(home, { personal: join(options.dir, "AGENTS.md"), ...options.context }));
 	const harness = await Harness.open(
@@ -260,6 +262,33 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	if (!(await listed()).some((item) => item.id === rootId)) await add(root);
 	persons = async (id) => (await listed()).some((item) => item.id === id);
 	const workerList = async (): Promise<Worker[]> => (await harness.snapshot(Workers, context))?.workers ?? [];
+	// What a worker is on now, its last steps and its latest words, read from its own thread.
+	peekWorker = async (worker) => {
+		if (worker.conversation === undefined) return "";
+		const thread = await harness.conversation(worker.conversation as unknown as ConversationId, context);
+		if (!thread) return "";
+		const views = (await thread.entries({ order: "descending" }, 30, undefined, context)).items.flatMap((entry) => entryView(entry) ?? []).reverse();
+		const calls = new Map(views.flatMap((view) => (view.role === "assistant" ? view.calls : [])).map((call) => [call.id, call]));
+		const target = (id: string): string => {
+			const args = calls.get(id)?.args ?? {};
+			const value = args.path ?? args.command ?? args.pattern ?? args.url ?? args.query ?? "";
+			return typeof value === "string" && value !== "" ? ` ${value.split("\n")[0]!.slice(0, 100)}` : "";
+		};
+		const steps = views.flatMap((view) => (view.role === "tool" ? [`- ${view.name}${target(view.callId)}: ${view.error ? "failed, " : ""}${view.summary}`] : []));
+		const running = ((await harness.snapshot(LiveDoc, worker.conversation as unknown as ConversationId, context))?.tools ?? []).filter((tool) => tool.status !== "done").map((tool) => `${tool.name}${target(tool.callId)}`);
+		const words = views.findLast((view) => view.role === "assistant" && view.text.trim() !== "")?.text.trim();
+		const total = views.filter((view) => view.role === "tool").length;
+		return [
+			...(running.length > 0 ? [`Now: ${running.join(", ")}`] : []),
+			...(steps.length > 0 ? [`Its last ${Math.min(6, steps.length)} of ${total === 30 ? "30 or more" : total} steps:`, ...steps.slice(-6)] : running.length > 0 ? [] : ["It has finished no step yet: it may be on its first."]),
+			...(words ? [`Its latest words: ${words.slice(0, 400)}`] : []),
+		].join("\n");
+	};
+	// The same request id the worker's task uses for this message: sent twice, it is one request.
+	deliverWorker = async (worker, text) => {
+		const thread = worker.conversation === undefined ? undefined : await harness.conversation(worker.conversation as unknown as ConversationId, context);
+		await thread?.submit({ type: "input", content: text, requestId: `worker-tell:${worker.id}:${(worker.told ?? []).length - 1}`, whenBusy: "steer" }, context);
+	};
 	asks = async (id) => (await persons(id)) || (await workerList()).some((worker) => liveWorker(worker) && String(worker.conversation) === id);
 	// The newest message the person wrote themselves: a gate report or a check-in (another entry kind) is not their word.
 	// Read once far back, then only what is new since: a cache a restart may lose.

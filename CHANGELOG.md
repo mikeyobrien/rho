@@ -16,7 +16,8 @@ See [MIGRATION.md](MIGRATION.md).
   ended. One at a time; the same rules as `bash`.
 - A `delegate` tool: rho hands a whole job to a worker in its own thread and stays free.
   The page lists workers with their status and a Stop; a worker's command that needs your
-  yes shows its card in your thread.
+  yes shows its card in your thread. Rho can look at what a worker is doing and send it a
+  message while it works.
 - Tool cards: three or more finished steps in a row fold into one row that says what they
   did; a failure and a step outside the working directory stay out. A running step shows
   how long it has run.

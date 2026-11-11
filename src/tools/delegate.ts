@@ -36,6 +36,10 @@ export type Worker = {
 	createdAt: number;
 	startedAt?: number;
 	endedAt?: number;
+	/** Messages the agent sent it while it worked, in order. Each is a request of its own in the worker's thread. */
+	told?: string[];
+	/** Its work is over and its report is being written. */
+	reporting?: boolean;
 };
 type Book = { workers: Worker[]; seq: number };
 export const Workers = defineDoc<Book>({ kind: "rho.workers", version: 1, scope: "session", initial: () => ({ workers: [], seq: 0 }), checkpointWhen: () => true });
@@ -93,6 +97,10 @@ export interface DelegateOptions {
 	log?: (line: string) => void;
 	/** How often a waiting job looks for room, and a worker for the person's answer. Tests change it. */
 	retryMs?: number;
+	/** Put the newest message for a worker into its thread now, so it is read at its next step and not only when its run ends. */
+	deliver?: (worker: Worker, text: string) => Promise<void>;
+	/** What a worker is doing and has lately done, in lines for the agent. */
+	peek?: (worker: Worker) => Promise<string>;
 	/** Told after every change to the workers' records, so a page can show it. A cache: a restart reads the records. */
 	changed?: () => void;
 }
@@ -139,8 +147,17 @@ export function delegateTool(options: DelegateOptions): Extension {
 				if (!handle) return void (await runtime.commit(() => ({ status: "running", checkpoint: { phase: "report", outcome: "failed", text: "The worker's conversation could not be opened." } }), ctx));
 				const { round = 0, say } = task.state.checkpoint as Extract<State, { phase: "work" }>;
 				const content = round === 0 ? `${BRIEF_HEAD}\n\nThe job:\n${task.input.brief}` : (say ?? "Go on.");
-				const settled = await (await handle.submit({ type: "input", content, requestId: `worker:${task.input.id}${round === 0 ? "" : `:${round}`}` }, ctx)).wait(ctx);
+				let settled = await (await handle.submit({ type: "input", content, requestId: `worker:${task.input.id}${round === 0 ? "" : `:${round}`}` }, ctx)).wait(ctx);
+				// Messages the agent sent meanwhile are requests of their own: each is waited for, and the newest answer is the
+				// report. Sent again under the same id, a message is the same request, so one lost to a kill is not lost.
+				const told = (((await runtime.snapshot(Workers, ctx)) ?? { workers: [] as Worker[] }).workers.find((worker) => worker.id === task.input.id)?.told ?? []).slice();
+				for (const [n, text] of told.entries()) {
+					const also = await (await handle.submit({ type: "input", content: tellText(text), requestId: `worker-tell:${task.input.id}:${n}`, whenBusy: "steer" }, ctx)).wait(ctx);
+					if (also.status === "done" || settled.status !== "done") settled = also; // the newest answer is the report
+				}
 				await runtime.commit(async (tx) => {
+					// One arrived after the last look: go round again, so it is not left unread behind a report.
+					if (((await tx.doc(Workers)).workers.find((worker) => worker.id === task.input.id)?.told ?? []).length > told.length) return { status: "running", checkpoint: { phase: "work", round, ...(say === undefined ? {} : { say }) } };
 					// It stopped at a command that needs the person's yes: the job is not over, it waits for them.
 					const asked = (await tx.doc(Approvals, handle.id)).pending.map((pending) => pending.command);
 					if (asked.length > 0) {
@@ -148,6 +165,9 @@ export function delegateTool(options: DelegateOptions): Extension {
 						if (record) record.status = "asking";
 						return { status: "running", checkpoint: { phase: "ask", round, commands: asked } };
 					}
+					// From here the job is over and only its report is left: a message sent now would never be read, so it is refused.
+					const closing = (await tx.doc(Workers)).workers.find((worker) => worker.id === task.input.id);
+					if (closing) closing.reporting = true;
 					if (settled.status === "done" && settled.type === "input") {
 						const said = textOf(((await tx.entry(settled.answer))?.model?.[0] as { content?: unknown } | undefined)?.content).trim();
 						const word = /^\W*(DONE|PARTIAL|FAILED)\b/i.exec(said)?.[1]?.toUpperCase();
@@ -216,6 +236,7 @@ export function delegateTool(options: DelegateOptions): Extension {
 		},
 	});
 
+	const tellText = (text: string): string => `From the agent that handed you this job: ${text}\n(Take this into account and go on. End, as before, with your report: DONE, PARTIAL or FAILED first.)`;
 	const span = (ms: number): string => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min`);
 	const line = (worker: Worker): string => `[${worker.id}] ${worker.status}${worker.status === "working" && worker.startedAt ? ` for ${span(now() - worker.startedAt)}` : worker.status === "waiting" ? " for a slot" : worker.status === "asking" ? " (needs the person's yes)" : ""} (${worker.place}): ${worker.title}`;
 	const tool: ToolRegistration<any, any> = defineTool({
@@ -224,14 +245,44 @@ export function delegateTool(options: DelegateOptions): Extension {
 			"Hand a whole job to a worker: a second agent with your tools and working directory, in its own thread. start {title, brief}: returns at once; the worker's report reaches you in a later message, once, so do not wait or poll. " +
 			"The worker sees only the brief, not this conversation: write what the person asked, what you already know, what the worker owns, what to check, and what to report back. " +
 			"Delegate a job that is long, stands alone and ends in a short result (run and fix the checks, a build, a change with its tests, 'find out X'). Do it yourself when it is a few steps, needs this conversation, or the person is waiting on the answer. " +
-			"Do not split a job, with a worker that reads and you writing: delegate it whole or not at all. list: workers and their status. stop {id}: end one. A job past the limit waits its turn.",
-		parameters: obj({ action: oneOf(["start", "list", "stop"]), title: opt(str()), brief: opt(str()), id: opt(str()) }),
+			"Do not split a job, with a worker that reads and you writing: delegate it whole or not at all. list: workers and their status. stop {id}: end one. A job past the limit waits its turn. " +
+			"status {id}: what one is doing now, its last steps and latest words; for when the person asks how it is going, not a way to wait. " +
+			"tell {id, message}: give a working worker a correction or a new fact; it reads it at its next step and still reports once.",
+		parameters: obj({ action: oneOf(["start", "list", "stop", "status", "tell"]), title: opt(str()), brief: opt(str()), id: opt(str()), message: opt(str()) }),
 		execute: async (args, api, context: Context) => {
 			const book = async (): Promise<Book> => (await api.snapshot(Workers, context)) ?? { workers: [], seq: 0 };
 			if (args.action === "list") {
 				const workers = (await book()).workers;
 				const shown = [...workers.filter(live), ...workers.filter((worker) => !live(worker)).slice(-5).reverse()];
 				return { output: [{ type: "text", text: shown.length === 0 ? "No workers." : shown.map(line).join("\n") }] };
+			}
+			if (args.action === "status") {
+				const worker = (await book()).workers.find((candidate) => candidate.id === args.id);
+				if (!worker) throw new Error(`No worker ${JSON.stringify(args.id ?? "")}. ${(await book()).workers.map(line).join("\n") || "There are none."}`);
+				const seen = (await options.peek?.(worker).catch(() => "")) ?? "";
+				return { output: [{ type: "text", text: `${line(worker)}${seen ? `\n${seen}` : ""}${live(worker) ? "\nIts report will reach you by itself: do not check again to wait for it." : ""}` }] };
+			}
+			if (args.action === "tell") {
+				const message = (args.message ?? "").trim();
+				if (message === "") throw new Error("message is required: what the worker should know or do differently.");
+				if (message.length > 4_000) throw new Error("That message is too long (the most is 4,000 characters).");
+				// Recorded in the commit that checks it is still working: the worker's own task then sends it and waits for it.
+				const outcome = await api.commit(async (tx) => {
+					const worker = (await tx.doc(Workers)).workers.find((candidate) => candidate.id === args.id);
+					if (!worker) return "none" as const;
+					if (worker.status !== "working") return worker.status;
+					if (worker.reporting) return "reporting" as const;
+					worker.told = [...(worker.told ?? []), message];
+					return "told" as const;
+				}, context);
+				if (outcome === "none") throw new Error(`No worker ${JSON.stringify(args.id ?? "")}.`);
+				if (outcome === "waiting") throw new Error(`Worker ${args.id} has not started: it waits for a slot. Stop it and hand the job off again with a brief that says this.`);
+				if (outcome === "asking") throw new Error(`Worker ${args.id} waits for the person's yes on a command. It can be told once they have answered.`);
+				if (outcome === "reporting") throw new Error(`Worker ${args.id} has just finished and its report is on its way. Read it, then hand off a new job if something is left.`);
+				if (outcome !== "told") throw new Error(`Worker ${args.id} has already ended (${outcome}). Hand off a new job that says what is left.`);
+				await options.deliver?.((await book()).workers.find((candidate) => candidate.id === args.id)!, tellText(message)).catch(() => undefined);
+				log(`worker ${args.id}: told (${message.length} characters)`);
+				return { output: [{ type: "text", text: `Worker ${args.id} will read that at its next step. It still reports once, when it ends.` }] };
 			}
 			if (args.action === "stop") {
 				const worker = (await book()).workers.find((candidate) => candidate.id === args.id);

@@ -39,6 +39,8 @@ const said = (asked: TranscriptContext, signal?: AbortSignal) => ({
 	first: asked.messages.find((message) => message.role === "user"),
 	firstText: (() => { const first = asked.messages.find((message) => message.role === "user"); return typeof first?.content === "string" ? first.content : (first?.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join(""); })(),
 	results: asked.messages.filter((message) => message.role === "toolResult").length,
+	/** Everything the conversation has been told so far, as one text. */
+	all: JSON.stringify(asked.messages.filter((message) => message.role === "user")),
 	signal,
 	lastText: (() => { const last = asked.messages.at(-1); return typeof last?.content === "string" ? last.content : ((last?.content ?? []) as { type: string; text?: string }[]).map((part) => (part.type === "text" ? (part.text ?? "") : "")).join(""); })(),
 });
@@ -259,6 +261,64 @@ test("a worker can be stopped, running or waiting, and then reports nothing; wha
 	const off = await open({ config: { delegates: false } });
 	expect((await off.core.root.agent(context)).tools.map((tool) => tool.name)).not.toContain("delegate");
 }, 60_000);
+
+test("the agent can look at a worker and tell it something while it works; it reads that and still reports once", async () => {
+	const gates = new Map<string, () => void>();
+	const heard: string[] = [];
+	const t = await open({
+		worker: async (seen) => {
+			if (seen.results === 0) return fauxAssistantMessage(fauxToolCall("read", { path: "hello.txt" }), { stopReason: "toolUse" });
+			if (seen.results === 1 && !seen.lastText.includes("From the agent")) {
+				await hold(gates, "after-read", seen.signal).catch(() => undefined); // a steer ends the wait, as it cuts a real request short
+				return fauxAssistantMessage(fauxToolCall("bash", { command: "cat hello.txt" }), { stopReason: "toolUse" });
+			}
+			heard.push(seen.lastText);
+			return fauxAssistantMessage(seen.all.includes("use British spelling") ? "DONE\nRead the file, and kept British spelling as told." : "DONE\nRead the file.");
+		},
+	});
+	writeFileSync(join(t.work, "hello.txt"), "hello world\n");
+	await t.use({ action: "start", title: "Check the greeting", brief: BRIEF() });
+	await t.until("the worker to be held after its first step", () => gates.has("after-read"));
+	// Status: where it stands, the step it took and what came of it. It says not to wait on it.
+	const status = await t.use({ action: "status", id: "w1" }, "Looked.");
+	expect(status).toMatch(/^\[w1\] working for \d+ s \(local\): Check the greeting\nIts last 1 of 1 steps:\n- read hello\.txt: /);
+	expect(status).toEndWith("Its report will reach you by itself: do not check again to wait for it.");
+	// Tell: the worker reads it at its next step.
+	expect(await t.use({ action: "tell", id: "w1", message: "use British spelling" }, "Told.")).toBe("Worker w1 will read that at its next step. It still reports once, when it ends.");
+	t.queue.push(fauxAssistantMessage("Noted."));
+	gates.get("after-read")?.();
+	await t.until("the report", async () => (await t.reports()).length === 1);
+	await t.core.harness.waitForIdle(context);
+	expect((await t.reports())[0]).toContain("kept British spelling as told");
+	expect((await t.reports()).length).toBe(1);
+	expect((await t.workers())[0]).toMatchObject({ status: "done", told: ["use British spelling"] });
+	// The message is in the worker's thread once, marked as the agent's, and not in the main thread.
+	const thread = await t.core.harness.conversation((await t.workers())[0]!.conversation as never, context);
+	const said = (await thread!.entries({ order: "ascending" }, 50, undefined, context)).items.flatMap((entry) => entryView(entry) ?? []).filter((view) => view.role === "user").map((view) => view.text);
+	expect(said.filter((text) => text.startsWith("From the agent that handed you this job: use British spelling")).length).toBe(1);
+	expect((await t.entries()).some((entry) => entry.role === "user" && entry.text.includes("British"))).toBe(false);
+	// An ended worker: status still answers, without the line about waiting; a message is refused in words.
+	const after = await t.use({ action: "status", id: "w1" }, "Looked.");
+	expect(after).toStartWith("[w1] done (local): Check the greeting\nIts last 2 of 2 steps:\n- read hello.txt: ");
+	expect(after).toContain("\n- bash cat hello.txt: ");
+	expect(after).toContain("Its latest words: DONE\nRead the file, and kept British spelling as told.");
+	expect(after).not.toContain("do not check again");
+	expect(await t.use({ action: "tell", id: "w1", message: "one more thing" }, "No.")).toContain("Worker w1 has already ended (done). Hand off a new job that says what is left.");
+	expect(await t.use({ action: "tell", id: "w1" }, "No.")).toContain("message is required");
+	expect(await t.use({ action: "tell", id: "w7", message: "hello" }, "No.")).toContain('No worker "w7".');
+	expect(await t.use({ action: "status", id: "w7" }, "No.")).toContain('No worker "w7".');
+}, 60_000);
+
+test("a worker that waits for a slot cannot be told, and says why", async () => {
+	const gates = new Map<string, () => void>();
+	const t = await open({ config: { delegates: { max: 1 } }, worker: async (seen) => (await hold(gates, /NAME=(\w+)/.exec(seen.firstText)![1]!, seen.signal), fauxAssistantMessage("DONE\nok")) });
+	await t.use({ action: "start", title: "first", brief: BRIEF("NAME=a") });
+	await t.use({ action: "start", title: "second", brief: BRIEF("NAME=b") });
+	await t.until("the first to start", async () => (await t.workers())[0]!.status === "working");
+	expect(await t.use({ action: "tell", id: "w2", message: "also check the tests" }, "No.")).toContain("Worker w2 has not started: it waits for a slot.");
+	expect(await t.use({ action: "status", id: "w2" }, "Looked.")).toStartWith("[w2] waiting for a slot (local): second");
+	expect((await t.workers())[1]!.told).toBeUndefined();
+}, 40_000);
 
 test("a worker's records survive a clean restart, and a waiting job starts after it", async () => {
 	const gates = new Map<string, () => void>();
