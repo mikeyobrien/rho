@@ -75,7 +75,8 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
     "proactive agent engineering").
 
 **Known issues, not fixed.** The list under "Pre-release review" stands; the one both
-reviewers wanted first is a release killed part-way, which leaves rho stopped. Added since:
+reviewers wanted first is a release killed part-way; since 2026-11-11 the next start says
+how it ended, and nothing yet brings a hand-started rho back up. Added since:
 
 - The guard matches a command's text, so it stops the agent's own harmless commands when
   their text names a push, a release, a git-directory delete or rho's data path: six
@@ -484,6 +485,15 @@ Known issues, not fixed:
   and `release.json` says "running" for ever. `rho start` brings it up on whatever is checked
   out. Not reproduced; it follows from the code. The fix is to store the stages and resume
   or undo at the next start.
+  - Half fixed 2026-11-11, overnight (`settleDeadRelease` in `src/gate.ts`, run by the
+    daemon at start): a release whose gate process is dead is settled from the commit rho
+    now runs. The record stops saying "running", the page shows how it ended, and the
+    first conversation gets a notice that says where it was cut off and what rho runs.
+    Checked by a unit test and against a real daemon started with such a record.
+  - Still true: nothing brings rho up. Under the service (runit, systemd) the supervisor
+    restarts it; a rho started by hand stays down until `rho start`. And nothing is redone
+    or undone: a release cut off after the switch leaves rho on the new commit, unconfirmed,
+    and says so. A real kill of a real gate mid-release was not tried.
 - **An Allow has no time limit.** A granted command stays granted until that exact text is
   run, and a Deny leaves no trace.
 - If a check-in's task fails outright, reminders stop firing until one is added or rho

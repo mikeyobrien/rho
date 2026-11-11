@@ -261,3 +261,27 @@ test("rho login: what it refuses, a stored login makes the provider usable, and 
 	expect(await run(["status"], cli)).toBe(0);
 	expect(lines.at(-1)).toContain("Not ready");
 }, 40_000);
+
+test("a real daemon that starts after its release gate was killed says how the release ended, once", async () => {
+	const { cli, lines, dir } = scratch();
+	// As a gate killed between stopping rho and starting it leaves things: "running", and its process gone.
+	const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: import.meta.dir }).stdout.toString().trim();
+	const previous = "b".repeat(40);
+	const file = join(dir, "release.json");
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(file, JSON.stringify({ status: "running", stage: "restart", commit: head, previous, pid: Bun.spawnSync(["true"]).pid, started: 1, at: 2 }));
+	expect(await run(["start"], cli)).toBe(0);
+	// The record no longer says "running": rho came up on the release's commit, unconfirmed by the gate.
+	const record = JSON.parse(readFileSync(file, "utf8")) as { status: string; commit: string; previous: string; reason: string };
+	expect(record).toMatchObject({ status: "released", commit: head, previous });
+	expect(record.reason).toContain('stopped at "restart"');
+	expect(await run(["logs", "40"], cli)).toBe(0);
+	expect(lines.at(-1)).toContain(`release: The release of ${head.slice(0, 7)} was cut off at "restart", and rho came up on ${head.slice(0, 7)} anyway`);
+	// A new release is not blocked by the old record, and a second start has nothing more to say.
+	expect(await run(["release", "--status"], cli)).toBe(0);
+	expect(lines.at(-1)).toContain('"status": "released"');
+	expect(await run(["stop"], cli)).toBe(0);
+	expect(await run(["start"], cli)).toBe(0);
+	expect(await run(["logs", "60"], cli)).toBe(0);
+	expect(lines.at(-1)!.split("\n").filter((line) => line.startsWith("release: ")).length).toBe(1);
+}, 60_000);

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describeRelease, preflight, release, releaseView, type GateHost } from "../src/gate.ts";
+import { describeRelease, preflight, release, releaseView, settleDeadRelease, type GateHost } from "../src/gate.ts";
 import { judgeCommand } from "../src/tools/guard.ts";
 
 // The gate against a small stand-in program in real git checkouts: a "release" checkout the
@@ -288,3 +288,44 @@ test("a release's card says what it brings in, and says nothing of a command tha
 	// A command that does anything besides the release is not described: the lines could not be trusted to match it.
 	for (const command of ["git commit -am x && rho release", "rho release; rm -rf dist", "rho release $(cat ref)", "rho release `cat ref`", "rho release HEAD | tee log", "cd a && cd b && rho release", "echo rho release", "rho release HEAD extra", "rho release --status", "rho release -f"]) expect([command, await describeRelease(t.releaseDir, t.work, command)]).toEqual([command, undefined]);
 }, 60_000);
+
+test("a release whose gate died is settled at the next start: the record is corrected and the person is told", () => {
+	const dir = scratch("rho-gate-settle-");
+	const file = join(dir, "release.json");
+	const [commit, previous] = ["a".repeat(40), "b".repeat(40)];
+	const dead = Bun.spawnSync(["true"]).pid; // a process that has ended
+	const left = (stage: string, pid = dead) => writeFileSync(file, JSON.stringify({ status: "running", stage, commit, previous, pid, started: 1, at: 2 }));
+	const record = () => JSON.parse(readFileSync(file, "utf8"));
+	// Nothing to settle: no release, one that ended, and one whose gate still lives (the gate's own restart).
+	expect(settleDeadRelease(dir, previous)).toBeUndefined();
+	writeFileSync(file, JSON.stringify({ status: "released", commit, previous, at: 5 }));
+	expect(settleDeadRelease(dir, commit)).toBeUndefined();
+	expect(record()).toEqual({ status: "released", commit, previous, at: 5 });
+	left("restart", process.pid);
+	expect(settleDeadRelease(dir, commit)).toBeUndefined();
+	expect(record().status).toBe("running");
+	// Killed during the checks: nothing had been switched, and rho runs what it ran.
+	left("check");
+	expect(settleDeadRelease(dir, previous, 99)).toBe('The release of aaaaaaa was cut off at "check" and did not finish. Rho runs bbbbbbb, the commit it ran before. Release it again when you want it.');
+	expect(record()).toEqual({ status: "failed", commit, previous, reason: 'The release gate stopped at "check" before it finished (rho was killed, or the machine went down). Rho runs bbbbbbb.', at: 99 });
+	// Settled once: the next start says nothing more.
+	expect(settleDeadRelease(dir, previous)).toBeUndefined();
+	// Killed between stopping rho and confirming it: rho came up on the new commit, unconfirmed.
+	left("restart");
+	expect(settleDeadRelease(dir, commit, 100)).toBe('The release of aaaaaaa was cut off at "restart", and rho came up on aaaaaaa anyway (it ran bbbbbbb). The gate did not get to confirm it: check that it works.');
+	expect(record()).toMatchObject({ status: "released", commit, previous, at: 100 });
+	expect(record().reason).toContain("the gate did not confirm it");
+	// The page is then shown how it ended, like any release.
+	expect(releaseView(dir, 100)).toEqual({ status: "released", commit: "aaaaaaa", previous: "bbbbbbb", at: 100 });
+	// Rho on some third commit, or not in a git checkout: said as it is, and counted as not released.
+	left("switch");
+	expect(settleDeadRelease(dir, "c".repeat(40))).toContain('cut off at "switch" and did not finish. Rho runs ccccccc. Release');
+	left("roll back");
+	expect(settleDeadRelease(dir, undefined)).toContain("Rho runs an unknown commit.");
+	expect(record().status).toBe("failed");
+	// A record cut short, or of another shape, is left alone.
+	writeFileSync(file, '{"status":"running","sta');
+	expect(settleDeadRelease(dir, commit)).toBeUndefined();
+	writeFileSync(file, JSON.stringify({ status: "running", stage: "check" }));
+	expect(settleDeadRelease(dir, commit)).toBeUndefined();
+});

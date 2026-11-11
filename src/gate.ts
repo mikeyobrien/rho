@@ -126,6 +126,44 @@ export function releaseView(dataDir: string, now = Date.now()): ReleaseView | un
 }
 
 /**
+ * A release whose gate died before it finished, settled at rho's next start. The gate is another
+ * process; a phone kill or a power cut can end it at any stage and leave the record saying
+ * "running" for ever. This does not redo or undo anything: it looks at what rho runs now and
+ * writes down how the release ended, so the record is true and the person is told.
+ *
+ * Returns what to tell them, or undefined when there is nothing to settle (no release, one that
+ * ended, or one whose gate still lives).
+ */
+export function settleDeadRelease(dataDir: string, running: string | undefined, now = Date.now()): string | undefined {
+	const path = join(dataDir, "release.json");
+	let record: { status?: unknown; stage?: unknown; commit?: unknown; previous?: unknown; pid?: unknown };
+	try {
+		record = JSON.parse(readFileSync(path, "utf8")) as typeof record;
+	} catch {
+		return undefined;
+	}
+	if (typeof record !== "object" || record === null || record.status !== "running" || typeof record.commit !== "string" || typeof record.previous !== "string") return undefined;
+	if (typeof record.pid === "number" && alive(record.pid)) return undefined; // still at work: this start is the gate's own restart
+	const { commit, previous } = record as { commit: string; previous: string };
+	const stage = String(record.stage ?? "starting");
+	// What rho runs now decides it. Before the switch nothing had changed; after it, the checkout
+	// is on one commit or the other, and this process is running it.
+	const onNew = running === commit;
+	const reason = `The release gate stopped at "${stage}" before it finished (rho was killed, or the machine went down).`;
+	const outcome: Outcome = onNew
+		? { status: "released", commit, previous, reason: `${reason} Rho came up on the new commit at its next start; the gate did not confirm it.`, at: now }
+		: { status: "failed", commit, previous, reason: `${reason} Rho runs ${short(running) || "an unknown commit"}.`, at: now };
+	try {
+		writeFileSync(path, `${JSON.stringify(outcome, null, "\t")}\n`, { mode: 0o600 });
+	} catch {
+		return undefined; // the record could not be corrected: say nothing rather than say it at every start
+	}
+	return onNew
+		? `The release of ${short(commit)} was cut off at "${stage}", and rho came up on ${short(commit)} anyway (it ran ${short(previous)}). The gate did not get to confirm it: check that it works.`
+		: `The release of ${short(commit)} was cut off at "${stage}" and did not finish. Rho runs ${short(running) || "an unknown commit"}${running === previous ? ", the commit it ran before" : ""}. Release it again when you want it.`;
+}
+
+/**
  * What `rho release` typed as `command` in `cwd` would do, in lines for the person who is asked to
  * allow it. Only for a command that is nothing but a release (with an optional `cd` first): of
  * anything else nothing is said, rather than something that may not match what runs. The gate

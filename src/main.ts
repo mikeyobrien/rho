@@ -5,6 +5,7 @@ import { CLAUDE_CODE } from "./claude/provider.ts";
 import { closeWarmProcesses, sweepStale } from "./claude/relay.ts";
 import { openCore, readConfig } from "./core.ts";
 import { rho1Notice, rhoHome } from "./home.ts";
+import { settleDeadRelease } from "./gate.ts";
 import { serve } from "./http.ts";
 import { findSender, NO_SENDER, openNotifier } from "./notify.ts";
 import { chooseModel, keyVariables, openModels, setupOf } from "./providers.ts";
@@ -30,6 +31,12 @@ const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: import.meta.dir,
 const commit = head.exitCode === 0 ? head.stdout.toString().trim() : undefined;
 // Scales a photo the person sends to what a model takes. Without it rho still runs, and a large photo is refused.
 const images = await import("@earendil-works/pi-durable/images/node").then((module) => module.createNodePhotonImages()).catch((error: Error) => (log(`photos: no image scaling here, so a large photo is refused: ${error.message}`), undefined));
+// A release whose gate was killed part-way is settled now, and said in the first conversation.
+const cutOff = settleDeadRelease(dir, commit);
+if (cutOff) {
+	log(`release: ${cutOff}`);
+	await core.notice(core.root, `[release gate] ${cutOff}`, `release-cut-off:${commit ?? "none"}:${Date.now()}`, "gate").catch((error: Error) => log(`release: could not say so in the conversation: ${error.message}`));
+}
 // Notifications go out from here, so they arrive with the page closed. `"notifications": false` turns them off.
 const sender = config.notifications === false ? undefined : findSender();
 // Whether Termux may open the browser from the background cannot be read from inside Termux, so it is said, not checked.
