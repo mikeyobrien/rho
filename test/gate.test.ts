@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { preflight, release, type GateHost } from "../src/gate.ts";
+import { describeRelease, preflight, release, releaseView, type GateHost } from "../src/gate.ts";
 import { judgeCommand } from "../src/tools/guard.ts";
 
 // The gate against a small stand-in program in real git checkouts: a "release" checkout the
@@ -209,3 +209,82 @@ test("the agent's own `rho release` waits for the person's yes; looking at the s
 	for (const command of ["rho release", "rho release HEAD", "cd ../work && rho release v2", "bin/rho release"]) expect([command, judge(command)]).toEqual([command, "ask"]);
 	for (const command of ["rho release --status", "rho status", "rho logs 20"]) expect([command, judge(command)]).toEqual([command, "allow"]);
 });
+
+test("the page is shown a release that is under way, and one that just ended, and nothing of a dead gate", async () => {
+	const dir = scratch("rho-gate-view-");
+	const write = (record: object | string) => writeFileSync(join(dir, "release.json"), typeof record === "string" ? record : JSON.stringify(record));
+	const [commit, previous] = ["a".repeat(40), "b".repeat(40)];
+	expect(releaseView(dir)).toBeUndefined(); // no release yet
+	// Under way: the gate's process lives. Commits are short; the gate's pid and the data's path are not shown.
+	write({ status: "running", stage: "check", commit, previous, pid: process.pid, started: 1000, at: 5000 });
+	expect(releaseView(dir)).toEqual({ status: "running", stage: "check", commit: "aaaaaaa", previous: "bbbbbbb", started: 1000, at: 5000 });
+	// A record written before `started` existed counts from its stage.
+	write({ status: "running", stage: "check", commit, previous, pid: process.pid, at: 5000 });
+	expect(releaseView(dir)!.started).toBe(5000);
+	// A gate that was killed left "running" behind: there is no release to show.
+	const gone = Bun.spawnSync(["true"]).pid;
+	write({ status: "running", stage: "check", commit, previous, pid: gone, started: 1000, at: 5000 });
+	expect(releaseView(dir)).toBeUndefined();
+	// How it ended is shown for five minutes, without the reason's text (a check's output can be long and is in the thread).
+	for (const status of ["released", "failed", "rolled-back"]) {
+		write({ status, commit, previous, reason: "Its checks failed (exit 1):\nlots of output", at: 10_000 });
+		expect(releaseView(dir, 10_000 + 4 * 60_000)).toEqual({ status: status as never, commit: "aaaaaaa", previous: "bbbbbbb", at: 10_000 });
+		expect(releaseView(dir, 10_000 + 6 * 60_000)).toBeUndefined();
+	}
+	// A refusal changed nothing and names no commit; a record cut short by a kill is no record.
+	write({ status: "refused", reason: "Rho already runs aaaaaaa.", at: 10_000 });
+	expect(releaseView(dir, 10_000)).toBeUndefined();
+	write('{"status":"running","sta');
+	expect(releaseView(dir)).toBeUndefined();
+	write("null");
+	expect(releaseView(dir)).toBeUndefined();
+});
+
+test("a real release records when it began, and each stage keeps that time", async () => {
+	const t = await setup();
+	const good = t.commit({ "notes.txt": "x\n" }, "good");
+	const seen: { stage: string; started: number; at: number }[] = [];
+	// The record as it stands when rho is stopped for the restart.
+	const outcome = await release({ ...t.host, stop: async () => (seen.push(t.record()), t.host.stop()) }, t.work);
+	expect(outcome.status).toBe("released");
+	expect(seen[0]).toMatchObject({ status: "running", stage: "restart", commit: good, previous: t.first, pid: process.pid });
+	expect(seen[0]!.started).toBeLessThanOrEqual(seen[0]!.at);
+	expect(releaseView(t.dataDir)).toEqual({ status: "released", commit: good.slice(0, 7), previous: t.first.slice(0, 7), at: outcome.at });
+}, 30_000);
+
+test("a release's card says what it brings in, and says nothing of a command that is more than a release", async () => {
+	const t = await setup();
+	const a = t.commit({ "notes.txt": "x\n" }, "Add the notes");
+	const b = t.commit({ "notes.txt": "y\n" }, `A very long title ${"that goes on ".repeat(12)}`);
+	const [s, was] = [(commit: string) => commit.slice(0, 7), t.first.slice(0, 7)];
+	const lines = await describeRelease(t.releaseDir, t.work, "rho release");
+	expect(lines).toEqual([
+		`Rho will run ${s(b)} (now ${was}).`,
+		"It brings in 2 commits:",
+		expect.stringMatching(new RegExp(`^${s(b)} A very long title .{60,}…$`)),
+		`${s(a)} Add the notes`,
+		"The gate runs the checks first. If they fail, nothing changes.",
+		`If it does not start, rho goes back to ${was}.`,
+	]);
+	expect(lines![2]!.length).toBe(90);
+	// The forms the agent types: a path to the command, a `cd` first, a commit by name.
+	expect((await describeRelease(t.releaseDir, t.work, "bin/rho release"))![0]).toBe(lines![0]);
+	expect((await describeRelease(t.releaseDir, "/", `cd ${t.work} && bin/rho release`))![0]).toBe(lines![0]);
+	expect((await describeRelease(t.releaseDir, t.work, `rho release ${a}`))!.slice(0, 3)).toEqual([`Rho will run ${s(a)} (now ${was}).`, "It brings in 1 commit:", `${s(a)} Add the notes`]);
+	expect((await describeRelease(t.releaseDir, t.work, "rho release HEAD~1"))![0]).toBe(`Rho will run ${s(a)} (now ${was}).`);
+	// More than six commits: the newest six by title, and a count of the rest.
+	for (let n = 0; n < 6; n++) t.commit({ "notes.txt": `${n}\n` }, `step ${n}`);
+	const many = (await describeRelease(t.releaseDir, t.work, "rho release"))!;
+	expect(many[1]).toBe("It brings in 8 commits:");
+	expect(many.slice(2, 9).map((line) => line.replace(/^[0-9a-f]{7} /, ""))).toEqual(["step 5", "step 4", "step 3", "step 2", "step 1", "step 0", "and 2 more"]);
+	// What the gate would refuse is said on the card, before a yes is spent on it.
+	expect(await describeRelease(t.releaseDir, t.work, "rho release nope")).toEqual(["The gate would refuse it: No such commit: nope"]);
+	expect(await describeRelease(t.releaseDir, t.releaseDir, "rho release")).toEqual([expect.stringContaining("The gate would refuse it: This is the checkout rho runs from.")]);
+	// A release to an older commit leaves commits out, and says so.
+	expect((await release(t.host, t.work)).status).toBe("released");
+	const back = (await describeRelease(t.releaseDir, t.work, `rho release ${a}`))!;
+	// Going back brings nothing in, so only what is left out is said.
+	expect(back.slice(0, 2)).toEqual([`Rho will run ${s(a)} (now ${many[0]!.slice(13, 20)}).`, "It leaves out 7 commits that rho runs now."]);
+	// A command that does anything besides the release is not described: the lines could not be trusted to match it.
+	for (const command of ["git commit -am x && rho release", "rho release; rm -rf dist", "rho release $(cat ref)", "rho release `cat ref`", "rho release HEAD | tee log", "cd a && cd b && rho release", "echo rho release", "rho release HEAD extra", "rho release --status", "rho release -f"]) expect([command, await describeRelease(t.releaseDir, t.work, command)]).toEqual([command, undefined]);
+}, 60_000);

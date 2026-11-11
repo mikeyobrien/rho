@@ -20,7 +20,7 @@ import { isProtected, protect } from "./protected.ts";
 import { findTool, grepTool, lsTool } from "./search.ts";
 
 export type Verdict = { kind: "allow" } | { kind: "refuse"; why: string } | { kind: "ask"; what: string };
-export type Pending = { id: string; tool: string; command: string; what: string; at: number }; // a type, not an interface: it is stored as JSON
+export type Pending = { id: string; tool: string; command: string; what: string; at: number; /** What it would do, in lines for the person, when rho could work that out. */ details?: string[] }; // a type, not an interface: it is stored as JSON
 /**
  * Per conversation: requests waiting for a yes, and what was allowed once. A yes for a shell
  * command is kept in `granted`; a yes for another tool's request is kept in `grants` under that
@@ -43,13 +43,15 @@ const real = (path: string): string => {
 		return path;
 	}
 };
+/** What a release is called when it waits for a yes. */
+export const RELEASE = "putting new code into the running rho";
 const GIT = String.raw`\bgit(?:\s+(?:-[cC]\s+\S+|--?[\w-]+(?:=\S+)?))*\s+`;
 const WAITS: [RegExp, string][] = [
 	[new RegExp(`${GIT}push\\b`), "git push"],
 	[/\b(?:npm|pnpm|yarn|bun)\s+publish\b/, "publishing a package"],
 	[/\bgh\s+(?:release\s+(?:create|delete)|pr\s+merge|repo\s+delete)\b/, "a GitHub release, merge or delete"],
 	// The moment code the agent wrote gets the agent's powers. Its checks are the agent's own too.
-	[/\brho\s+release\b(?!\s+--status)/, "putting new code into the running rho"],
+	[/\brho\s+release\b(?!\s+--status)/, RELEASE],
 ];
 
 const REFUSED = "Refused: rho's own data (its token and storage) is not the agent's to read or change.";
@@ -93,7 +95,10 @@ export async function answerApproval(conversation: Conversation, id: string, all
 export type Watch = (seen: { conversation: string; call: string; command: string; cwd?: string; rule: "allow" | "ask" }) => void;
 
 /** The `guard` extension: wraps the tools that touch files or run commands. */
-export function guard(dataDir: string, persons: (conversation: string) => Promise<boolean> = async () => true, watch?: Watch): Extension {
+/** Says what a waiting command would do, for its card. May answer nothing. */
+export type Explain = (ask: { what: string; command: string; cwd?: string }) => Promise<string[] | undefined>;
+
+export function guard(dataDir: string, persons: (conversation: string) => Promise<boolean> = async () => true, watch?: Watch, explain?: Explain): Extension {
 	protect(dataDir);
 	/** Refuse a path in rho's data, also when a link leads there. */
 	const checkPath = async (path: unknown, api: Parameters<ToolRegistration["execute"]>[1], context: Context): Promise<void> => {
@@ -126,12 +131,16 @@ export function guard(dataDir: string, persons: (conversation: string) => Promis
 				const command = args.command;
 				// Rho's own side work (a check-in) has nobody watching: there is no one to ask.
 				if (!(await persons(String(api.conversationId)))) throw new Error(`Not run: ${verdict.what} cannot be undone and needs the person's yes, and nobody is here to give it. Do not try it another way. Report that it was not done and why.`);
+				// Worked out before the commit, and again on every ask, so the card says what is true now.
+				const details = (await explain?.({ what: verdict.what, command, ...(cwd?.ok ? { cwd: cwd.value } : {}) }).catch(() => undefined))?.slice(0, 14);
 				// One commit: take a waiting grant for this exact command, or leave the request for the person.
 				const granted = await api.commit(async (tx) => {
 					const doc = await tx.doc(Approvals, api.conversationId);
 					const index = doc.granted.indexOf(command);
 					if (index >= 0) return doc.granted.splice(index, 1), true;
-					if (!doc.pending.some((pending) => pending.command === command)) doc.pending.push({ id: api.callId, tool: "bash", command, what: verdict.what, at: api.now() });
+					const waits = doc.pending.some((pending) => pending.tool === "bash" && pending.command === command);
+					if (!waits) doc.pending.push({ id: api.callId, tool: "bash", command, what: verdict.what, at: api.now(), ...(details ? { details } : {}) });
+					else doc.pending = doc.pending.map(({ details: _old, ...pending }) => (pending.tool === "bash" && pending.command === command ? { ...pending, ...(details ? { details } : {}) } : { ...pending, ...(_old ? { details: _old } : {}) }));
 					return false;
 				}, context);
 				if (!granted) throw new Error(`Not run: ${verdict.what} cannot be undone, so it waits for the person's yes. They are shown the command with Allow and Deny. Stop here and say what it will do; do not try it another way.`);

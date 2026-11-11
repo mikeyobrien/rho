@@ -30,7 +30,7 @@ export function start(env) {
 		notice: $("notice"), noticeText: $("notice-text"), queue: $("queue"), composer: $("composer"), input: $("input"), send: $("send"),
 		menuButton: $("menu-button"), menu: $("menu"), model: $("model"), thinking: $("thinking"), newChat: $("new-chat"),
 		conversations: $("conversations"), newConversation: $("new-conversation"),
-		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"),
+		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -335,7 +335,10 @@ export function start(env) {
 			deny.addEventListener("click", answer(false));
 			const buttons = make("div", { className: "approval-buttons" });
 			buttons.append(deny, allow);
-			card.append(note(`Needs your yes: ${ask.what}`, "note approval-what"), make("pre", { textContent: ask.command }), buttons);
+			// What it would do, when rho could work that out (a release names the commits it brings in).
+			const details = make("ul", { className: "approval-details" });
+			details.append(...(ask.details ?? []).map((line) => make("li", { textContent: line })));
+			card.append(note(`Needs your yes: ${ask.what}`, "note approval-what"), make("pre", { textContent: ask.command }), ...(ask.details?.length ? [details] : []), buttons);
 			live.push(card);
 		}
 		if (state?.running) {
@@ -391,6 +394,33 @@ export function start(env) {
 		el.latest.hidden = stick;
 	}
 
+	// --- a release of new code into rho ------------------------------------------------------------
+	const STAGES = { starting: "starting", fetch: "fetching the commit", check: "running the checks", "wait for idle": "waiting for rho to finish its answer", switch: "switching", restart: "restarting rho", "roll back": "going back" };
+	const clock = (ms) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+	let lastRelease; // the newest the daemon told; kept while rho is down, because the restart is part of the release
+	let releaseTimer;
+	/** The release line, or "" when there is nothing to say. */
+	function releaseText() {
+		const seen = state?.release ?? (connection === "live" ? undefined : lastRelease);
+		if (!seen) return "";
+		if (seen.status === "running") return `Releasing ${seen.commit} · ${STAGES[seen.stage] ?? seen.stage} · ${clock(Math.max(0, (env.now?.() ?? Date.now()) - (seen.started ?? seen.at)))}`;
+		if (seen.status === "released") return `Rho now runs ${seen.commit} (it ran ${seen.previous}).`;
+		if (seen.status === "rolled-back") return `${seen.commit} did not start, so rho is back on ${seen.previous}.`;
+		return `${seen.commit} was not released. Rho still runs ${seen.previous}.`;
+	}
+	function renderRelease() {
+		if (state?.release) lastRelease = state.release;
+		else if (connection === "live") lastRelease = undefined; // the daemon is there and says there is none
+		const text = releaseText();
+		el.release.hidden = text === "";
+		el.releaseText.textContent = text;
+		el.release.classList.toggle("bad", /did not start|was not released/.test(text));
+		// The time counts on between the daemon's snapshots, and while rho is down for its restart.
+		const counting = text.startsWith("Releasing");
+		if (counting && !releaseTimer) releaseTimer = setInterval(renderRelease, 1000);
+		if (!counting && releaseTimer) releaseTimer = void clearInterval(releaseTimer);
+	}
+
 	let flashText = "";
 	let flashTimer;
 	function flash(text) {
@@ -408,11 +438,15 @@ export function start(env) {
 		const queued = state?.queued?.length ?? 0;
 		let text = words[connection];
 		if (connection === "live") text = state?.running ? (queued > 0 ? `Working · ${queued} waiting` : "Working") : (state?.model ?? "Ready");
-		el.status.textContent = flashText || text;
-		el.status.classList.toggle("warn", flashText !== "" || connection === "offline" || connection === "unpaired");
+		const restart = connection === "offline" && lastRelease?.status === "running";
+		el.status.textContent = flashText || (restart ? "Restarting" : text);
+		el.status.classList.toggle("warn", flashText !== "" || (connection === "offline" && !restart) || connection === "unpaired");
 		// Connected, but this conversation's model cannot answer: say what to do about it.
 		const setup = connection === "live" ? (state?.setup ?? "") : "";
-		el.notice.hidden = connection !== "offline" && connection !== "unpaired" && setup === "";
+		renderRelease();
+		// Rho going away in the middle of a release is the restart, not a fault: the release line says so.
+		const restarting = connection === "offline" && lastRelease?.status === "running";
+		el.notice.hidden = restarting || (connection !== "offline" && connection !== "unpaired" && setup === "");
 		el.noticeText.textContent = setup !== "" ? setup : connection === "unpaired"
 			? "This browser is not paired. On the machine rho runs on, run: rho open"
 			: outbox.length > 0 ? "Can't reach rho. Your message is kept and sends when it is back." : "Can't reach rho.";
@@ -665,6 +699,7 @@ export function start(env) {
 			stopped = true;
 			streamAbort?.abort();
 			clearTimeout(flashTimer);
+			clearInterval(releaseTimer);
 		},
 	};
 }

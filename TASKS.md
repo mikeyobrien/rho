@@ -637,6 +637,32 @@ is used only through Claude Code.
     - Not built: restarting rho after a change; editing the person's `AGENTS.md`; a list of
       past changes.
 
+21c. A release shows in the page, and its card says what it brings in. **Done** 2026-11-11
+    (`src/gate.ts` `releaseView` and `describeRelease`, `src/http.ts`, `web/app.js`).
+    - Why: after Allow the page said nothing until the gate's report, so the person had to
+      ask whether it was done; and the card showed only the command's text.
+    - `StateView.release`: status, stage, short commit ids, when it began. The server reads
+      the gate's record every 2 s while a client is connected, and on connect. Not sent: the
+      gate's pid, any path, the failure's text (that is in the gate's report in the thread).
+      A record whose gate process is dead is not shown. An ended release is shown 5 minutes.
+    - The page: a line such as "Releasing 99ca524 · running the checks · 0:41" that counts
+      between snapshots and through the restart. Losing rho in the middle of a release reads
+      "Restarting", not "Can't reach rho".
+    - The card: `approvals[].details`, lines from the gate's own preflight: the commit rho
+      will run and the one it runs, the commits it brings in by title (six, then a count),
+      commits it would leave out, and what happens on failure. Worked out again each time
+      the command is asked, so a waiting card is not stale. Only for a command that is
+      nothing but a release with an optional `cd` first; of anything more, nothing is said.
+    - Checked: 3 gate tests in real git checkouts, 1 guard test through a real core and over
+      HTTP, 3 page tests through a real server on the stand-in DOM. The tests found that
+      `rho release --status` was read as a release of a commit named `--status`. Not checked:
+      a real browser; a real release seen through it.
+    - Not built: a restart button; a "restart to apply" prompt after a settings change;
+      skipping the card when the person typed the release themselves; skipping the gate's
+      second check.
+    - Known: the guard's text rules refused three of the agent's own commands that day
+      because test text in them named a push. Text for a file goes through the file tools.
+
 ## Rho's own features, after it can build itself
 
 22. Check-ins: a sleeping task, due-ness decided in code, a missed one fires once. **Done**

@@ -12,6 +12,7 @@ import type { ImageProcessor } from "@earendil-works/pi-durable/tools";
 import type { Core } from "./core.ts";
 import { context, parseModel } from "./core.ts";
 import { answerApproval, Approvals } from "./tools/guard.ts";
+import { releaseView } from "./gate.ts";
 import { MAX_PHOTO_BYTES, PhotoRefused, takePhotos } from "./photos.ts";
 import { setupOf } from "./providers.ts";
 import { entryView, stateView, type StateView } from "./view.ts";
@@ -25,6 +26,8 @@ export interface ServerOptions {
 	commit?: string;
 	/** Scales a photo that is larger than a model takes. Without one, such a photo is refused. */
 	images?: ImageProcessor;
+	/** How often `release.json` is looked at while a client is connected. Default 2 s. Tests change it. */
+	releasePollMs?: number;
 	log?: (line: string) => void;
 }
 export interface Server {
@@ -145,10 +148,12 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		checked.set(key, { at: Date.now(), note });
 		return note;
 	};
+	// The release gate is another process and writes `release.json`; what it says is read here, never asked of it.
+	let releaseNow = releaseView(dir);
 	const ready = async (state: StateView): Promise<StateView> => {
-		const { setup: _old, ...rest } = state;
+		const { setup: _old, release: _was, ...rest } = state;
 		const note = await setupNote(state.model);
-		return note ? { ...rest, setup: note } : rest;
+		return { ...rest, ...(releaseNow ? { release: releaseNow } : {}), ...(note ? { setup: note } : {}) };
 	};
 	// A conversation is watched from the first call that names it; one watch feeds all its streams.
 	const channels = new Map<string, Promise<Channel>>();
@@ -156,7 +161,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		const conversation = await core.conversation(id);
 		if (!conversation) throw new Refusal(404, "That conversation does not exist.");
 		const watch = await conversation.watch(context);
-		const approvals = async (): Promise<StateView["approvals"]> => ((await core.harness.snapshot(Approvals, conversation.id, context))?.pending ?? []).map(({ id: ask, tool, command, what }) => ({ id: ask, tool, command, what }));
+		const approvals = async (): Promise<StateView["approvals"]> => ((await core.harness.snapshot(Approvals, conversation.id, context))?.pending ?? []).map(({ id: ask, tool, command, what, details }) => ({ id: ask, tool, command, what, ...(details ? { details } : {}) }));
 		const channel: Channel = {
 			id,
 			conversation,
@@ -186,6 +191,22 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		return found;
 	};
 	const opened = async (): Promise<Channel[]> => (await Promise.allSettled(channels.values())).flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+	/** Look at the release again; when it moved, every open conversation is told. */
+	const syncRelease = async (): Promise<void> => {
+		const next = releaseView(dir);
+		if (JSON.stringify(next) === JSON.stringify(releaseNow)) return;
+		releaseNow = next;
+		for (const channel of await opened()) {
+			const { release: _was, ...rest } = channel.current;
+			channel.current = { ...rest, ...(next ? { release: next } : {}) };
+			send(channel, frame(channel));
+		}
+	};
+	// Only while somebody is looking: an idle rho does not wake for this.
+	const releaseWatch = setInterval(async () => {
+		if ((await opened()).some((channel) => channel.streams.size > 0)) await syncRelease();
+	}, options.releasePollMs ?? 2_000);
+	releaseWatch.unref?.();
 	const keepalive = setInterval(async () => {
 		for (const channel of await opened()) send(channel, encoder.encode(": keepalive\n\n")); // a silent stream is a dead one
 	}, 15_000);
@@ -348,6 +369,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 
 				if (request.method === "GET" && url.pathname === "/api/events") {
 					const channel = await channelOf(url);
+					await syncRelease(); // a client that connects is shown where a release is now
 					let mine: Stream;
 					const body = new ReadableStream<Uint8Array>({
 						start(controller) {
@@ -380,6 +402,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		pairCode: () => pairCode,
 		stop: async () => {
 			clearInterval(keepalive);
+			clearInterval(releaseWatch);
 			for (const channel of await opened()) {
 				await channel.stop();
 				for (const stream of channel.streams) {

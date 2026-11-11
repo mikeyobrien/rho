@@ -73,12 +73,16 @@ th, td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; ver
 .approval { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--warn); border-radius: 12px; }
 .approval-what { color: var(--warn); }
 .approval pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-details { margin: 0; padding: 0; list-style: none; color: var(--dim); font-size: 14px; overflow-wrap: anywhere; }
 .approval-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .approval .allow { background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
 #empty { margin-top: 20vh; text-align: center; color: var(--dim); }
 .empty-title { color: var(--text); font-size: 18px; }
 .quiet { display: block; margin: 0 auto 12px; }
 .latest { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); }
+.release { padding: 8px 12px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; font-variant-numeric: tabular-nums; }
+.release.bad { color: var(--bad); }
+.release p { margin: 0; }
 .notice { padding: 10px 12px; border-top: 1px solid var(--line); color: var(--warn); }
 .notice p { margin: 0; }
 

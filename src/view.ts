@@ -3,6 +3,7 @@
 // takes the newest one. Storage paths, system prompts and bookkeeping entries stay out.
 import type { Message } from "@earendil-works/pi-ai";
 import type { ConversationView, EntryRecord } from "@earendil-works/pi-durable";
+import type { ReleaseView } from "./gate.ts";
 
 export interface ToolCallView {
 	id: string;
@@ -35,9 +36,11 @@ export interface StateView {
 	model?: string;
 	thinking?: string;
 	/** Commands that wait for the person's yes. */
-	approvals: { id: string; tool: string; command: string; what: string }[];
+	approvals: { id: string; tool: string; command: string; what: string; /** What it would do, in lines. */ details?: string[] }[];
 	/** The directory this conversation's tools work in. */
 	cwd?: string;
+	/** A release of new code into rho that is under way, or one that ended in the last few minutes. */
+	release?: ReleaseView;
 	/** What the person must do before this conversation's model can answer; absent when it can. */
 	setup?: string;
 }

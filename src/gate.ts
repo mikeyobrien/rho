@@ -9,9 +9,9 @@
 // The gate looks at the commit and the running process itself. It takes nobody's word.
 // It runs in its own process, because the restart ends the rho that asked for it.
 import { spawn } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 export interface GateHost {
 	/** The checkout rho runs from. */
@@ -87,6 +87,70 @@ export async function preflight(releaseDir: string, source: string, ref: string)
 	return { commit: commit.out, previous: head.out, source: top.out };
 }
 
+/** A release as a client is shown it: where it is, or how the last one ended. Commits are short ids. */
+export interface ReleaseView {
+	status: "running" | "released" | "failed" | "rolled-back";
+	/** While running: starting, fetch, check, wait for idle, switch, restart, roll back. */
+	stage?: string;
+	commit: string;
+	previous: string;
+	/** While running: when the release began. */
+	started?: number;
+	/** When this stage began, or when the release ended. */
+	at: number;
+}
+/** How long a finished release is still shown. */
+const SHOWN_MS = 5 * 60_000;
+const alive = (pid: number): boolean => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+};
+/** `release.json` for the page: a release under way (its gate still lives), or one that ended in the last few minutes. */
+export function releaseView(dataDir: string, now = Date.now()): ReleaseView | undefined {
+	let record: { status?: unknown; stage?: unknown; commit?: unknown; previous?: unknown; pid?: unknown; started?: unknown; at?: unknown };
+	try {
+		record = JSON.parse(readFileSync(join(dataDir, "release.json"), "utf8")) as typeof record;
+	} catch {
+		return undefined; // no release yet, or a record cut short
+	}
+	if (typeof record !== "object" || record === null || typeof record.commit !== "string" || typeof record.previous !== "string" || typeof record.at !== "number") return undefined;
+	const base = { commit: short(record.commit), previous: short(record.previous), at: record.at };
+	// A gate that died leaves "running" behind: without its process there is no release to show.
+	if (record.status === "running") return typeof record.pid === "number" && alive(record.pid) ? { status: "running", stage: String(record.stage ?? "starting").slice(0, 40), ...base, started: typeof record.started === "number" ? record.started : record.at } : undefined;
+	if ((record.status === "released" || record.status === "failed" || record.status === "rolled-back") && now - record.at < SHOWN_MS) return { status: record.status, ...base };
+	return undefined;
+}
+
+/**
+ * What `rho release` typed as `command` in `cwd` would do, in lines for the person who is asked to
+ * allow it. Only for a command that is nothing but a release (with an optional `cd` first): of
+ * anything else nothing is said, rather than something that may not match what runs. The gate
+ * works all of this out again when it runs; these lines are what was true when they were asked.
+ */
+export async function describeRelease(releaseDir: string, cwd: string, command: string, home = homedir()): Promise<string[] | undefined> {
+	const simple = /^\s*(?:cd\s+([\w./~@+-]+)\s*(?:&&|;)\s*)?(?:[\w./~@+-]*\/)?rho\s+release(?:\s+([\w.~^@][\w./~^@-]*))?\s*$/.exec(command); // a commit's name never starts with a dash: that is an option
+	if (!simple) return undefined;
+	const checked = await preflight(releaseDir, simple[1] ? resolve(cwd, simple[1].replace(/^~(?=\/|$)/, home)) : cwd, simple[2] ?? "HEAD");
+	if ("refused" in checked) return [`The gate would refuse it: ${checked.refused.split("\n")[0]}`];
+	const { commit, previous, source } = checked;
+	const lines = [`Rho will run ${short(commit)} (now ${short(previous)}).`];
+	const count = await git(source, "rev-list", "--count", `${previous}..${commit}`);
+	const titles = await git(source, "log", "--abbrev=7", "--format=%h %s", "--max-count=6", `${previous}..${commit}`);
+	if (count.code === 0 && titles.code === 0) {
+		const n = Number(count.out);
+		if (n > 0) lines.push(`It brings in ${n} ${n === 1 ? "commit" : "commits"}:`, ...titles.out.split("\n").filter(Boolean).map((title) => (title.length > 90 ? `${title.slice(0, 89)}…` : title)));
+		if (n > 6) lines.push(`and ${n - 6} more`);
+		const dropped = Number((await git(source, "rev-list", "--count", `${commit}..${previous}`)).out);
+		if (dropped > 0) lines.push(`It leaves out ${dropped} ${dropped === 1 ? "commit" : "commits"} that rho runs now.`);
+	}
+	lines.push("The gate runs the checks first. If they fail, nothing changes.", `If it does not start, rho goes back to ${short(previous)}.`);
+	return lines;
+}
+
 const NO_MODEL = "Rho came up without a model it can use. An API key that was only in the environment of the shell that started rho is not there after a restart rho starts itself. Store it with: rho key <provider>";
 /** Release `ref` of the checkout at `source`. Resolves with what happened; it does not throw for a failed release. */
 export async function release(host: GateHost, source: string, ref = "HEAD"): Promise<Outcome> {
@@ -100,9 +164,10 @@ export async function release(host: GateHost, source: string, ref = "HEAD"): Pro
 	const checked = await preflight(host.releaseDir, source, ref);
 	if ("refused" in checked) return done({ status: "refused", reason: checked.refused });
 	const { commit, previous } = checked;
+	const started = Date.now();
 	const stage = (name: string) => {
 		host.log(`release ${short(commit)}: ${name}`);
-		writeFileSync(join(host.dataDir, "release.json"), `${JSON.stringify({ status: "running", stage: name, commit, previous, pid: process.pid, at: Date.now() }, null, "\t")}\n`, { mode: 0o600 });
+		writeFileSync(join(host.dataDir, "release.json"), `${JSON.stringify({ status: "running", stage: name, commit, previous, pid: process.pid, started, at: Date.now() }, null, "\t")}\n`, { mode: 0o600 });
 	};
 	const unchanged = (reason: string) => done({ status: "failed", commit, previous, reason }, `${short(commit)} was not released, and rho still runs ${short(previous)}. ${reason}`);
 

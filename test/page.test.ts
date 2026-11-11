@@ -8,6 +8,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { context, openCore, type Core } from "../src/core.ts";
 import { openModels } from "../src/providers.ts";
+import { Approvals } from "../src/tools/guard.ts";
 import { serve, type Server } from "../src/http.ts";
 import { start } from "../web/app.js";
 import { El, fakeDocument } from "./fixtures/dom.ts";
@@ -59,7 +60,7 @@ afterEach(async () => {
 });
 
 interface Page { $(id: string): El; stored: Map<string, string>; location: { hash: string; pathname: string; search: string }; document: ReturnType<typeof fakeDocument>; messages(): string[]; type(words: string): Promise<void>; send(words: string): Promise<void> }
-async function open(options: { pair?: boolean; stored?: Map<string, string>; touch?: boolean; shrink?: (file: any) => Promise<any> } = {}): Promise<Page> {
+async function open(options: { pair?: boolean; stored?: Map<string, string>; touch?: boolean; shrink?: (file: any) => Promise<any>; now?: () => number } = {}): Promise<Page> {
 	const document = fakeDocument();
 	const stored = options.stored ?? new Map<string, string>();
 	const location = { hash: options.pair === false ? "" : `#pair=${server.pairCode()}`, pathname: "/", search: "" };
@@ -71,6 +72,7 @@ async function open(options: { pair?: boolean; stored?: Map<string, string>; tou
 		fetch: (path: string, init?: RequestInit) => (down ? Promise.reject(new TypeError("fetch failed")) : fetch(`http://127.0.0.1:${server.port}${path}`, init)),
 		touch: options.touch ?? true,
 		...(options.shrink ? { shrink: options.shrink } : {}),
+		...(options.now ? { now: options.now } : {}),
 	});
 	pages.push(page);
 	await page.ready;
@@ -479,3 +481,85 @@ test("a photo is made smaller in the browser before it is sent; if that fails it
 	expect(imgs(page.$("photos")).length).toBe(2);
 	expect(page.$("send").disabled).toBe(false);
 });
+
+test("a release shows in the page as it goes: its stage and time, the restart as a restart, and how it ended", async () => {
+	// This server looks at the release record often, so the test does not wait on a 2 s poll.
+	await server.stop();
+	server = await serve({ core, models, dir, port: 0, releasePollMs: 40 });
+	let now = 0;
+	const page = await open({ now: () => now });
+	await until("live", () => idle(page));
+	expect(page.$("release").hidden).toBe(true);
+	// What the gate, another process, writes as it works. Its pid here is this test's, which lives.
+	const [commit, previous] = ["a".repeat(40), "b".repeat(40)];
+	const stage = (name: string, at: number) => writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "running", stage: name, commit, previous, pid: process.pid, started: 1_000, at }));
+	const line = () => page.$("release-text").textContent;
+	now = 42_000;
+	stage("check", 2_000);
+	await until("the release line", () => !page.$("release").hidden);
+	expect(line()).toBe("Releasing aaaaaaa · running the checks · 0:41");
+	expect(page.$("release").classList.contains("bad")).toBe(false);
+	// The time counts on its own between the daemon's snapshots.
+	now = 65_000;
+	await until("the clock to move", () => line() === "Releasing aaaaaaa · running the checks · 1:04", 4_000);
+	stage("wait for idle", 66_000);
+	await until("the next stage", () => line().includes("waiting for rho to finish its answer"));
+	stage("restart", 70_000);
+	await until("the restart stage", () => line().includes("restarting rho"));
+	// Rho goes away for the restart: that is said as a restart, not as a fault.
+	down = true;
+	await page.document.fire("visibilitychange");
+	await until("the page to lose rho", () => page.$("status").textContent === "Restarting");
+	expect(page.$("status").classList.contains("warn")).toBe(false);
+	expect(page.$("notice").hidden).toBe(true);
+	now = 75_000;
+	await until("the line to count through the restart", () => line() === "Releasing aaaaaaa · restarting rho · 1:14", 4_000);
+	// It comes back on the new commit.
+	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "released", commit, previous, at: Date.now() }));
+	down = false;
+	await until("the result", () => line() === "Rho now runs aaaaaaa (it ran bbbbbbb).", 15_000);
+	expect(idle(page)).toBe(true);
+	// A release that failed, and one that went back, say so in the colour of a fault.
+	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "failed", commit, previous, reason: "Its checks failed (exit 1):\nlots", at: Date.now() }));
+	await until("the failure", () => line() === "aaaaaaa was not released. Rho still runs bbbbbbb.");
+	expect(page.$("release").classList.contains("bad")).toBe(true);
+	expect(JSON.stringify(page.$("release").textContent)).not.toContain("lots");
+	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "rolled-back", commit, previous, at: Date.now() }));
+	await until("the roll back", () => line() === "aaaaaaa did not start, so rho is back on bbbbbbb.");
+	// After five minutes it is no longer news.
+	writeFileSync(join(dir, "release.json"), JSON.stringify({ status: "released", commit, previous, at: Date.now() - 6 * 60_000 }));
+	await until("the line to go", () => page.$("release").hidden);
+	expect(line()).toBe("");
+}, 40_000);
+
+test("when rho is unreachable with no release under way, it is still said as a fault", async () => {
+	const page = await open();
+	await until("live", () => idle(page));
+	down = true;
+	await page.document.fire("visibilitychange");
+	await until("the offline notice", () => page.$("status").textContent === "Can't reach rho");
+	expect(page.$("status").classList.contains("warn")).toBe(true);
+	expect(page.$("notice").hidden).toBe(false);
+	expect(page.$("release").hidden).toBe(true);
+});
+
+test("an approval card lists what the command would do, when rho worked that out", async () => {
+	const page = await open();
+	await until("live", () => idle(page));
+	const card = () => (page.$("live").children as El[]).find((node) => node.className === "approval");
+	const lines = () => card()!.all().filter((node) => node.tag === "li").map((node) => node.textContent);
+	// As the guard leaves them: one with lines, one without.
+	await core.root.commit(async (tx) => {
+		(await tx.doc(Approvals, core.root.id)).pending.push({ id: "ask-1", tool: "bash", command: "bin/rho release", what: "putting new code into the running rho", at: 1, details: ["Rho will run aaaaaaa (now bbbbbbb).", "It brings in 1 commit:", "aaaaaaa <b>A title</b>"] });
+	}, context);
+	await page.send("anything"); // a turn, so the page takes a fresh snapshot
+	await until("the card", () => card() !== undefined && lines().length === 3);
+	expect(lines()).toEqual(["Rho will run aaaaaaa (now bbbbbbb).", "It brings in 1 commit:", "aaaaaaa <b>A title</b>"]); // a title is text, never markup
+	expect(card()!.all().map((node) => node.tag)).toEqual(["p", "pre", "ul", "li", "li", "li", "div", "button", "button"]);
+	await core.root.commit(async (tx) => {
+		(await tx.doc(Approvals, core.root.id)).pending = [{ id: "ask-2", tool: "bash", command: "git push", what: "git push", at: 2 }];
+	}, context);
+	await page.send("again");
+	await until("the plain card", () => card()?.all().find((node) => node.tag === "pre")?.textContent === "git push");
+	expect(card()!.all().map((node) => node.tag)).toEqual(["p", "pre", "div", "button", "button"]);
+}, 30_000);

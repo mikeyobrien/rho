@@ -14,14 +14,15 @@ import { projectExtension, type ContextOptions } from "./context.ts";
 import { openDecider, readDecider } from "./decider.ts";
 import { textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
-import { guard } from "./tools/guard.ts";
+import { describeRelease } from "./gate.ts";
+import { guard, RELEASE, type Explain } from "./tools/guard.ts";
 import { settingsTool } from "./tools/settings.ts";
 import { excludeFromSearch, SearchTools } from "./tools/search.ts";
 import { tidy } from "./tools/tidy.ts";
 import { webTools, type WebOptions } from "./tools/web.ts";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 export const context = BACKGROUND_CONTEXT;
 
@@ -86,6 +87,8 @@ export interface CoreOptions {
 	clock?: { now: () => number; setTimer?: HarnessOptions["setTimer"] };
 	/** The project-context section's clock. Tests change it. */
 	context?: ContextOptions;
+	/** The checkout rho runs from, which a release switches. Default: this one. Tests change it. */
+	releaseDir?: string;
 	/** How the decider is reached. Tests change it. */
 	deciderFetch?: typeof fetch;
 	/** How the web tools reach the web. Tests change it. */
@@ -178,8 +181,11 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	const decider = deciderConfig ? openDecider(deciderConfig, options.dir, { log, asked: (id) => asked(id), ...(options.clock ? { now: options.clock.now } : {}), ...(options.deciderFetch ? { fetch: options.deciderFetch } : {}) }) : undefined;
 	if (deciderConfig) log(`decider: ${deciderConfig.model} at ${deciderConfig.baseUrl}, shadow (it logs and blocks nothing)`);
 	const watch = decider && ((seen: Parameters<typeof decider.watch>[0]) => decider.watch(seen));
+	// A release that waits for a yes says what it would bring in.
+	const releaseDir = options.releaseDir ?? resolve(import.meta.dir, "..");
+	const explain: Explain = async (ask) => (ask.what === RELEASE && ask.cwd ? describeRelease(releaseDir, ask.cwd, ask.command) : undefined);
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
-	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), settingsTool(options.dir, { persons: (id) => persons(id) }) /* settings */, guard(options.dir, (id) => persons(id), watch)]) registry.install(tidy(extension));
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), settingsTool(options.dir, { persons: (id) => persons(id) }) /* settings */, guard(options.dir, (id) => persons(id), watch, explain)]) registry.install(tidy(extension));
 	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
 	// Only the person's own conversations are mirrored to memory or may ask for a yes, not rho's side work.
 	let persons: (id: string) => Promise<boolean> = async () => false;

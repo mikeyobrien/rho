@@ -267,3 +267,47 @@ test("the guard's seatbelt is not a wall: what it does not catch is written down
 	const judge = (command: string) => judgeCommand(command, join(homedir(), ".rho", "v2")).kind;
 	for (const command of ['g=git; $g push', "bash deploy.sh", 'python3 -c "import shutil; shutil.rmtree(\'.git\')"', "find . -name .git -exec rm -rf {} +", "cat ~/.rho/v*/token", "cd .rho && cat v2/token"]) expect([command, judge(command)]).toEqual([command, "allow"]);
 });
+
+test("a waiting release carries what it would bring in, said again each time it is asked", async () => {
+	// Real checkouts: one rho "runs from" and one where the work is committed.
+	const parent = scratch("rho-guard-release-");
+	const [dir, work, releaseDir] = [join(parent, "data"), join(parent, "work"), join(parent, "release")];
+	for (const made of [dir, work, releaseDir]) mkdirSync(made);
+	const git = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", ...args], { cwd, env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" } }).stdout.toString().trim();
+	const commit = (text: string, title: string) => (writeFileSync(join(work, "a.txt"), text), git(work, "add", "a.txt"), git(work, "commit", "-q", "-m", title), git(work, "rev-parse", "--short=7", "HEAD"));
+	git(work, "init", "-q", "-b", "main");
+	const first = commit("a\n", "first");
+	git(releaseDir, "clone", "-q", work, ".");
+	const second = commit("b\n", "Add the second line");
+	const faux = fauxProvider();
+	const models = createModels();
+	models.setProvider(faux.provider);
+	const core = await openCore({ dir, models, releaseDir, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: work } });
+	cores.push(core);
+	const ask = async (command: string) => {
+		faux.setResponses([fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" }), fauxAssistantMessage("It needs your yes.")]);
+		await (await core.root.submit({ type: "input", content: "release" }, context)).wait(context);
+		return (await core.harness.snapshot(Approvals, core.root.id, context))!.pending;
+	};
+	const [waits] = await ask("rho release");
+	expect(waits).toMatchObject({ tool: "bash", command: "rho release", what: "putting new code into the running rho" });
+	expect(waits!.details).toEqual([`Rho will run ${second} (now ${first}).`, "It brings in 1 commit:", `${second} Add the second line`, "The gate runs the checks first. If they fail, nothing changes.", `If it does not start, rho goes back to ${first}.`]);
+	// Another commit lands while the card waits; asked again, the one card says what is true now.
+	const third = commit("c\n", "Add the third line");
+	const again = await ask("rho release");
+	expect(again.length).toBe(1);
+	expect(again[0]!.id).toBe(waits!.id);
+	expect(again[0]!.details!.slice(0, 3)).toEqual([`Rho will run ${third} (now ${first}).`, "It brings in 2 commits:", `${third} Add the third line`]);
+	// A push says nothing more than it did, and a release wrapped in other work is not described.
+	expect((await ask("git push origin main")).find((pending) => pending.what === "git push")!.details).toBeUndefined();
+	expect((await ask("true && rho release")).find((pending) => pending.command === "true && rho release")!.details).toBeUndefined();
+	// Over HTTP the card's lines are in the state.
+	const server = await serve({ core, models, dir, port: 0 });
+	servers.push(server);
+	const response = await fetch(`http://127.0.0.1:${server.port}/api/events`, { headers: { authorization: `Bearer ${readFileSync(join(dir, "token"), "utf8")}` } });
+	const reader = response.body!.getReader();
+	const state = JSON.parse(new TextDecoder().decode((await reader.read()).value).split("\n\n")[0]!.slice(6)) as StateView;
+	await reader.cancel();
+	expect(state.approvals.find((item) => item.command === "rho release")!.details![0]).toBe(`Rho will run ${third} (now ${first}).`);
+	expect(Object.keys(state.approvals.find((item) => item.what === "git push")!).sort()).toEqual(["command", "id", "tool", "what"]);
+}, 40_000);

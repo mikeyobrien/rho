@@ -180,7 +180,8 @@ Set `"cwd"` to the work checkout, ask rho for a change, and have it commit. Then
 following: runs `bun run check` on the commit in a clean copy, waits for rho to be idle,
 switches the running checkout to the commit, restarts rho, and confirms it runs that commit.
 If rho does not come up, the gate switches back and restarts the old commit. The result
-appears in the conversation and in `rho release --status`.
+appears in the conversation and in `rho release --status`. The card that asks you lists the
+commits the release brings in, and the page shows the release's stage while it runs.
 
 ## Development
 

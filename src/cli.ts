@@ -277,7 +277,7 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			closeSync(log);
 			if (gate.pid === undefined) return cli.out("The release gate could not be started. See: rho logs"), 1;
 			// Said before this command returns, so the status never shows the release before this one.
-			writeFileSync(file, `${JSON.stringify({ status: "running", stage: "starting", commit: checked.commit, previous: checked.previous, pid: gate.pid, at: Date.now() }, null, "\t")}\n`, { mode: 0o600 });
+			writeFileSync(file, `${JSON.stringify({ status: "running", stage: "starting", commit: checked.commit, previous: checked.previous, pid: gate.pid, started: Date.now(), at: Date.now() }, null, "\t")}\n`, { mode: 0o600 });
 			cli.out(`Releasing ${checked.commit.slice(0, 7)} (rho runs ${checked.previous.slice(0, 7)}). The gate checks it, then restarts rho onto it; if it does not come up, rho goes back. The result arrives as a message here. Progress: rho release --status`);
 			return 0;
 		}

@@ -7,6 +7,8 @@ export interface PageEnv {
 	fetch(path: string, init?: RequestInit): Promise<Response>;
 	touch?: boolean;
 	visible?(): boolean;
+	/** The time now, in milliseconds. Default: the clock. */
+	now?(): number;
 	/** A smaller copy of a photo, or the photo itself when it needs none. */
 	shrink?(file: Blob): Promise<Blob>;
 }
