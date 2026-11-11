@@ -14,6 +14,8 @@ import { context, parseModel } from "./core.ts";
 import { answerApproval, Approvals } from "./tools/guard.ts";
 import { recordAnswer } from "./answers.ts";
 import type { Notifier } from "./notify.ts";
+import type { Worker } from "./tools/delegate.ts";
+import type { WorkerView } from "./view.ts";
 import { releaseView } from "./gate.ts";
 import { MAX_PHOTO_BYTES, PhotoRefused, takePhotos } from "./photos.ts";
 import { setupOf } from "./providers.ts";
@@ -28,6 +30,8 @@ export interface ServerOptions {
 	commit?: string;
 	/** Scales a photo that is larger than a model takes. Without one, such a photo is refused. */
 	images?: ImageProcessor;
+	/** How often a live worker's current step is looked at again. Tests change it. */
+	workerPollMs?: number;
 	/** Told of every change in every one of the person's conversations, so it can notify them. */
 	notifier?: Notifier;
 	/** How often `release.json` is looked at while a client is connected. Default 2 s. Tests change it. */
@@ -108,7 +112,9 @@ interface Channel {
 	conversation: Conversation;
 	current: StateView;
 	streams: Set<Stream>;
-	/** Read the waiting approvals again and tell the listeners. */
+	/** One of the person's own conversations. A worker's thread is not: it is read, never written or notified from. */
+	own: boolean;
+	/** Read the waiting approvals and the workers again and tell the listeners. */
 	refresh(): Promise<void>;
 	stop(): Promise<unknown>;
 }
@@ -134,7 +140,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 	const encoder = new TextEncoder();
 	const frame = (channel: Channel) => encoder.encode(`data: ${JSON.stringify(channel.current)}\n\n`);
 	/** Tell the notifier where a conversation stands, and whether a client has it open. */
-	const attend = (channel: Channel) => options.notifier?.update(channel.id, channel.current, channel.streams.size > 0);
+	const attend = (channel: Channel) => (channel.own ? options.notifier?.update(channel.id, channel.current, channel.streams.size > 0) : undefined);
 	const send = (channel: Channel, bytes: Uint8Array) => {
 		let left = false;
 		for (const stream of [...channel.streams]) {
@@ -170,14 +176,58 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		const conversation = await core.conversation(id);
 		if (!conversation) throw new Refusal(404, "That conversation does not exist.");
 		const watch = await conversation.watch(context);
-		const approvals = async (): Promise<StateView["approvals"]> => ((await core.harness.snapshot(Approvals, conversation.id, context))?.pending ?? []).map(({ id: ask, tool, command, what, details }) => ({ id: ask, tool, command, what, ...(details ? { details } : {}) }));
+		const own = await core.persons(id);
+		const pendingOf = async (ref: unknown) => (await core.harness.snapshot(Approvals, ref as never, context))?.pending ?? [];
+		/** This conversation's workers, as the page is shown them. */
+		const mine = async (): Promise<Worker[]> => (own ? (await core.workers.list()).filter((worker) => worker.from === id) : []);
+		const liveOnes = (workers: Worker[]) => workers.filter((worker) => worker.endedAt === undefined);
+		// A worker's request for a yes is shown here, in the thread that handed it the job, under its name.
+		const approvals = async (): Promise<StateView["approvals"]> => {
+			if (!own) return []; // a worker's thread is read only: its cards are answered where the job came from
+			const asked = [{ pending: await pendingOf(conversation.id), worker: undefined as string | undefined }];
+			for (const worker of liveOnes(await mine())) if (worker.conversation !== undefined) asked.push({ pending: await pendingOf(worker.conversation), worker: `${worker.id}: ${worker.title}` });
+			return asked.flatMap(({ pending, worker }) => pending.map(({ id: ask, tool, command, what, details }) => ({ id: ask, tool, command, what, ...(details ? { details } : {}), ...(worker ? { worker } : {}) })));
+		};
+		/** The step a worker is on: its running tool and what that acts on, from its own thread. */
+		const stepOf = async (worker: Worker): Promise<string | undefined> => {
+			if (worker.status !== "working" || worker.conversation === undefined) return undefined;
+			const live = await core.harness.snapshot(LiveDoc, worker.conversation as never, context);
+			const tool = (live?.tools ?? []).find((candidate) => candidate.status !== "done");
+			if (!tool) return undefined;
+			const thread = await core.harness.conversation(worker.conversation as never, context);
+			const calls = ((await thread?.entries({ order: "descending" }, 4, undefined, context))?.items ?? []).flatMap((entry) => { const view = entryView(entry); return view?.role === "assistant" ? view.calls : []; });
+			const args = calls.find((call) => call.id === tool.callId)?.args ?? {};
+			const target = args.path ?? args.command ?? args.pattern ?? args.url ?? args.query ?? "";
+			return `${tool.name}${typeof target === "string" && target !== "" ? ` ${target.split("\n")[0]!.slice(0, 120)}` : ""}`;
+		};
+		const workers = async (): Promise<Pick<StateView, "workers" | "workerThread">> => {
+			if (!own) {
+				const worker = (await core.workers.list()).find((candidate) => String(candidate.conversation) === id);
+				return worker ? { workerThread: { id: worker.id, title: worker.title, from: worker.from === core.rootId ? "" : worker.from } } : {};
+			}
+			const shown = (await mine()).filter((worker) => worker.endedAt === undefined || worker.endedAt > Date.now() - 24 * 3600_000);
+			if (shown.length === 0) return {};
+			const views: WorkerView[] = [];
+			for (const worker of shown) {
+				const step = await stepOf(worker).catch(() => undefined);
+				views.push({ id: worker.id, title: worker.title, place: worker.place, status: worker.status, createdAt: worker.createdAt, ...(worker.startedAt ? { startedAt: worker.startedAt } : {}), ...(worker.endedAt ? { endedAt: worker.endedAt } : {}), ...(worker.conversation !== undefined ? { conversation: String(worker.conversation) } : {}), ...(step ? { step } : {}) });
+			}
+			return { workers: views };
+		};
+		const whole = async (view: StateView): Promise<StateView> => {
+			const { workers: _old, workerThread: _was, ...rest } = view;
+			return ready({ ...rest, ...(await workers()) });
+		};
 		const channel: Channel = {
 			id,
 			conversation,
-			current: await ready(stateView(watch.value, await approvals())),
+			own,
+			current: await whole(stateView(watch.value, await approvals())),
 			streams: new Set(),
 			refresh: async () => {
-				channel.current = await ready({ ...channel.current, approvals: await approvals() });
+				const next = await whole({ ...channel.current, approvals: await approvals() });
+				if (JSON.stringify(next) === JSON.stringify(channel.current)) return;
+				channel.current = next;
 				send(channel, frame(channel));
 				attend(channel);
 			},
@@ -185,7 +235,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		};
 		watch.start(async (call) => {
 			if (call.kind !== "value") return;
-			channel.current = await ready(stateView(call.value, await approvals()));
+			channel.current = await whole(stateView(call.value, await approvals()));
 			send(channel, frame(channel));
 			attend(channel);
 		});
@@ -201,7 +251,14 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		}
 		return found;
 	};
-	const channelOf = (url: URL): Promise<Channel> => channelFor(url.searchParams.get("c") || core.rootId);
+	/** The conversation a request names, to read: one of the person's, or a worker's thread. */
+	const viewOf = (url: URL): Promise<Channel> => channelFor(url.searchParams.get("c") || core.rootId);
+	/** The conversation a request names, to change: only one of the person's own. */
+	const channelOf = async (url: URL): Promise<Channel> => {
+		const channel = await viewOf(url);
+		if (!channel.own) throw new Refusal(403, "A worker's thread is read only.");
+		return channel;
+	};
 	const opened = async (): Promise<Channel[]> => (await Promise.allSettled(channels.values())).flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
 	/** Look at the release again; when it moved, every open conversation is told. */
 	const syncRelease = async (): Promise<void> => {
@@ -219,6 +276,14 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		if ((await opened()).some((channel) => channel.streams.size > 0)) await syncRelease();
 	}, options.releasePollMs ?? 2_000);
 	releaseWatch.unref?.();
+	// A change to a worker (started, asks, ended) is shown at once; the step it is on is looked at
+	// again every few seconds, and only while a page is open on a conversation that has a live worker.
+	const refreshOpen = async (onlyWatched: boolean) => {
+		for (const channel of await opened()) if (channel.own && (!onlyWatched || (channel.streams.size > 0 && (channel.current.workers ?? []).some((worker) => worker.endedAt === undefined)))) await channel.refresh().catch(() => undefined);
+	};
+	const unwatchWorkers = core.workers.onChange(() => void refreshOpen(false));
+	const workerWatch = setInterval(() => void refreshOpen(true), options.workerPollMs ?? 3_000);
+	workerWatch.unref?.();
 	const keepalive = setInterval(async () => {
 		for (const channel of await opened()) send(channel, encoder.encode(": keepalive\n\n")); // a silent stream is a dead one
 	}, 15_000);
@@ -288,10 +353,21 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			const channel = await channelOf(url);
 			const { id, allow } = await bodyOf(request);
 			if (typeof id !== "string" || typeof allow !== "boolean") throw new Refusal(400, "id and allow are required.");
-			const answered = await answerApproval(channel.conversation, id, allow, context);
+			let answered = await answerApproval(channel.conversation, id, allow, context);
+			// Not the agent's own: a worker's, shown in this thread. The answer is left for the worker, which is told it and goes on.
+			let workers = false;
+			for (const worker of answered ? [] : (await core.workers.list()).filter((candidate) => candidate.from === channel.id && candidate.endedAt === undefined && candidate.conversation !== undefined)) {
+				const thread = await core.harness.conversation(worker.conversation as never, context);
+				answered = thread && (await answerApproval(thread, id, allow, context));
+				if (answered) {
+					workers = true;
+					break;
+				}
+			}
 			if (!answered) throw new Refusal(409, "That request is no longer waiting."); // an approval answers once
 			recordAnswer(dir, { at: Date.now(), event: allow ? "allow" : "deny", id: answered.id, conversation: channel.id, tool: answered.tool, what: answered.what, command: answered.command, waitedMs: Date.now() - answered.at });
 			await channel.refresh();
+			if (workers) return { ok: true };
 			// The person's answer reaches the agent as their message, at its next step.
 			const shell = answered.tool === "bash"; // another tool's request (a settings change) is not something to run
 			const text = allow ? `Yes. ${shell ? "Run it" : "Do it"}: \`${answered.command}\`` : `No. Do not ${shell ? "run" : "do it"}: \`${answered.command}\``;
@@ -326,6 +402,13 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			checked.clear();
 			return { ...(await setupOf(models, model)), available: (await models.getAvailable()).length };
 		},
+		"GET /api/workers": async () => ({ items: (await core.workers.list()).map(({ id, title, place, status, from, createdAt, startedAt, endedAt }) => ({ id, title, place, status, from, createdAt, startedAt, endedAt })) }),
+		"POST /api/workers/stop": async (request) => {
+			const { id } = await bodyOf(request);
+			if (typeof id !== "string") throw new Refusal(400, "id is required.");
+			if (!(await core.workers.stop(id))) throw new Refusal(409, "That worker is not running.");
+			return { ok: true };
+		},
 		"GET /api/reminders": async () => ({ items: (await core.reminders?.list()) ?? [] }),
 		"POST /api/reminders/remove": async (request) => {
 			const { id } = await bodyOf(request);
@@ -336,7 +419,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		"GET /api/earlier": async (_request, url) => {
 			const before = Number(url.searchParams.get("before"));
 			if (!Number.isSafeInteger(before) || before < 1) throw new Refusal(400, "before is required: the id of the oldest entry you have.");
-			const page = await (await channelOf(url)).conversation.entries({ maxEntryId: (before - 1) as never, order: "descending" }, 40, undefined, context);
+			const page = await (await viewOf(url)).conversation.entries({ maxEntryId: (before - 1) as never, order: "descending" }, 40, undefined, context);
 			return { entries: page.items.flatMap((entry) => entryView(entry) ?? []).reverse(), more: page.items.length === 40 };
 		},
 		// One photo of one of the person's own messages. The stream names how many there are; the
@@ -383,7 +466,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 				if (!same(given, token)) return json(401, { error: "Not paired. Run: rho open" });
 
 				if (request.method === "GET" && url.pathname === "/api/events") {
-					const channel = await channelOf(url);
+					const channel = await viewOf(url);
 					await syncRelease(); // a client that connects is shown where a release is now
 					let mine: Stream;
 					const body = new ReadableStream<Uint8Array>({
@@ -422,6 +505,8 @@ export async function serve(options: ServerOptions): Promise<Server> {
 		stop: async () => {
 			clearInterval(keepalive);
 			clearInterval(releaseWatch);
+			clearInterval(workerWatch);
+			unwatchWorkers();
 			for (const channel of await opened()) {
 				await channel.stop();
 				for (const stream of channel.streams) {

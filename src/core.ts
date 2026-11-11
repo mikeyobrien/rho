@@ -16,6 +16,7 @@ import { textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { describeRelease } from "./gate.ts";
 import { backgroundTool } from "./tools/background.ts";
+import { delegateTool, live as liveWorker, localPlace, Workers, type Worker } from "./tools/delegate.ts";
 import { commandCheck, guard, RELEASE, type Explain } from "./tools/guard.ts";
 import { settingsTool } from "./tools/settings.ts";
 import { excludeFromSearch, SearchTools } from "./tools/search.ts";
@@ -42,6 +43,8 @@ export interface RhoConfig {
 	decider?: unknown;
 	/** Notifications when rho needs a yes, a run fails or a report arrives. `false` turns them off. */
 	notifications?: boolean;
+	/** Workers the agent hands whole jobs to. `false` leaves the tool out. `max`: how many run at once here (default 2). `maxTurns`: a worker's step limit (default 60). */
+	delegates?: boolean | { max?: number; maxTurns?: number };
 	/** The `background` tool: a shell command run outside the agent's turn. `false` leaves it out. */
 	background?: boolean;
 	/** Check-ins (reminders rho runs unattended). `false` turns them off. */
@@ -94,6 +97,10 @@ export interface CoreOptions {
 	context?: ContextOptions;
 	/** The checkout rho runs from, which a release switches. Default: this one. Tests change it. */
 	releaseDir?: string;
+	/** Free memory, in bytes, as the place a worker runs asks for it. Tests change it. */
+	freeMemory?: () => number;
+	/** How often a waiting worker looks for a slot. Tests change it. */
+	workerRetryMs?: number;
 	/** How the decider is reached. Tests change it. */
 	deciderFetch?: typeof fetch;
 	/** How the web tools reach the web. Tests change it. */
@@ -123,6 +130,10 @@ export interface Core {
 	conversation(id: string): Promise<Conversation | undefined>;
 	/** A new conversation with the configured model, working in `cwd` (default: the configured directory). */
 	create(options?: { cwd?: string }): Promise<ConversationInfo>;
+	/** The workers the agent handed jobs to: live ones and those that ended lately. */
+	workers: { list(): Promise<Worker[]>; /** End one. False when it is not running or waiting. */ stop(id: string): Promise<boolean>; /** Told after each change to the list. Returns how to stop being told. */ onChange(listener: () => void): () => void };
+	/** Whether a conversation is one of the person's own (not a worker's or a check-in's). */
+	persons(id: string): Promise<boolean>;
 	/** Put a message the person did not write into a conversation: a gate report, a check-in. The model reads it; memory never takes it as the person's words. */
 	notice(conversation: Conversation, text: string, requestId: string, from: string): Promise<string>;
 	/** Name a conversation that has no name yet, from its first message. */
@@ -192,7 +203,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	// Marked before the guard is made, and unmarked when this core closes (see protected.ts).
 	const unprotect = [...new Set([options.dir, realpathSync(options.dir)])].map((dir) => excludeFromSearch(dir));
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
-	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), settingsTool(options.dir, { persons: (id) => persons(id) }) /* settings */, guard(options.dir, (id) => persons(id), watch, explain)]) registry.install(tidy(extension));
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), settingsTool(options.dir, { persons: (id) => persons(id) }) /* settings */, guard(options.dir, (id) => asks(id), watch, explain)]) registry.install(tidy(extension));
 	// Only the person's own conversations are mirrored to memory or may ask for a yes, not rho's side work.
 	let persons: (id: string) => Promise<boolean> = async () => false;
 	const memory = options.memory === undefined ? openMemory(config, { dir: options.dir, log }) : (options.memory ?? undefined);
@@ -202,8 +213,14 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	const reminders = config.checkins === false ? undefined : checkinFeature({ now, log, noticeKind: NOTICE, maxTurns: typeof config.checkins === "object" ? config.checkins.maxTurns : undefined });
 	if (reminders) registry.install(tidy(reminders.extension));
 	// A command that runs outside the agent's turn, judged by the guard as `bash` is. `false` in the config leaves it out.
+	// Who can be asked for a yes: the person's own conversations, and a worker that is still at work (its card is shown in the thread that handed it the job).
+	let asks: (conversation: string) => Promise<boolean> = async () => true;
+	const workerListeners = new Set<() => void>();
 	let endTask: (task: never, ctx: typeof context) => Promise<unknown> = async () => undefined;
 	if (config.background !== false) registry.install(tidy(backgroundTool({ check: (args, api, ctx) => commandCheck(options.dir)(args, api, ctx), noticeKind: NOTICE, stop: (task, ctx) => endTask(task as never, ctx), now, log })));
+	// A whole job handed to a worker: a second agent in its own conversation, which cannot delegate or start background commands.
+	const workers = typeof config.delegates === "object" && config.delegates !== null ? config.delegates : {};
+	if (config.delegates !== false) registry.install(tidy(delegateTool({ place: localPlace({ ...(Number.isInteger(workers.max) && workers.max! >= 1 ? { ceiling: workers.max! } : {}), ...(options.freeMemory ? { free: options.freeMemory } : {}) }), noticeKind: NOTICE, maxTurns: Number.isInteger(workers.maxTurns) && workers.maxTurns! >= 1 ? workers.maxTurns! : 60, withhold: ["background", "settings", "reminder"], stop: (task, ctx) => endTask(task as never, ctx), now, log, changed: () => workerListeners.forEach((listener) => listener()), ...(options.workerRetryMs ? { retryMs: options.workerRetryMs } : {}) })));
 	// The person's standing instructions live beside rho's data, where the agent cannot rewrite them.
 	registry.install(projectExtension(home, { personal: join(options.dir, "AGENTS.md"), ...options.context }));
 	const harness = await Harness.open(
@@ -242,6 +259,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 		}, context);
 	if (!(await listed()).some((item) => item.id === rootId)) await add(root);
 	persons = async (id) => (await listed()).some((item) => item.id === id);
+	const workerList = async (): Promise<Worker[]> => (await harness.snapshot(Workers, context))?.workers ?? [];
+	asks = async (id) => (await persons(id)) || (await workerList()).some((worker) => liveWorker(worker) && String(worker.conversation) === id);
 	// The newest message the person wrote themselves: a gate report or a check-in (another entry kind) is not their word.
 	// Read once far back, then only what is new since: a cache a restart may lose.
 	const lastAsked = new Map<string, { upTo: unknown; text?: string }>();
@@ -256,7 +275,10 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	};
 	const find = async (id: string): Promise<Conversation | undefined> => {
 		const item = (await listed()).find((candidate) => candidate.id === id);
-		return item ? harness.conversation(item.ref as unknown as ConversationId, context) : undefined;
+		if (item) return harness.conversation(item.ref as unknown as ConversationId, context);
+		// A worker's thread can be opened too, to read: it is not listed among the person's conversations.
+		const worker = (await workerList()).find((candidate) => candidate.conversation !== undefined && String(candidate.conversation) === id);
+		return worker ? harness.conversation(worker.conversation as unknown as ConversationId, context) : undefined;
 	};
 	// A run is bounded, in every conversation, also when the setting changed since it was made.
 	for (const item of await listed()) {
@@ -301,6 +323,18 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 				if (item && item.title === "") item.title = words;
 			}, context);
 		},
+		workers: {
+			list: workerList,
+			stop: async (id) => {
+				const worker = (await workerList()).find((candidate) => candidate.id === id);
+				if (!worker || !liveWorker(worker)) return false;
+				await endTask(worker.task as never, context);
+				log(`worker ${worker.id}: stopped by the person`);
+				return true;
+			},
+			onChange: (listener) => (workerListeners.add(listener), () => void workerListeners.delete(listener)),
+		},
+		persons: (id) => persons(id),
 		close: () => harness.close(context).finally(() => (release(), unprotect.forEach((end) => end()))),
 	};
 }

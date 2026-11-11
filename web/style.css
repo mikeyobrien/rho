@@ -82,16 +82,28 @@ th, td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; ver
 .latest { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); }
 .release { padding: 8px 12px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; font-variant-numeric: tabular-nums; }
 .release.bad { color: var(--bad); }
+.workers { padding: 6px 12px; border-top: 1px solid var(--line); font-size: 14px; max-height: 34vh; overflow-y: auto; }
+.workers ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.worker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
+.worker-open { grid-column: 1; text-align: left; background: none; border: 0; padding: 0; color: var(--text); font: inherit; overflow-wrap: anywhere; }
+.worker-state { grid-column: 1; color: var(--dim); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.worker.asking .worker-state { color: var(--warn); }
+.worker.failed .worker-state { color: var(--bad); }
+.worker.ended .worker-open { color: var(--dim); }
+.worker-stop { grid-column: 2; grid-row: 1 / span 2; }
+.worker-thread { margin: 0 0 6px; color: var(--dim); }
+.worker-thread button { margin-left: 8px; }
 .release p { margin: 0; }
 .notice { padding: 10px 12px; border-top: 1px solid var(--line); color: var(--warn); }
 .notice p { margin: 0; }
 
 footer { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
-#queue { list-style: none; margin: 0 auto 8px; padding: 0; max-width: 760px; display: grid; gap: 6px; }
+#queue { list-style: none; margin: 0 auto 8px; padding: 0; max-width: 760px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 #queue:empty { display: none; }
 #queue li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--dim); }
 #queue .chip { flex: 1; font-size: 12px; }
-#queue .queued-text { order: -1; flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+#queue li { min-width: 0; }
+#queue .queued-text { order: -1; flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 #photos { list-style: none; margin: 0 auto 8px; padding: 0; max-width: 760px; display: flex; flex-wrap: wrap; gap: 8px; }
 #photos:empty { display: none; }
 #photos li { display: grid; gap: 4px; justify-items: center; }

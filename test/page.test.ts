@@ -26,8 +26,8 @@ let down = false; // when true, the page cannot reach the daemon
 const pages: { stop(): void }[] = [];
 
 async function boot(port = 0) {
-	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: work }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })] });
-	server = await serve({ core, models, dir, port });
+	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: work }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })], workerRetryMs: 40 });
+	server = await serve({ core, models, dir, port, workerPollMs: 100 });
 }
 function waitTool() {
 	let release!: () => void;
@@ -654,3 +654,98 @@ test("a running step shows how long it has run and its newest line", async () =>
 	await until("the answer", () => page.messages().at(-1) === "msg assistant|Finished." && idle(page));
 	expect(result()).toBeUndefined();
 }, 30_000);
+
+// One scripted model for the agent and its worker: a worker is known by its brief, as in test/delegate.test.ts.
+function scriptWorker(worker: (seen: { results: number; lastRole: string }) => ReturnType<typeof fauxAssistantMessage>, main: ReturnType<typeof fauxAssistantMessage>[]) {
+	faux.setResponses(Array.from({ length: 60 }, () => (asked: { messages: { role: string; content: unknown }[] }) => {
+		const first = asked.messages.find((message) => message.role === "user")?.content;
+		const text = typeof first === "string" ? first : ((first ?? []) as { text?: string }[]).map((part) => part.text ?? "").join("");
+		if (!text.startsWith("You are a worker.")) return main.shift() ?? fauxAssistantMessage("(nothing scripted)");
+		return worker({ results: asked.messages.filter((message) => message.role === "toolResult").length, lastRole: asked.messages.at(-1)!.role });
+	}));
+}
+const BRIEF = "The person asked for the branch to be published. Wait for the build, then push main to origin, and report what was pushed and how you checked it.";
+const PUSH = "git push --dry-run origin main"; // held by the guard like any push, and changes nothing if it runs
+const rows = (page: Page) => (page.$("worker-list").children as El[]).map((row) => row.all().filter((node) => node.tag === "span" || node.className === "worker-open").map((node) => node.textContent).join(" | "));
+
+test("a worker is listed with its step; its command that needs a yes shows a card here, and Allow lets it go on to one report", async () => {
+	scriptWorker(({ results, lastRole }) => {
+		if (results === 0) return fauxAssistantMessage(fauxToolCall("wait", { why: "the build" }), { stopReason: "toolUse" });
+		if (results === 1 || (results === 2 && lastRole === "user")) return fauxAssistantMessage(fauxToolCall("bash", { command: PUSH }), { stopReason: "toolUse" });
+		if (results === 2) return fauxAssistantMessage("The push waits for the person's yes.");
+		return fauxAssistantMessage("DONE\nI ran the push as a dry run after the person allowed it.");
+	}, [fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off."), fauxAssistantMessage("The worker is done.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	expect(page.$("workers").hidden).toBe(true);
+	await page.send("publish it");
+	await gate.started;
+	// The row: the job, how it stands, how long, where, and the step it is on. The header counts it.
+	await until("the worker's row with its step", () => /^Publish the branch \| working · 0:\d\d · local · wait$/.test(rows(page)[0] ?? ""), 15_000);
+	expect(page.$("workers").hidden).toBe(false);
+	await until("the main thread idle", () => idle(page));
+	expect(page.$("status").textContent).toEndWith(" · 1 worker");
+	expect(page.messages().at(-1)).toBe("msg assistant|Handed off."); // none of the worker's steps are in this thread
+	// Its push needs a yes: the card is here, under the worker's name.
+	gate.release();
+	const card = () => (page.$("live").children as El[]).find((node) => node.className === "approval");
+	await until("the worker's card", () => card() !== undefined, 15_000);
+	expect(card()!.textContent).toContain("Worker w1: Publish the branch");
+	expect(card()!.textContent).toContain("Needs your yes: git push");
+	expect(card()!.all().find((node) => node.tag === "pre")!.textContent).toBe(PUSH);
+	await until("the row to say it asks", () => rows(page)[0]!.includes("needs your yes"));
+	expect((await core.workers.list())[0]).toMatchObject({ status: "asking" });
+	// Allow: the worker is told, runs it, and reports. The agent in this thread is not sent a "Yes. Run it".
+	await card()!.all().find((node) => node.textContent === "Allow")!.fire("click");
+	await until("the report and the answer to it", () => page.messages().at(-1) === "msg assistant|The worker is done." && idle(page), 20_000);
+	expect(card()).toBeUndefined();
+	expect(page.messages().some((line) => line.startsWith("msg user|Yes. Run it"))).toBe(false);
+	expect(page.messages().filter((line) => line.includes("[worker w1] Publish the branch")).length).toBe(1);
+	await until("the row to say done", () => /^Publish the branch \| done · 0:\d\d · local$/.test(rows(page)[0] ?? ""));
+	expect(page.$("status").textContent).not.toContain("worker");
+	// An ended worker has no Stop, and is still listed.
+	expect((page.$("worker-list").children as El[])[0]!.all().some((node) => node.className === "worker-stop")).toBe(false);
+}, 60_000);
+
+test("a worker's No is told to it; a worker is stopped from its row; its thread opens to read and takes no message", async () => {
+	scriptWorker(({ results, lastRole }) => {
+		if (results === 0) return fauxAssistantMessage(fauxToolCall("bash", { command: PUSH }), { stopReason: "toolUse" });
+		if (results === 1 && lastRole === "toolResult") return fauxAssistantMessage("The push waits for the person's yes.");
+		if (results === 1) return fauxAssistantMessage(fauxToolCall("wait", { why: "what is left" }), { stopReason: "toolUse" }); // told no: it goes on with the rest
+		return fauxAssistantMessage("PARTIAL\nNot pushed: the person said no.");
+	}, [fauxAssistantMessage(fauxToolCall("delegate", { action: "start", title: "Publish the branch", brief: BRIEF }), { stopReason: "toolUse" }), fauxAssistantMessage("Handed off.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("publish it");
+	const card = () => (page.$("live").children as El[]).find((node) => node.className === "approval");
+	await until("the worker's card", () => card() !== undefined, 15_000);
+	await card()!.all().find((node) => node.textContent === "Deny")!.fire("click");
+	await gate.started; // the worker was told no and went on
+	await until("the row to say working again", () => rows(page)[0]!.includes("working"));
+	const worker = (await core.workers.list())[0]!;
+	const thread = await core.harness.conversation(worker.conversation as never, context);
+	const told = (await thread!.entries({ order: "descending" }, 10, undefined, context)).items.map((entry) => JSON.stringify(entry.model?.[0] ?? "")).find((text) => text.includes("The person said no"));
+	expect(told).toContain(`Do not run: \`${PUSH}\``);
+	// Its thread opens from the row: read only, with a way back, and nothing can be sent into it.
+	const row = () => (page.$("worker-list").children as El[])[0]!;
+	await row().all().find((node) => node.className === "worker-open")!.fire("click");
+	await until("the worker's thread", () => page.$("worker-thread").hidden === false && page.messages().some((line) => line.startsWith("msg user|You are a worker.")));
+	expect(page.$("worker-thread").textContent).toContain("Worker w1: Publish the branch. Its thread is read only.");
+	expect(page.$("composer").hidden).toBe(true);
+	const token = JSON.parse(page.stored.get("token")!);
+	const post = (path: string, body: object) => fetch(`http://127.0.0.1:${server.port}/api/${path}?c=${worker.conversation}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+	for (const [path, body] of [["submit", { text: "do something else", requestId: "worker-thread-1" }], ["stop", {}], ["new", {}], ["cwd", { path: work }]] as const) {
+		const refused = await post(path, body);
+		expect([path, refused.status, ((await refused.json()) as { error?: string }).error]).toEqual([path, 403, "A worker's thread is read only."]);
+	}
+	await page.$("worker-thread").all().find((node) => node.className === "worker-back")!.fire("click");
+	await until("back in the main thread", () => page.$("worker-thread").hidden === true && page.messages().includes("msg assistant|Handed off."));
+	expect(page.$("composer").hidden).toBe(false);
+	// Stop, from the row: it ends, reports nothing, and keeps its row.
+	await row().all().find((node) => node.className === "worker-stop")!.fire("click");
+	await until("the row to say stopped", () => rows(page)[0]!.includes("stopped"), 15_000);
+	await Bun.sleep(200);
+	expect(page.messages().some((line) => line.includes("[worker w1]"))).toBe(false);
+	expect((await core.workers.list())[0]).toMatchObject({ status: "stopped" });
+	expect(page.$("status").textContent).not.toContain("worker");
+}, 60_000);

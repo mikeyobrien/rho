@@ -31,6 +31,7 @@ export function start(env) {
 		menuButton: $("menu-button"), menu: $("menu"), model: $("model"), thinking: $("thinking"), newChat: $("new-chat"),
 		conversations: $("conversations"), newConversation: $("new-conversation"),
 		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
+		workers: $("workers"), workerList: $("worker-list"), workerThread: $("worker-thread"), footer: $("composer"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -409,7 +410,8 @@ export function start(env) {
 			// What it would do, when rho could work that out (a release names the commits it brings in).
 			const details = make("ul", { className: "approval-details" });
 			details.append(...(ask.details ?? []).map((line) => make("li", { textContent: line })));
-			card.append(note(`Needs your yes: ${ask.what}`, "note approval-what"), make("pre", { textContent: ask.command }), ...(ask.details?.length ? [details] : []), buttons);
+			// A worker's request says whose it is: the agent in this thread did not ask for it.
+			card.append(...(ask.worker ? [note(`Worker ${ask.worker}`, "note approval-who")] : []), note(`Needs your yes: ${ask.what}`, "note approval-what"), make("pre", { textContent: ask.command }), ...(ask.details?.length ? [details] : []), buttons);
 			live.push(card);
 		}
 		if (state?.running) {
@@ -495,6 +497,59 @@ export function start(env) {
 		if (!counting && releaseTimer) releaseTimer = void clearInterval(releaseTimer);
 	}
 
+	// --- workers -------------------------------------------------------------------------------------
+	// Jobs the agent handed off. Each row: the job, where it runs, how it stands, how long, the step
+	// it is on. A live one can be stopped; any that has a thread can be opened, to read.
+	const WORKER_WORDS = { waiting: "waiting for a slot", working: "working", asking: "needs your yes", done: "done", partial: "partial", failed: "failed", stopped: "stopped" };
+	let workerTimer;
+	function workerLine(worker) {
+		const now = env.now?.() ?? Date.now();
+		const ended = worker.endedAt !== undefined;
+		const span = worker.startedAt === undefined ? "" : ` · ${clock(Math.max(0, (worker.endedAt ?? now) - worker.startedAt))}`;
+		return `${WORKER_WORDS[worker.status] ?? worker.status}${span} · ${worker.place}${!ended && worker.step ? ` · ${worker.step}` : ""}`;
+	}
+	function renderWorkers() {
+		const workers = state?.workers ?? [];
+		const thread = state?.workerThread;
+		el.workers.hidden = workers.length === 0 && !thread;
+		// In a worker's own thread: say whose it is, and how to go back. There is nothing to send there.
+		el.workerThread.hidden = !thread;
+		if (thread) {
+			const back = make("button", { type: "button", className: "worker-back", textContent: "Back" });
+			back.addEventListener("click", () => switchTo(thread.from, thread.from === ""));
+			el.workerThread.replaceChildren(document.createTextNode(`Worker ${thread.id}: ${thread.title}. Its thread is read only.`), back);
+		}
+		el.footer.hidden = Boolean(thread);
+		el.workerList.replaceChildren(
+			...workers.map((worker) => {
+				const ended = worker.endedAt !== undefined;
+				const row = make("li", { className: `worker ${worker.status}${ended ? " ended" : ""}` });
+				const open = make("button", { type: "button", className: "worker-open", textContent: worker.title, disabled: worker.conversation === undefined });
+				open.setAttribute("aria-label", `Open the thread of worker ${worker.id}: ${worker.title}`);
+				open.addEventListener("click", () => switchTo(worker.conversation, false));
+				row.append(open, make("span", { className: "worker-state", textContent: workerLine(worker) }));
+				if (!ended) {
+					const stop = make("button", { type: "button", className: "worker-stop", textContent: "Stop" });
+					stop.setAttribute("aria-label", `Stop worker ${worker.id}`);
+					stop.addEventListener("click", async () => {
+						stop.disabled = true;
+						try {
+							await api("workers/stop", { id: worker.id });
+						} catch (error) {
+							flash(error.message);
+						}
+					});
+					row.append(stop);
+				}
+				return row;
+			}),
+		);
+		// The time counts on between the daemon's snapshots.
+		const counting = workers.some((worker) => worker.endedAt === undefined && worker.startedAt !== undefined);
+		if (counting && !workerTimer) workerTimer = setInterval(renderWorkers, 1000);
+		if (!counting && workerTimer) workerTimer = void clearInterval(workerTimer);
+	}
+
 	// --- a step that is running ----------------------------------------------------------------------
 	// The daemon does not say when a call began, so the time is counted from when this page first
 	// saw it running: right for a call watched from its start, short for one found already going.
@@ -532,12 +587,16 @@ export function start(env) {
 		const queued = state?.queued?.length ?? 0;
 		let text = words[connection];
 		if (connection === "live") text = state?.running ? (queued > 0 ? `Working · ${queued} waiting` : "Working") : (state?.model ?? "Ready");
+		// Workers still at it are counted beside it, whatever this thread itself is doing.
+		const busy = (state?.workers ?? []).filter((worker) => worker.endedAt === undefined).length;
+		if (connection === "live" && busy > 0) text += ` · ${busy} ${busy === 1 ? "worker" : "workers"}`;
 		const restart = connection === "offline" && lastRelease?.status === "running";
 		el.status.textContent = flashText || (restart ? "Restarting" : text);
 		el.status.classList.toggle("warn", flashText !== "" || (connection === "offline" && !restart) || connection === "unpaired");
 		// Connected, but this conversation's model cannot answer: say what to do about it.
 		const setup = connection === "live" ? (state?.setup ?? "") : "";
 		renderRelease();
+		renderWorkers();
 		// Rho going away in the middle of a release is the restart, not a fault: the release line says so.
 		const restarting = connection === "offline" && lastRelease?.status === "running";
 		el.notice.hidden = restarting || (connection !== "offline" && connection !== "unpaired" && setup === "");
@@ -796,6 +855,7 @@ export function start(env) {
 			clearTimeout(flashTimer);
 			clearInterval(releaseTimer);
 			clearInterval(runTimer);
+			clearInterval(workerTimer);
 		},
 	};
 }

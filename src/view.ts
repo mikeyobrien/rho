@@ -20,6 +20,21 @@ export type EntryView =
 	| { id: number; role: "notice"; text: string; /** Who sent it: "gate", "check-in". */ from: string }
 	| { id: number; role: "divider"; text: string };
 
+/** A worker as a client is shown it. The job line is the agent's words; `step` names a tool and what it acts on. */
+export interface WorkerView {
+	id: string;
+	title: string;
+	/** Where it runs. */
+	place: string;
+	status: "waiting" | "working" | "asking" | "done" | "partial" | "failed" | "stopped";
+	createdAt: number;
+	startedAt?: number;
+	endedAt?: number;
+	/** Its own thread, to open and read, once it has one. */
+	conversation?: string;
+	/** What it is doing now: the tool and its target, as a tool card names them. */
+	step?: string;
+}
 export interface StateView {
 	conversation: string;
 	entries: EntryView[];
@@ -36,7 +51,11 @@ export interface StateView {
 	model?: string;
 	thinking?: string;
 	/** Commands that wait for the person's yes. */
-	approvals: { id: string; tool: string; command: string; what: string; /** What it would do, in lines. */ details?: string[] }[];
+	approvals: { id: string; tool: string; command: string; what: string; /** What it would do, in lines. */ details?: string[]; /** The worker that asks, when it is not the agent itself: its id and job. */ worker?: string }[];
+	/** Workers this conversation handed jobs to: live ones, and those that ended in the last day. */
+	workers?: WorkerView[];
+	/** Set when this is a worker's own thread, which is read only: whose it is and where to go back to. */
+	workerThread?: { id: string; title: string; from: string };
 	/** The directory this conversation's tools work in. */
 	cwd?: string;
 	/** A release of new code into rho that is under way, or one that ended in the last few minutes. */

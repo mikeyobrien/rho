@@ -26,8 +26,6 @@ pushed to GitHub.
 
 **Waiting on the owner** (nothing here can move without them):
 
-- Item 20: confirm the second version of the acceptance criteria (the cap per place, the
-  worker view, the delegate rule) and the three choices (model, brief, approvals).
 - Whether a release the owner typed themselves still needs the Allow card (asked
   2026-11-11, not answered).
 - Publishing: every step of `RELEASE.md` (push as `rho2`, tag, GitHub release, npm), the
@@ -748,7 +746,8 @@ is used only through Claude Code.
     Acceptance criteria, second version. The owner read the first ten and changed three
     things (2026-11-11): remove "one at a time" for a cap that follows where the worker
     runs; a minimum view of workers and their status is required; and study how the agent
-    knows when to delegate. **They have not yet confirmed this version or the choices.**
+    knows when to delegate. **The owner confirmed this version and choices A, B and C on
+    2026-11-12 ("Confirm").** Building began that day.
     1. `delegate` hands the worker its job and returns in under a second.
     2. The worker runs in its own conversation. The main thread gets no tool cards or text
        from it while it works.
@@ -783,7 +782,7 @@ is used only through Claude Code.
     10. While a worker runs, the person can message the agent and it answers.
     - Proof wanted: tests in a real core with a scripted model, one that kills a real second
       process mid-job, and one live run on Haiku recorded here.
-    - Choices proposed, not confirmed: (A) the worker uses the conversation's model; (B) it
+    - Choices, confirmed with the criteria: (A) the worker uses the conversation's model; (B) it
       starts with only the brief the agent writes, nothing of the thread; (C) approvals as
       in criterion 8.
     11. The agent is told when to delegate and when not to, in its instructions, and each

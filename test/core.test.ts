@@ -142,6 +142,40 @@ test("config", () => {
 	expect(logged[0]).toMatch(/not JSON and was ignored/);
 });
 
+test("killed while a worker is mid-job: the next process goes on with the same worker, which reports once", async () => {
+	// The worker's first step is a tool that takes long enough to be killed in. Its steps are marked for it.
+	const brief = "The person asked for the slow effect to be recorded. Call the effect tool with the label given, then report what you did and how you checked it.";
+	const dir = scratch([
+		{ tool: "delegate", args: { action: "start", title: "Record the effect", brief } },
+		{ text: "Handed off." },
+		{ tool: "effect", args: { label: "worker-step" }, worker: true },
+		{ text: "DONE\nThe effect was interrupted once; I did not repeat it and report what is recorded.", worker: true },
+		{ text: "The worker reports done." },
+	]);
+	const first = start(dir, ["req-worker-1", "Hand this off."], { STAY_UP: "1", TOOL_MS: "20000" });
+	const began = await first.until("tool-started", 30_000);
+	expect(began.label).toBe("worker-step");
+	// The main thread was free before the worker's step began: its own turn is over.
+	expect(lines(dir, "model.log").map((line) => JSON.parse(line).text ?? JSON.parse(line).tool)).toEqual(["delegate", "Handed off.", "effect"]);
+	await first.kill();
+	// Reopened with nothing submitted: the worker's own conversation is resumed, it is told its step was cut off, and it reports.
+	const second = start(dir, undefined, { WAIT_FOR_KIND: "rho.notice" });
+	const idle = await second.until("idle", 40_000);
+	const reports = idle.entries.filter((entry: any) => entry.kind === "rho.notice");
+	expect(reports.length).toBe(1); // criterion 4: one report
+	expect(reports[0].text).toStartWith("[worker w1] Record the effect\nIt reports done.");
+	expect(idle.entries.at(-1).text).toBe("The worker reports done.");
+	expect(await second.exited).toBe(0);
+	expect(lines(dir, "effects.log")).toEqual(["worker-step"]); // the worker's step was not run a second time
+	// The job was not handed off again: one `delegate`, and the same worker finished it.
+	expect(lines(dir, "model.log").filter((line) => line.includes('"delegate"')).length).toBe(1);
+	expect(lines(dir, "model.log").length).toBe(5);
+	// A third start has nothing more to say.
+	const third = await start(dir).until("idle");
+	expect(third.entries.filter((entry: any) => entry.kind === "rho.notice").length).toBe(1);
+	expect(lines(dir, "model.log").length).toBe(5);
+}, 120_000);
+
 test("killed while a background command runs: the next process reports it once, as cut off, and does not run it again", async () => {
 	// The command leaves a mark each time it really starts, then sleeps long enough to be killed in.
 	// The mark is outside the host's data directory: a command that names rho's own data is refused by the guard.

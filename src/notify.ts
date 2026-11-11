@@ -37,12 +37,12 @@ const oneLine = (text: string, most: number): string => {
 	const line = text.trim().replace(/\s+/g, " ");
 	return line.length > most ? `${line.slice(0, most - 1)}…` : line;
 };
-const TITLES: Record<string, string> = { "check-in": "rho check-in", gate: "rho release", background: "rho: a background command ended" };
+const TITLES: Record<string, string> = { "check-in": "rho check-in", gate: "rho release", background: "rho: a background command ended", worker: "rho: a worker reports" };
 
 /** What in a conversation's state is worth the person's attention, as notes. Pure. */
 export function attention(state: StateView): { approvals: Note[]; failure?: Note; notices: Note[] } {
 	const at = `${state.conversation}`;
-	const approvals = state.approvals.map((ask) => ({ key: `approval:${at}:${ask.id}`, title: "rho needs your yes", text: `${ask.what}: ${oneLine(ask.command, 160)}` }));
+	const approvals = state.approvals.map((ask) => ({ key: `approval:${at}:${ask.id}`, title: ask.worker ? "rho: a worker needs your yes" : "rho needs your yes", text: `${ask.what}: ${oneLine(ask.command, 160)}` }));
 	// A run the person stopped is not news to them.
 	const failed = state.failure && state.failure.reason !== "aborted" ? state.failure : undefined;
 	const failure = failed && { key: `failure:${at}:${failed.reason}:${state.entries.at(-1)?.id ?? 0}`, title: "rho: the run failed", text: oneLine(`${failed.text}${failed.detail ? ` ${failed.detail}` : ""}`, 240) };
