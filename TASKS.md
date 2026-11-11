@@ -26,8 +26,8 @@ pushed to GitHub.
 
 **Waiting on the owner** (nothing here can move without them):
 
-- Item 20: confirm the ten acceptance criteria and the three choices (model, brief,
-  approvals). They said yes to building it, not yet to the criteria.
+- Item 20: confirm the second version of the acceptance criteria (the cap per place, the
+  worker view, the delegate rule) and the three choices (model, brief, approvals).
 - Whether a release the owner typed themselves still needs the Allow card (asked
   2026-11-11, not answered).
 - Publishing: every step of `RELEASE.md` (push as `rho2`, tag, GitHub release, npm), the
@@ -707,8 +707,10 @@ is used only through Claude Code.
 20. Delegates (was "subagents"): the agent hands a job to a worker in its own conversation
     and the main thread is free at once. **Not built.** Asked for by the owner 2026-11-11
     ("how do we get your work off the main thread"); they said yes to building it.
-    Acceptance criteria, as proposed to the owner that day. **They have not confirmed them
-    or the three choices below**; confirm before building.
+    Acceptance criteria, second version. The owner read the first ten and changed three
+    things (2026-11-11): remove "one at a time" for a cap that follows where the worker
+    runs; a minimum view of workers and their status is required; and study how the agent
+    knows when to delegate. **They have not yet confirmed this version or the choices.**
     1. `delegate` hands the worker its job and returns in under a second.
     2. The worker runs in its own conversation. The main thread gets no tool cards or text
        from it while it works.
@@ -717,10 +719,26 @@ is used only through Claude Code.
        as the person's words, and it notifies (item 17).
     4. Killed mid-job, the next start finishes that same job and still sends one report.
     5. A worker has a turn limit. A job that hits it reports that it stopped at its limit.
-    6. One worker at a time. A second `delegate` while one runs is refused in words: the
-       phone could not carry the test suite alone that day (load average 10 to 13).
-    7. The person can see that a worker runs and what its job is, and can stop it. A stopped
-       job reports nothing more.
+    6. The number of workers is capped per place they run, not fixed. Each place has a
+       ceiling the person may set and a live check before each start; a `delegate` past the
+       cap waits its turn in order and says so (it is not refused, and it survives a kill).
+       - The phone: ceiling from its cores and memory, and a start waits while free memory
+         is low. Measured 2026-11-11: 4 cores, 11 GB of which 2.9 GB was free. Android
+         does not let Termux read the load average, so memory and a count of rho's own
+         running jobs are what the phone can check. The ceiling proposed for it is 1
+         heavy job (one that runs the project's checks) or 2 light ones; not yet measured.
+       - A host (item 20b): ceiling from the host's cores and memory, read over SSH when
+         it is added and again by the probe before a start.
+       - What counts as heavy is the open part: the agent could say so in the brief, or
+         rho could learn it from what the job runs. Not designed.
+    7. A minimum view of workers, in the page: every worker that is running, waiting or
+       ended in the last day, each with its job in one line, where it runs, its status
+       (waiting for a slot, working, needs your yes, done, partial, failed, stopped), how
+       long it has run, and the step it is on now (the tool and its target, as a tool card
+       names them). A running or waiting worker has a Stop. The header shows a count while
+       any is live. Opening a worker shows its own thread. A stopped job reports nothing
+       more. `StateView` gains the list; a new field there is a decision about what leaves
+       the machine, and this one carries the job lines and tool targets.
     8. A command that needs the person's yes shows its card in the main thread and notifies.
        (A check-in is refused there today; this is the largest piece and may be split out.)
     9. The worker has the same guard and working directory as the agent, and cannot delegate.
@@ -730,8 +748,36 @@ is used only through Claude Code.
     - Choices proposed, not confirmed: (A) the worker uses the conversation's model; (B) it
       starts with only the brief the agent writes, nothing of the thread; (C) approvals as
       in criterion 8.
-    - Out of scope: more than one worker, a model per job, a live view of the worker in the
-      page, remote hosts (item 20b).
+    11. The agent is told when to delegate and when not to, in its instructions, and each
+        `delegate` call is logged with enough to judge the choice afterwards (below).
+    - When to delegate: what was read on 2026-11-11.
+      - Anthropic, on its research system (their own account, 2025): agents use about 4
+        times the tokens of a chat and multi-agent systems about 15 times; "most coding
+        tasks involve fewer truly parallelizable tasks than research"; early versions
+        spawned 50 subagents for simple queries; the fixes were in the prompt: scaling
+        rules for effort, and a brief with an objective, an output format, tools to use
+        and clear boundaries.
+      - GitHub, on Copilot CLI (their own A/B test, 2026): delegating less often cut tool
+        failures per session by 23% and user wait at the 95th percentile by 5%, with no
+        loss of quality. Their rule: "keep simple discovery-and-edit tasks in the main
+        agent, and reserve subagents for work that is broader, cross-cutting, or naturally
+        parallelizable"; a subagent is "a parallelism tool, not a pause button"; the brief
+        says what the person asked, what is known, what the worker owns, what to return.
+      - A preprint (Anchan and Sen, 2026; abstract and introduction read): handing off
+        wins once the cost of a long context exceeds the cost of the handoff; on their one
+        task the crossover was at about 10 steps. One task, a small model.
+      - Decision models as the gate: found only as hobby projects (a classifier in front of
+        the delegate call), no study. Not a basis yet.
+    - What that means here, proposed: start with rules in the prompt, not a model.
+      Delegate when the job is long (the checks, a build, a wide search), stands alone
+      (a brief can carry everything it needs), and its result is short. Handle it in the
+      thread when it is a few steps, needs the conversation, or the person is waiting on
+      the answer. This differs from both companies' case: they delegate for parallel
+      speed; rho's first reason is to free the thread the person talks in.
+    - To learn the rule from use, log per delegate: the brief's size, steps and time taken,
+      how it ended, and whether the person stopped it. A decision model (item 21a) could be
+      tried on that log later; there is nothing to train or test one on today.
+    - Out of scope: a model per job; remote hosts (item 20b), which add places to the cap.
     - Where it starts: a check-in already is a task-owned conversation with a turn limit and
       one report (`src/checkins.ts`).
 20a. Checks out of the agent's turn. **Not built.** The owner asked for it after item 20.
