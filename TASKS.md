@@ -77,9 +77,9 @@ notifications (`f902b0c`, item 17) and edits to this file. Nothing is pushed to 
 reviewers wanted first is a release killed part-way, which leaves rho stopped. Added since:
 
 - The guard matches a command's text, so it stops the agent's own harmless commands when
-  their text names a push, a release, a git-directory delete or rho's data path: seven
-  times over 2026-11-10 and 11 (four waited for the owner's Allow, three were refused and
-  rewritten). The decider (21a) is the candidate fix; nothing is built.
+  their text names a push, a release, a git-directory delete or rho's data path: six
+  times while items 17 to 21d were built (four waited for the owner's Allow, two were
+  refused and rewritten). The decider (21a) is the candidate fix; nothing is built.
 - The test suite is 22 files and about a minute, and on the phone it loads the machine
   enough to fail its own timing tests. Two were loosened (item 21d); item 20a is the fix.
 - The guard remembers data directories by inode for the life of a process, so a test's
