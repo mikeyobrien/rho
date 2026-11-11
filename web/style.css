@@ -36,7 +36,12 @@ h1 { margin: 0; font-size: 17px; }
 .row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-sub { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .row-line.wrap .row-title { white-space: normal; overflow-wrap: anywhere; }
-.row-line.asking .row-sub { color: var(--warn); }
+.row-line.asking .row-sub, .row-line.partial .row-sub { color: var(--warn); }
+.thumbs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.thumb { display: block; width: 100%; aspect-ratio: 1; min-height: 44px; padding: 0; overflow: hidden; background: #0e1013; }
+.thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.details-body > button { justify-self: start; }
+.jumped { outline: 2px solid var(--accent); outline-offset: 2px; }
 .row-line.failed .row-sub { color: var(--bad); }
 .row-action.sure { border-color: var(--bad); color: var(--bad); }
 .row-value { max-width: 40vw; color: var(--dim); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

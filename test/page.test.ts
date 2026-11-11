@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -313,7 +313,7 @@ test("the details page opens over the thread from ⋯ and from the title, and cl
 	// The header block: the name, the status line, the commit this rho runs, where the conversation works.
 	const head = (name: string) => inside(page.$("details-body"), name)[0]?.textContent;
 	expect([head("details-name"), head("details-status"), head("details-line details-commit"), head("details-line details-cwd")]).toEqual(["rho", page.$("status").textContent, "Commit 0123abc", work]);
-	expect(detailRows(page)).toEqual(["Workers | Jobs rho handed off | 0", "Reminders | What rho checks on its own | 0", "Settings | Model, thinking, context | faux-1", "Conversations | Open another, or start one | 1"]);
+	expect(detailRows(page)).toEqual(["Workers | Jobs rho handed off | 0", "Artifacts | Photos, files changed, reports | 0", "Reminders | What rho checks on its own | 0", "Settings | Model, thinking, context | faux-1", "Conversations | Open another, or start one | 1"]);
 	expect(inside(page.$("details-body"), "row").every((row) => row.tag === "button")).toBe(true);
 	// Its own back button is one step of the browser's history.
 	await page.$("details-back").click();
@@ -465,6 +465,97 @@ test("a photo is picked, shown before it is sent, and reaches the model; the thr
 	// The browser's storage never held the picture.
 	expect([...page.stored.values()].join("")).not.toContain(PNG);
 });
+
+test("artifacts on the details page: photos sent, files changed and reports, from the entries the page holds; a row jumps to its place in the thread", async () => {
+	writeFileSync(join(work, "hello.txt"), "one\nhello wrold\nthree\n");
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("edit", { path: "hello.txt", edits: [{ oldText: "wrold", newText: "world" }] }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("write", { path: join(work, "notes/new.md"), content: "# Notes\n" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("edit", { path: join(work, "hello.txt"), edits: [{ oldText: "three", newText: "3" }] }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("edit", { path: "hello.txt", edits: [{ oldText: "not in the file", newText: "x" }] }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("read", { path: "hello.txt" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage("Changed."),
+		fauxAssistantMessage("A white dot."),
+		fauxAssistantMessage("Noted."),
+	]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.$("menu-button").click();
+	await loaded(page);
+	expect(detailRows(page)[1]).toBe("Artifacts | Photos, files changed, reports | 0");
+	await leave(page);
+	await page.send("fix the file");
+	await until("the answer", () => page.messages().at(-1) === "msg assistant|Changed." && idle(page));
+	await pick(page, file());
+	await page.send("What is this?");
+	await until("the photo's answer", () => page.messages().at(-1) === "msg assistant|A white dot." && idle(page));
+	// A report of side work, stored as the worker tool stores one.
+	await core.root.submit({ type: "input", content: "Worker w9 reports.", requestId: "artifact-report-1", whenBusy: "followUp", entry: { kind: "rho.notice", data: { from: "worker", card: { kind: "report", title: "Publish the branch", verdict: "partial", who: "worker w9", body: "PARTIAL\nNot pushed." } } } }, context);
+	await until("the report's answer", () => page.messages().at(-1) === "msg assistant|Noted." && idle(page));
+	await page.$("menu-button").click();
+	expect(detailRows(page)[1]).toBe("Artifacts | Photos, files changed, reports | 4");
+	await section(page, "Artifacts");
+	const body = page.$("details-body");
+	expect(inside(body, "quiet-line")[0]!.textContent).toBe("This covers every message of the conversation.");
+	expect(body.find("artifacts-earlier")).toBeUndefined();
+	expect(inside(body, "section-label").map((node) => node.textContent)).toEqual(["Photos · 1", "Files changed · 2", "Reports · 1"]);
+	// The photo is a thumbnail, fetched with the token; the page asked for it once, for the thread.
+	const thumbs = inside(body, "thumb");
+	expect(thumbs.map((thumb) => [thumb.tag, thumb.attrs["aria-label"]])).toEqual([["button", "Go to the message with photo 1"]]);
+	await until("the thumbnail", () => imgs(thumbs[0]!)[0]?.src === `data:image/png;base64,${PNG}`);
+	// Files: newest change first, one row a file however it was named, a failed edit not counted, a read not listed.
+	const rowsNow = detailRows(page);
+	expect(rowsNow[0]).toBe("hello.txt | 2 changes · last +1 −1 | ");
+	expect(rowsNow[1]).toMatch(/^notes\/new\.md \| 1 change · last .+ \| $/);
+	expect(rowsNow[2]).toBe("Publish the branch | partial · worker w9 | ");
+	expect(inside(body, "row-line report-row partial").length).toBe(1);
+	// A file's row closes the page and brings its last change into view: out of its fold, opened, and the thread no longer follows the end.
+	await inside(body, "row")[0]!.click();
+	await until("the page closed", () => page.$("details").hidden && page.history.depth === 0);
+	const target = El.scrolled!;
+	expect([target.className, target.open, target.classList.contains("jumped")]).toEqual(["tool", true, true]);
+	expect(target.all().find((node) => node.className === "tool-target")!.textContent).toBe(join(work, "hello.txt"));
+	const fold = (page.$("entries").children as El[]).find((node) => node.className === "fold")!;
+	expect([fold.contains(target), fold.open, page.$("latest").hidden]).toEqual([true, true, false]);
+	// A report's row goes to its card, and a photo's to its message.
+	await section(page, "Artifacts");
+	await inside(page.$("details-body"), "row")[2]!.click();
+	await until("closed again", () => page.$("details").hidden);
+	expect([El.scrolled!.className, El.scrolled!.open]).toEqual(["report partial", true]);
+	await section(page, "Artifacts");
+	await inside(page.$("details-body"), "thumb")[0]!.click();
+	await until("closed a third time", () => page.$("details").hidden);
+	expect(El.scrolled!.textContent).toBe("What is this?");
+	expect(El.scrolled!.className).toBe("msg user");
+});
+
+test("artifacts cover the messages loaded so far, say so, and Load earlier brings in the rest", async () => {
+	// One long run before any page is open: thirty files written, more entries than a first snapshot holds.
+	const names = Array.from({ length: 30 }, (_, n) => `file-${String(n).padStart(2, "0")}.txt`);
+	faux.setResponses([...names.map((name) => fauxAssistantMessage(fauxToolCall("write", { path: name, content: "x\n" }), { stopReason: "toolUse" })), fauxAssistantMessage("All written.")]);
+	await core.root.submit({ type: "input", content: "write thirty files", requestId: "artifact-many-1", whenBusy: "followUp" }, context);
+	await until("the last file", () => existsSync(join(work, names.at(-1)!)), 20_000);
+	await until("the run to end", () => faux.state.callCount === 31);
+	await Bun.sleep(300); // the answer is stored: a page opened now is given a window, not the whole run
+	const page = await open();
+	await until("the answer", () => page.messages().at(-1) === "msg assistant|All written." && idle(page), 20_000);
+	expect(page.$("earlier").hidden).toBe(false);
+	await section(page, "Artifacts");
+	const body = page.$("details-body");
+	const files = () => detailRows(page).map((line) => line.split(" | ")[0]);
+	const before = files().length;
+	expect(before).toBeGreaterThan(0);
+	expect(before).toBeLessThan(30);
+	expect(files()[0]).toBe("file-29.txt"); // newest first
+	expect(inside(body, "quiet-line")[0]!.textContent).toBe("This covers the messages loaded so far. Earlier ones are not counted yet.");
+	expect(inside(body, "section-label")[1]!.textContent).toBe(`Files changed · ${before}`);
+	await body.find("artifacts-earlier")!.click();
+	await until("all thirty", () => files().length === 30);
+	expect(files()).toEqual([...names].reverse());
+	expect(inside(body, "quiet-line")[0]!.textContent).toBe("This covers every message of the conversation.");
+	expect(body.find("artifacts-earlier")).toBeUndefined();
+	expect(page.$("details").hidden).toBe(false); // loading more does not leave the page
+}, 40_000);
 
 test("photos: one can be removed, pasted ones are added, and what cannot be sent is said at once", async () => {
 	let seen: any;
@@ -954,7 +1045,7 @@ test("reminders on the details page: each with its cadence and next time, and Re
 	await until("live", () => idle(page));
 	await page.$("menu-button").click();
 	await loaded(page);
-	expect(detailRows(page)[1]).toBe("Reminders | What rho checks on its own | 2");
+	expect(detailRows(page)[2]).toBe("Reminders | What rho checks on its own | 2");
 	await section(page, "Reminders");
 	await loaded(page);
 	const lines = () => detailRows(page).map((line) => line.replace(/ · next .*$/, (next) => (/^ · next (\d+ \w{3} )?\d\d:\d\d \| $/.test(next) ? " · next (time)" : next)));
@@ -972,7 +1063,7 @@ test("reminders on the details page: each with its cadence and next time, and Re
 	await leave(page);
 	await page.$("menu-button").click();
 	await loaded(page);
-	expect(detailRows(page)[1]).toBe("Reminders | What rho checks on its own | 1");
+	expect(detailRows(page)[2]).toBe("Reminders | What rho checks on its own | 1");
 });
 
 test("a background command is a row too: its command, its time, a Stop; and how it ended is a report card", async () => {

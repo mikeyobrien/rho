@@ -299,9 +299,19 @@ export function start(env) {
 		return node;
 	}
 	/** A sent photo. The stream says only that it exists; the picture is asked for once, with the token. */
-	function sentPhoto(entry, n) {
-		const img = picture(n);
-		api(`image?entry=${entry.id}&n=${n}`).then(
+	const photoCache = new Map(); // conversation:entry:n -> the asked-for picture, so the thread and the details page ask once
+	function photoOf(id, n) {
+		const key = `${conversation}:${id}:${n}`;
+		if (!photoCache.has(key)) {
+			const asked = api(`image?entry=${id}&n=${n}`);
+			photoCache.set(key, asked);
+			asked.catch(() => photoCache.delete(key)); // a failure is asked again the next time it is drawn
+		}
+		return photoCache.get(key);
+	}
+	function sentPhoto(entry, n, className = "photo") {
+		const img = Object.assign(picture(n), { className });
+		photoOf(entry.id, n).then(
 			(photo) => {
 				if (PHOTO_TYPE.test(photo.mimeType)) img.src = `data:${photo.mimeType};base64,${photo.data}`;
 			},
@@ -778,7 +788,8 @@ export function start(env) {
 		el.thread.scrollTop = el.thread.scrollHeight;
 		el.latest.hidden = true;
 	});
-	el.earlier.addEventListener("click", async () => {
+	el.earlier.addEventListener("click", () => loadEarlier());
+	async function loadEarlier() {
 		const oldest = Math.min(...known.keys());
 		const height = el.thread.scrollHeight;
 		try {
@@ -791,7 +802,22 @@ export function start(env) {
 		} catch (error) {
 			flash(error.message);
 		}
-	});
+	}
+	/** Leave the details page and bring one entry of the thread into view, opened: out of its fold, and marked for a moment. */
+	let jumpTimer;
+	function jumpTo(id) {
+		closeDetails();
+		const node = rendered.get(id);
+		if (!node) return;
+		for (const fold of folded.values()) if (fold.key.split(",").includes(String(id))) fold.node.open = true;
+		if (node.tagName === "DETAILS") node.open = true; // a tool card or a report: shown opened
+		stick = false; // the reader is taken to this place: the next snapshot must not take them to the end
+		el.latest.hidden = false;
+		node.scrollIntoView?.({ block: "center" });
+		node.classList.toggle("jumped", true);
+		clearTimeout(jumpTimer);
+		jumpTimer = setTimeout(() => node.classList.toggle("jumped", false), 2_000);
+	}
 
 	// --- conversations ---------------------------------------------------------------------------
 	function switchTo(id, root) {
@@ -882,6 +908,7 @@ export function start(env) {
 	// The sections, in the order of the page. `value` is what the row shows at its right: a count, or a word.
 	const SECTIONS = [
 		{ id: "workers", title: "Workers", sub: () => (liveWorkers().length > 0 ? `${liveWorkers().length} running` : "Jobs rho handed off"), value: () => allWorkers().length, data: () => [state?.conversation, allWorkers()], draw: drawWorkers },
+		{ id: "artifacts", title: "Artifacts", sub: "Photos, files changed, reports", value: () => { const found = artifacts(); return found.photos.length + found.files.length + found.reports.length; }, data: () => [conversation, artifacts(), moreEarlier], draw: drawArtifacts },
 		{ id: "reminders", title: "Reminders", sub: "What rho checks on its own", value: () => info.reminders?.length ?? "", data: () => [info.reminders], draw: drawReminders },
 		{ id: "settings", title: "Settings", sub: "Model, thinking, context", value: () => shortModel(), data: () => [state?.cwd, Boolean(state?.workerThread)], draw: drawSettings },
 		{ id: "conversations", title: "Conversations", sub: "Open another, or start one", value: () => info.conversations?.length ?? "", data: () => [conversation, info.conversations], draw: drawConversations },
@@ -944,6 +971,66 @@ export function start(env) {
 			});
 		});
 		return [...(items.length > 0 ? [rows(items)] : [quiet("No workers yet in this conversation.")]), quiet("A worker is a job rho handed off, in its own thread. Tap one to read its thread. How each ended is a report card in this thread.")];
+	}
+	/**
+	 * What the conversation produced or received, read from the entries this page holds: the photos
+	 * the person sent, the files an edit or a write changed (a call that failed changed nothing),
+	 * and the reports of side work. Rho keeps no list of these; this is what the thread shows.
+	 */
+	function artifacts() {
+		const entries = [...known.values()].sort((a, b) => a.id - b.id);
+		const calls = new Map();
+		for (const entry of entries) for (const call of entry.calls ?? []) calls.set(call.id, call);
+		const photos = [];
+		const files = new Map(); // path -> { path, count, id, last }: insertion order is oldest change first
+		const reports = [];
+		for (const entry of entries) {
+			if (entry.role === "user") for (let n = 0; n < (entry.images ?? 0); n++) photos.push({ id: entry.id, n });
+			if (entry.role === "notice" && entry.card?.kind === "report") reports.push({ id: entry.id, verdict: entry.card.verdict, title: entry.card.title, who: entry.card.who });
+			if (entry.role !== "tool" || entry.error || (entry.name !== "edit" && entry.name !== "write")) continue;
+			const given = calls.get(entry.callId)?.args?.path;
+			if (typeof given !== "string" || given === "") continue;
+			// The same file, named from the working directory or in full, is one row.
+			const path = state?.cwd && given.startsWith(`${state.cwd}/`) ? given.slice(state.cwd.length + 1) : given;
+			const count = (files.get(path)?.count ?? 0) + 1;
+			files.delete(path);
+			files.set(path, { path, count, id: entry.id, last: entry.summary });
+		}
+		return { photos: photos.reverse(), files: [...files.values()].reverse(), reports: reports.reverse() };
+	}
+	function drawArtifacts() {
+		const found = artifacts();
+		const out = [quiet(moreEarlier ? "This covers the messages loaded so far. Earlier ones are not counted yet." : "This covers every message of the conversation.")];
+		if (moreEarlier) {
+			const more = make("button", { type: "button", id: "artifacts-earlier", textContent: "Load earlier" });
+			more.addEventListener("click", async () => {
+				more.disabled = true;
+				await loadEarlier();
+			});
+			out.push(more);
+		}
+		out.push(heading(`Photos · ${found.photos.length}`));
+		if (found.photos.length === 0) out.push(quiet("No photos sent."));
+		else {
+			const grid = make("ul", { className: "thumbs" });
+			grid.append(
+				...found.photos.map((photo) => {
+					const open = make("button", { type: "button", className: "thumb" });
+					open.setAttribute("aria-label", `Go to the message with photo ${photo.n + 1}`);
+					open.append(sentPhoto(photo, photo.n, "thumb-img"));
+					open.addEventListener("click", () => jumpTo(photo.id));
+					const cell = make("li", {});
+					cell.append(open);
+					return cell;
+				}),
+			);
+			out.push(grid);
+		}
+		out.push(heading(`Files changed · ${found.files.length}`));
+		out.push(found.files.length === 0 ? quiet("No files changed.") : rows(found.files.map((file) => row({ title: file.path, sub: `${file.count === 1 ? "1 change" : `${file.count} changes`} · last ${file.last}`, kind: "file", go: () => jumpTo(file.id), label: `Go to the last change of ${file.path}` }))));
+		out.push(heading(`Reports · ${found.reports.length}`));
+		out.push(found.reports.length === 0 ? quiet("No reports.") : rows(found.reports.map((report) => row({ title: report.title, sub: `${VERDICT_WORDS[report.verdict] ?? report.verdict} · ${report.who}`, kind: `report-row ${report.verdict}`, go: () => jumpTo(report.id) }))));
+		return out;
 	}
 	const UNITS = [["d", 86_400_000], ["h", 3_600_000], ["m", 60_000]];
 	function cadenceWords(cadence) {
@@ -1123,6 +1210,7 @@ export function start(env) {
 			stopped = true;
 			streamAbort?.abort();
 			clearTimeout(flashTimer);
+			clearTimeout(jumpTimer);
 			clearInterval(releaseTimer);
 			clearInterval(runTimer);
 			clearInterval(runningTimer);

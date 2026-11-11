@@ -22,6 +22,7 @@ export class El {
 	#classes = new Set<string>();
 	classList = { toggle: (name: string, on: boolean) => void (on ? this.#classes.add(name) : this.#classes.delete(name)), contains: (name: string) => this.#classes.has(name) };
 	constructor(readonly tag: string) {}
+	get tagName(): string { return this.tag.toUpperCase(); }
 	get textContent(): string { return this.#text + this.children.map((child) => child.textContent).join(""); }
 	set textContent(value: string) { this.children = []; this.#text = value; }
 	append(...nodes: (El | TextNode)[]) { this.children.push(...nodes); }
@@ -33,6 +34,9 @@ export class El {
 	requestSubmit() { return this.fire("submit"); }
 	click() { return this.fire("click"); }
 	focus() { El.focused = this; }
+	/** The element last scrolled to, in any document. */
+	static scrolled: El | undefined;
+	scrollIntoView() { El.scrolled = this; }
 	/** The element below this one that has this id, as a page that built it would find it. */
 	find(id: string): El | undefined { return this.all().find((node) => node.id === id); }
 	/** Every element below this one, in order. */
