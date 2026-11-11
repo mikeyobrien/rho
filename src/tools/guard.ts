@@ -21,8 +21,12 @@ import { findTool, grepTool, lsTool } from "./search.ts";
 
 export type Verdict = { kind: "allow" } | { kind: "refuse"; why: string } | { kind: "ask"; what: string };
 export type Pending = { id: string; tool: string; command: string; what: string; at: number }; // a type, not an interface: it is stored as JSON
-/** Per conversation: commands waiting for a yes, and commands allowed once. */
-export const Approvals = defineDoc<{ pending: Pending[]; granted: string[] }>({
+/**
+ * Per conversation: requests waiting for a yes, and what was allowed once. A yes for a shell
+ * command is kept in `granted`; a yes for another tool's request is kept in `grants` under that
+ * tool's name, so that no shell command, whatever its text, can be mistaken for it or it for one.
+ */
+export const Approvals = defineDoc<{ pending: Pending[]; granted: string[]; grants?: { tool: string; command: string }[] }>({
 	kind: "rho.approvals",
 	version: 1,
 	scope: "conversation",
@@ -79,7 +83,8 @@ export async function answerApproval(conversation: Conversation, id: string, all
 		const index = doc.pending.findIndex((pending) => pending.id === id);
 		if (index < 0) return undefined;
 		const [pending] = doc.pending.splice(index, 1);
-		if (allow) doc.granted.push(pending!.command);
+		if (allow && pending!.tool === "bash") doc.granted.push(pending!.command);
+		else if (allow) doc.grants = [...(doc.grants ?? []), { tool: pending!.tool, command: pending!.command }]; // assigned, not pushed through `??=`: the document tracks assignments
 		return { ...pending! };
 	}, context);
 }

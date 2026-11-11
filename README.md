@@ -132,6 +132,8 @@ A reboot has not been tested on either platform.
 ## Settings
 
 Settings are in `~/.rho/v2/config.json`. All are optional. Restart rho after a change.
+Rho cannot open this file. It can propose a change to `model`, `thinking`, `cwd`, `checkins` or
+`decider`: you are shown the old and the new value, and it is written only after you press Allow.
 
 | Setting | Meaning |
 | --- | --- |

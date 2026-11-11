@@ -15,6 +15,7 @@ import { openDecider, readDecider } from "./decider.ts";
 import { textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { guard } from "./tools/guard.ts";
+import { settingsTool } from "./tools/settings.ts";
 import { excludeFromSearch, SearchTools } from "./tools/search.ts";
 import { tidy } from "./tools/tidy.ts";
 import { webTools, type WebOptions } from "./tools/web.ts";
@@ -178,7 +179,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	if (deciderConfig) log(`decider: ${deciderConfig.model} at ${deciderConfig.baseUrl}, shadow (it logs and blocks nothing)`);
 	const watch = decider && ((seen: Parameters<typeof decider.watch>[0]) => decider.watch(seen));
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
-	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir, (id) => persons(id), watch)]) registry.install(tidy(extension));
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), settingsTool(options.dir, { persons: (id) => persons(id) }) /* settings */, guard(options.dir, (id) => persons(id), watch)]) registry.install(tidy(extension));
 	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
 	// Only the person's own conversations are mirrored to memory or may ask for a yes, not rho's side work.
 	let persons: (id: string) => Promise<boolean> = async () => false;

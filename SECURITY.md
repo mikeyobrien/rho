@@ -46,6 +46,11 @@ Rho is an agent with a shell. This page states what protects you and what does n
 - A run stops after 200 tool rounds by default. A check-in stops after 20.
 - A check-in runs with nobody watching. An action that needs your Allow is refused there,
   and the model is told to report that it was not done.
+- The agent cannot read or write rho's data directory. It can propose a change to five
+  settings (`model`, `thinking`, `cwd`, `checkins`, `decider`), which is written only after
+  you press Allow on a card that shows the old and the new value. It cannot propose a change
+  to keys, providers, memory, the Claude plan or the turn limit. Read the card: a `decider`
+  address or a `cwd` you allow is used from the next start.
 
 ## Text from the web
 

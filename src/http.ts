@@ -259,7 +259,8 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			if (!answered) throw new Refusal(409, "That request is no longer waiting."); // an approval answers once
 			await channel.refresh();
 			// The person's answer reaches the agent as their message, at its next step.
-			const text = allow ? `Yes. Run it: \`${answered.command}\`` : `No. Do not run: \`${answered.command}\``;
+			const shell = answered.tool === "bash"; // another tool's request (a settings change) is not something to run
+			const text = allow ? `Yes. ${shell ? "Run it" : "Do it"}: \`${answered.command}\`` : `No. Do not ${shell ? "run" : "do it"}: \`${answered.command}\``;
 			await channel.conversation.submit({ type: "input", content: text, requestId: `approval:${id}`, whenBusy: "steer" }, context);
 			return { ok: true };
 		},

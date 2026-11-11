@@ -609,6 +609,34 @@ is used only through Claude Code.
       a logged verdict; showing verdicts in the page (`StateView` is unchanged); the script a
       command would run, when the agent edited it in the same run; a size limit on the log.
 
+21b. A settings tool: the agent proposes a change to rho's own settings and the person allows
+    it. **Done** 2026-11-11 (`src/tools/settings.ts`, `test/settings.test.ts`).
+    - Why: the guard keeps the agent out of rho's data, so it could not turn on a setting it
+      had just built (the decider). Opening the data directory to it would also open the
+      token and the API keys.
+    - `settings` takes `list`, `set {name, value}` and `unset {name}`. Only `model`,
+      `thinking`, `cwd`, `checkins` and `decider` can be proposed, each with its own check.
+      `memory`, `providers`, `claudePlan`, `maxTurns` and anything else stay the person's to
+      edit: they hold keys, say where conversations are sent, or bound a run.
+    - A change is an approval like a push: a card with the change as `set thinking to "high"
+      (now "low")`, Allow and Deny. Nothing is written before the yes. The yes is for that
+      text, so for that new value from that old value; if the file changed in between, it is
+      asked again. It is used once. In a check-in, where nobody watches, it is refused.
+    - A yes for a tool's request is kept apart from a yes for a shell command (`grants`
+      beside `granted` in `rho.approvals`), so neither can be taken for the other.
+    - The write keeps every other key of the config file, is atomic (a temporary file, then
+      a rename) and leaves the file mode 0600. A file that is not JSON is left alone.
+    - A saved change takes effect at the next start; the tool says so. It does not restart rho.
+    - Checked: 9 tests in a real core with a scripted model, one over HTTP. The first run of
+      them found a real fault: a grant pushed through `??=` was not stored, so an allowed
+      change asked again for ever. Not checked: the card in a real browser; a live model
+      using the tool.
+    - Found while writing the docs: the guard's text rule refuses any shell command that
+      names rho's data directory, also one that only writes that path into a README. The
+      file tools, which check the path they act on, are the way to write such text.
+    - Not built: restarting rho after a change; editing the person's `AGENTS.md`; a list of
+      past changes.
+
 ## Rho's own features, after it can build itself
 
 22. Check-ins: a sleeping task, due-ness decided in code, a missed one fires once. **Done**
