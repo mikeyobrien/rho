@@ -750,30 +750,52 @@ is used only through Claude Code.
       in criterion 8.
     11. The agent is told when to delegate and when not to, in its instructions, and each
         `delegate` call is logged with enough to judge the choice afterwards (below).
-    - When to delegate: what was read on 2026-11-11.
-      - Anthropic, on its research system (their own account, 2025): agents use about 4
-        times the tokens of a chat and multi-agent systems about 15 times; "most coding
-        tasks involve fewer truly parallelizable tasks than research"; early versions
-        spawned 50 subagents for simple queries; the fixes were in the prompt: scaling
-        rules for effort, and a brief with an objective, an output format, tools to use
-        and clear boundaries.
-      - GitHub, on Copilot CLI (their own A/B test, 2026): delegating less often cut tool
-        failures per session by 23% and user wait at the 95th percentile by 5%, with no
-        loss of quality. Their rule: "keep simple discovery-and-edit tasks in the main
-        agent, and reserve subagents for work that is broader, cross-cutting, or naturally
-        parallelizable"; a subagent is "a parallelism tool, not a pause button"; the brief
-        says what the person asked, what is known, what the worker owns, what to return.
-      - A preprint (Anchan and Sen, 2026; abstract and introduction read): handing off
-        wins once the cost of a long context exceeds the cost of the handoff; on their one
-        task the crossover was at about 10 steps. One task, a small model.
-      - Decision models as the gate: found only as hobby projects (a classifier in front of
-        the delegate call), no study. Not a basis yet.
-    - What that means here, proposed: start with rules in the prompt, not a model.
-      Delegate when the job is long (the checks, a build, a wide search), stands alone
-      (a brief can carry everything it needs), and its result is short. Handle it in the
-      thread when it is a few steps, needs the conversation, or the person is waiting on
-      the answer. This differs from both companies' case: they delegate for parallel
-      speed; rho's first reason is to free the thread the person talks in.
+    - When to delegate: what was read on 2026-11-11. The owner's rule, said that day:
+      research older than two to three months is usually stale in this field. So the first
+      reading (Anthropic's 2025 account of its research system, with its "15 times the
+      tokens") is set aside as stale, and so is anything undated. What follows is from
+      September to November 2026, with how much of each was read.
+      - Li et al., "When Sub-Agents Work in Parallel" (arXiv 2610.10263, 7 Oct 2026;
+        abstract and introduction read). Codex, Claude Code and Kimi Code, each with its
+        own subagent spawning on and off: 354 tasks, 2,124 runs. Spawning changed task
+        success by between 11.9 points down and 2.3 points up, and used 1.41 to 3.31 times
+        the tokens. It helped on long tasks (whole repositories) and not on bounded ones
+        (SWE-bench Verified). It paid when workers did complementary work, tried
+        alternatives, or checked the main agent's work independently.
+      - Ding et al., MS-Eval (arXiv 2610.22869, 16 Oct 2026; abstract only). Eight frontier
+        models, four ways of delegating: delegation "generally raises cost with contingent
+        payoff"; it helped most open models and left closed frontier models "with higher
+        cost and degraded performance". Gains came from offloading context and real
+        parallel sub-tasks; "unnecessary or redundant delegation turns the same cost into
+        pure overhead". Rho runs a closed frontier model, the group it hurt.
+      - Corepass, "Don't Delegate Reading, Delegate Writing" (9 Nov 2026; a company's own
+        study, 85 trials, read only as its summary in search results: the page would not
+        load). Read-only helpers did not make the parent faster (it re-read nearly as
+        much) and cost 7% to 31% more; time fell only when workers owned whole files in
+        their own git worktrees and the merge was mechanical.
+      - Anchan and Sen (arXiv 2610.06069, 5 Oct 2026; abstract and introduction read): a
+        handoff wins once the cost of a long context exceeds the cost of the handoff; on
+        their one task the crossover was near 10 steps. One task, a small model.
+      - Claude Code's documentation (undated, read 2026-11-11, so current practice, not a
+        study): a spawned worker runs in the background by default; its permission prompt
+        is shown in the main session with the worker's name; its result arrives as a
+        notification in a later turn; finished workers stay listed briefly. The agent
+        decides to delegate from a one-line description of each worker.
+      - GitHub on Copilot CLI (their own A/B test; the post's date was not seen, so it may
+        be stale): delegating less often cut tool failures per session by 23%.
+      - Decision models as the gate: only hobby projects found, no study. Not a basis.
+    - What that means here, proposed: start with rules in the prompt, not a model, and
+      delegate less than seems natural. The recent studies agree that delegation costs
+      more and, for a frontier model on a bounded task, tends not to help the result.
+      Delegate when the job is long (the checks, a build), stands alone (a brief can carry
+      all it needs), owns what it writes, and its result is short. Do not delegate reading
+      or searching to save the thread's context: the one study of that found the parent
+      reads it again. Handle it in the thread when it is a few steps, needs the
+      conversation, or the person is waiting on the answer.
+    - Where rho differs from every study above: they measure task success and speed for
+      one user watching one session. Rho's first reason to delegate is to free the thread
+      the person talks in, which none of them measured. So the rule above is a starting
+      point to check against rho's own log, not a finding.
     - To learn the rule from use, log per delegate: the brief's size, steps and time taken,
       how it ended, and whether the person stopped it. A decision model (item 21a) could be
       tried on that log later; there is nothing to train or test one on today.
