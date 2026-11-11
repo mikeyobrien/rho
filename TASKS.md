@@ -469,6 +469,29 @@ is used only through Claude Code.
   the "after the release" step of `RELEASE.md` unnecessary on this phone.
 - The live request left one extra conversation in the installed rho's list.
 
+## Two fixes from the owner's use of the installed rho (2026-11-11)
+
+- **A message sent while a tool ran broke the conversation on the Claude plan.** The owner's
+  first conversation failed every turn with "Claude Code's request does not line up with
+  rho's conversation". Cause: a steered message follows the tool's result, so rho's history
+  has two user messages in a row; Claude Code joins them into one, and rho counted one more
+  user message than the request it was sent. `planTurn` now joins them the same way, and
+  the error says the two counts.
+  - Reproduced live on Haiku before the fix (a `sleep 6` tool, a message steered in during
+    it: "Rho has 3 user messages and Claude Code sent 2", and the next turn failed too).
+  - After the fix the same run answered both ("The command printed `finished`. 2+2 is 4.")
+    and the turn after it answered.
+  - Not checked: the owner's own failing conversation, which runs on Fable at high thinking
+    with a long history, until the fix is released into the installed rho; a steered
+    message that carries a photo; three or more user messages in a row.
+- **The page could not be installed as an app.** It had no manifest and no icons. Added
+  `web/manifest.webmanifest`, three PNG icons drawn by `scripts/icons.py` (no image
+  library), and the links in `index.html`. A test checks they are served and are the sizes
+  the manifest says.
+  - Not checked: that Chrome on the phone offers "Install app" and that the installed app
+    opens paired. Only the owner can see that. No service worker was added; if Chrome still
+    asks for one, that is the next thing to add.
+
 ## Soon after: what makes dogfooding pleasant
 
 14. **Memory.** DONE 2026-11-10: `src/memory/`. One provider is active, named by the `memory`

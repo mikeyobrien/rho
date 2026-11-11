@@ -64,6 +64,30 @@ const flat = (value: unknown) => JSON.stringify(value);
 const users = (body: any) => body.messages.filter((message: any) => message.role === "user");
 const sayHello = () => (reply = answer([text("hello")], "end_turn"));
 
+test("a message steered in after a tool result is one user message with it, as Claude Code sends it", () => {
+	// pi-durable gives the tool result and the steered message as two user messages in a row.
+	const plan = planTurn(request([
+		{ role: "user", content: [text("run it")] },
+		{ role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "read", input: { path: "/x" } }] },
+		{ role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: [text("file text")] }] },
+		{ role: "user", content: [text("and also this")] },
+	]));
+	expect(plan.frames.map((frame) => frame.type)).toEqual(["user", "assistant", "user"]);
+	expect(plan.frames[2]!.message.content.map((block) => block.type)).toEqual(["tool_result", "text"]);
+	// Claude Code's request then has as many user messages as rho's plan, and each is restored to rho's.
+	const theirs = { system: [], messages: [
+		{ role: "user", content: [text("run it")] },
+		{ role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "mcp__rho__read", input: { path: "/x" } }] },
+		{ role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: [text("file text")] }, text("<system-reminder>the CLI's own</system-reminder>"), text("and also this")] },
+	] };
+	const restored = restoreRequest(theirs, plan.frames) as { messages: { role: string; content: { type: string; text?: string }[] }[] };
+	expect(restored.messages.length).toBe(3);
+	expect(restored.messages[2]!.content.map((block) => block.type)).toEqual(["tool_result", "text"]);
+	expect(restored.messages[2]!.content[1]!.text).toBe("and also this");
+	// When the two do not line up, the error says how.
+	expect(() => restoreRequest({ system: [], messages: theirs.messages.slice(0, 1) }, plan.frames)).toThrow(/Rho has 2 user messages and Claude Code sent 1/);
+});
+
 test("a request is planned as the CLI's inputs: prompt, inventory, history frames, fixed fields", () => {
 	const plan = planTurn(request([
 		{ role: "user", content: [{ type: "text", text: "q1", cache_control: { type: "ephemeral" } }] },

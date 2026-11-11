@@ -137,7 +137,13 @@ export function planTurn(request: Json): TurnPlan {
 	const frames: Frame[] = [];
 	for (const message of (request.messages as Json[] | undefined) ?? []) {
 		if (message.role !== "user" && message.role !== "assistant") throw new Error(`The Claude Code provider cannot replay a ${String(message.role)} message inside the conversation.`);
-		frames.push({ type: message.role, message: { role: message.role, content: asBlocks(message.content).map(forCli) } });
+		const content = asBlocks(message.content).map(forCli);
+		// Two messages of one role in a row become one, as Claude Code itself joins them: a message
+		// steered in while a tool ran follows that tool's result, and both are user messages. Left
+		// apart, rho would count one more user message than the request Claude Code sends.
+		const before = frames.at(-1);
+		if (before?.type === message.role) before.message.content.push(...content);
+		else frames.push({ type: message.role, message: { role: message.role, content } });
 	}
 	const last = frames.at(-1);
 	if (!last || last.type !== "user" || last.message.content.length === 0) throw new Error("The conversation must end in a user message or a tool result.");
@@ -171,7 +177,7 @@ export function restoreBlocks(theirs: Json[], ours: Json[]): Json[] {
 	let cursor = 0;
 	for (const want of ours) {
 		const index = theirs.findIndex((block, position) => position >= cursor && block.type === want.type && (want.type !== "tool_result" || block.tool_use_id === want.tool_use_id));
-		if (index < 0) throw new Error(MISMATCH);
+		if (index < 0) throw new Error(`${MISMATCH} (A ${String(want.type)} block of rho's is not in Claude Code's message, which has: ${theirs.map((block) => String(block.type)).join(", ") || "nothing"}.)`);
 		const { cache_control: _dropped, ...native } = theirs[index]!;
 		cursor = index + 1;
 		if (want.type === "image") {
@@ -214,7 +220,7 @@ export function restoreRequest(theirs: Json, frames: Frame[], environment?: Json
 	const mine = frames.filter((frame) => frame.type === "user");
 	let messages = structuredClone((theirs.messages as Json[] | undefined) ?? []);
 	const users = messages.filter((message) => message.role === "user");
-	if (users.length !== mine.length) throw new Error(MISMATCH);
+	if (users.length !== mine.length) throw new Error(`${MISMATCH} (Rho has ${mine.length} user messages and Claude Code sent ${users.length}.)`);
 	const cache = ([...asBlocks(theirs.system), ...messages.flatMap((message) => asBlocks(message.content))].find((block) => block.cache_control)?.cache_control as Json | undefined) ?? { type: "ephemeral" };
 	users.forEach((message, index) => {
 		const native = asBlocks(message.content);

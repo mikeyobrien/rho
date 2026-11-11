@@ -339,3 +339,23 @@ test("a large photo is scaled by the processor, and one it cannot read is refuse
 	expect(await (await sendPhotos({ text: "look", requestId: "req-scaled-3", images: [{ data: PNG }] })).json()).toEqual({ error: "This conversation's model does not take photos. Choose another model in the menu." });
 	expect((await sendPhotos({ text: "words are fine", requestId: "req-scaled-4" })).status).toBe(200);
 });
+
+test("the page can be installed as an app: a manifest and icons are served without the token", async () => {
+	const page = await (await fetch(`${base}/`)).text();
+	expect(page).toContain('<link rel="manifest" href="/manifest.webmanifest">');
+	const response = await fetch(`${base}/manifest.webmanifest`);
+	expect([response.status, response.headers.get("content-type")]).toEqual([200, "application/manifest+json"]);
+	const manifest = (await response.json()) as { name: string; start_url: string; display: string; icons: { src: string; sizes: string; type: string; purpose: string }[] };
+	expect([manifest.name, manifest.start_url, manifest.display]).toEqual(["rho", "/", "standalone"]);
+	// What a browser asks for before it offers an install: a 192 and a 512 pixel PNG.
+	expect(manifest.icons.map((icon) => icon.sizes).sort()).toEqual(["192x192", "512x512", "512x512"]);
+	expect(manifest.icons.some((icon) => icon.purpose === "maskable")).toBe(true);
+	for (const icon of manifest.icons) {
+		const image = await fetch(`${base}${icon.src}`);
+		expect([icon.src, image.status, image.headers.get("content-type")]).toEqual([icon.src, 200, "image/png"]);
+		const bytes = new Uint8Array(await image.arrayBuffer());
+		expect([...bytes.slice(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		const size = new DataView(bytes.buffer).getUint32(16); // the width in the PNG's header
+		expect(`${size}x${size}`).toBe(icon.sizes);
+	}
+});
