@@ -920,12 +920,69 @@ is used only through Claude Code.
     - Found while building: rho could not close while a test's fake model ignored the
       request's abort signal. The engine waits for task code to return; a real provider
       honours the signal. The fake now does.
-    - A model per job (owner, 2026-11-12): wanted, replacing choice A. Agreed shape, **not
-      built**: a `MODELS.md` beside the person's `AGENTS.md` in rho's data, plain English on
-      which model suits which work; its text is put before the agent with `delegate`, which
-      gains an optional `model`; with no file or no pick the worker uses the conversation's
-      model. It is guidance, not a lock. A decider model is to be shown each pick in shadow
-      first (it only logs), and may enforce later, with doubt ending in a card.
+    - A model per job (owner, 2026-11-12): **built** 2026-11-11, commits `cfaac63` and
+      `cf70537`; **not released, and no live model run.** It replaces choice A and the
+      earlier `MODELS.md` plan: the person did not want a file to write by hand, so the
+      preferences are a memory list they fill by talking.
+      - Preferences: a third list in the file memory provider, `models` (`models.md`, cap
+        1,500 characters, `memory.modelsCap`), beside `user` and `notes`. Plain English
+        ("use Haiku for running checks"). Same rule as `user`: saved only when the last
+        thing the model read was the person's own message; a correction edits the old line.
+        The Honcho provider has no memory tool, so with Honcho there are no preferences and
+        a worker runs as the conversation does: out of scope.
+      - `delegate start` takes optional `model` (`provider/id`; an id alone when exactly one
+        provider offers it) and `thinking` (off, minimal, low, medium, high, xhigh, max).
+        With neither, the worker has the asking conversation's model and thinking, as
+        before. A model that cannot be used is refused with the list of those that can; a
+        wrong level is refused with the levels. Nothing is handed off on a refusal.
+      - How the agent sees the preferences: the memory section is sticky, so a preference
+        saved mid-conversation is not in it. `delegate models` reads the list as it stands
+        (the core passes the provider's `preferences()` in; the tool reads no file) and
+        lists the usable models. A handoff with nothing picked while preferences exist says
+        so in the tool's answer and points at `delegate models`. A costlier model than the
+        conversation's is allowed when a preference says so: this is words in the tool's
+        description, not enforced, since rho does not rank models by cost.
+      - Shown: the model's id on the worker's row in the page (`WorkerView.model`,
+        `picked`), `provider/id` in `delegate list` and `status` (with the thinking level
+        when it was picked), in `GET /api/workers`, and in the handoff's log line, which
+        also says "picked for the job" or "the conversation's own". A decision about what
+        leaves the machine: a model name already is in `StateView` (`model`), so the row
+        shows nothing of a new kind.
+      - Shadow check (`src/picks.ts`): when the list is not empty, every handoff is a line
+        in `picks.jsonl` in the data directory (bounded, `appendLine`), also when nothing
+        was picked. A small model is asked whether the pick fits the preferences for the
+        title and brief (`models.completeSimple`), default `claude-code/claude-haiku-5-5`
+        and only if it can be used; `delegates.check` names another model, takes
+        `{model, timeoutMs}` (default 30 s), or is `false` for off. It is started after the
+        handoff's commit and not awaited; it blocks, delays and changes nothing. No answer,
+        a vague answer, a timeout or a checker that cannot be used is one line in rho's log
+        (once per kind per run) and a line without a verdict in the file. `rho picks [last]`
+        reads the file. The line keeps the title, the brief's size, the preferences, the
+        models and the verdict; not the brief. The checker's provider is sent the
+        preferences, title and the first 3,000 characters of the brief.
+      - Scope: workers only. Check-ins and new conversations are as they were.
+      - Checked, all with pi-ai's faux provider (no model called): 1 test in a real core for
+        the list (save, correct, remove, refused after a file was read, refused as an
+        instruction, the cap, read as it stands); 6 in `test/delegate.test.ts`: a worker's
+        request reaches the picked model at the picked level and the record, list, status
+        and log say so, with no pick unchanged; an unknown model, another provider's and a
+        bad level refused with nothing handed off, and all seven levels taken;
+        `delegate models` after a save in the same conversation; the check logging fits,
+        does not fit, nothing picked, a vague answer, an error and a checker that never
+        answers (the worker had reported while that check still hung), silent with no
+        preferences; off, and a checker that cannot be used; the setting and the verdict
+        parser. The page tests assert the model on the row. The whole check passed three
+        times (253 tests).
+      - Not checked: any live model. In particular the default checker goes through the
+        Claude Code CLI as a one-message request with rho's own system prompt and no
+        session: that it answers, and that it is billed to the plan, has not been seen
+        (the AGENTS.md rule on Claude requests asks for that live check before it is relied
+        on). Whether a real agent reads `delegate models` unprompted and picks sensibly.
+        A thinking level a picked model does not support (it is passed on as given). A kill
+        while a check is in flight loses that line, by design. A real browser.
+      - Not built: enforcing the check or ending doubt in a card; preferences with Honcho;
+        a model per check-in or per new conversation; a `settings` entry for
+        `delegates.check` (it is set in `config.json`).
     - Where it starts: a check-in already is a task-owned conversation with a turn limit and
       one report (`src/checkins.ts`).
 20a. Checks out of the agent's turn: the `background` tool. **Built** 2026-11-11, overnight,

@@ -19,6 +19,12 @@ See [MIGRATION.md](MIGRATION.md).
   yes shows its card in your thread. Rho can look at what a worker is doing and send it a
   message while it works. The list is one line while workers run, opens on a tap, and goes
   away when the last one ends; the menu shows the ended ones.
+- A model per job: say which model suits which work and rho keeps it in a third memory
+  list, `models`. `delegate` takes a `model` and `thinking` for a worker, chosen by those
+  preferences; with none the worker runs as the conversation does. The model is shown on
+  the worker's row, in the worker list and in rho's log. A pick check asks a small model
+  whether each choice fits your preferences and only logs the answer (`rho picks`);
+  `delegates.check` names its model or turns it off.
 - Tool cards: three or more finished steps in a row fold into one row that says what they
   did; a failure and a step outside the working directory stay out. A running step shows
   how long it has run.

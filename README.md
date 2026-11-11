@@ -18,13 +18,16 @@ Rho 1 is on the `main` branch; see [MIGRATION.md](MIGRATION.md) if you use it.
 - **Works on code.** Tools: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`,
   `web_search`, `fetch_content`, and `background` for a command that takes a while: rho
   starts it, stays free to talk, and is told how it ended. With `delegate` it hands a whole
-  job to a worker, a second agent in its own thread, and reports what the worker says. Each conversation has its own working directory.
+  job to a worker, a second agent in its own thread, and reports what the worker says. Tell rho
+  which model suits which work ("use Haiku for running checks") and it picks a worker's model by that;
+  the worker's row shows the model. Each conversation has its own working directory.
 - **Sees photos.** Add up to four photos to a message with the + button, or paste a
   screenshot. Large ones are made smaller before they are sent to the model.
 - **Asks before what cannot be undone.** `git push`, publishing a package, and merging or
   releasing on GitHub wait for you to press Allow.
 - **Remembers.** A small memory of facts about you and your projects is put in front of the
-  model every turn. It is kept in two local files by default, or in a
+  model every turn. It is kept in three local files by default (about you, rho's own notes, and your
+  model preferences for workers), or in a
   [Honcho](https://github.com/plastic-labs/honcho) server.
 - **Checks in.** Ask it to do something every two hours, daily at 08:00, or once at a set
   time. It runs unattended and tells you only what you need to know.
@@ -105,6 +108,7 @@ for and can refuse or limit requests. An API key is the supported way to use rho
 | `rho logs [lines]` | The last lines of rho's log. |
 | `rho answers [last]` | What rho asked your yes for and what you answered, by kind. |
 | `rho decisions [last]` | What the decider said of each shell command, when one is configured. |
+| `rho picks [last]` | Which model each worker ran on and whether the pick check said it fits your preferences. |
 | `rho service install` | Run rho as a service that restarts it and starts it at boot. |
 | `rho service uninstall`, `rho service status` | Remove the service, or show its state. |
 | `rho release [commit]` | Release a commit from a work checkout into the running rho. |
@@ -167,7 +171,7 @@ Rho cannot open this file. It can propose a change to `model`, `thinking`, `cwd`
 | `memory` | `{"kind": "file"}` (default), `{"kind": "honcho", "url": "...", "workspace": "...", "user": "...", "agent": "..."}`, or `{"kind": "off"}`. Honcho also takes `"apiKey"`, which is then stored in this file as plain text. |
 | `decider` | `{"baseUrl": "http://127.0.0.1:8098", "model": "clef-flash"}`: a decision model (the System One API) that labels each shell command with a type and a confidence. It only watches: nothing is blocked. Read its log with `rho decisions`. Default: off. |
 | `notifications` | `false` turns notifications off. See Notifications above. |
-| `delegates` | `false` turns workers off. `{"max": 2, "maxTurns": 60}` sets how many run at once and a worker's step limit. |
+| `delegates` | `false` turns workers off. `{"max": 2, "maxTurns": 60}` sets how many run at once and a worker's step limit. `"check"`: once you have given model preferences, a small model is asked whether each worker's model fits them. It only logs (`rho picks`) and never blocks or delays a job. Default `claude-code/claude-haiku-5-5` when it can be used; `"check": "provider/model"` names another, `"check": false` turns it off. It is sent your preferences and the job's title and brief. Model preferences need the file memory; with Honcho a worker runs on the conversation's model. |
 | `checkins` | `false` turns reminders off. `{"maxTurns": 20}` sets the limit of one check-in. |
 | `providers` | Servers that speak the OpenAI chat API, such as a local model: `[{"id": "local", "baseUrl": "http://127.0.0.1:8080/v1", "models": ["model-name"]}]`. Add `"apiKeyEnv": "NAME"` if the server needs a key. |
 | `claudePlan` | `true` adds Claude through your Claude Code login. See below. |
