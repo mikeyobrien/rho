@@ -12,6 +12,8 @@ See [MIGRATION.md](MIGRATION.md).
 - A web page served on loopback: streaming answers, stop, steering while rho works, a
   message queue, several conversations, a model picker, tool cards with output and diffs.
 - Photos in a message: picked or pasted in the page, up to four, scaled to what a model takes.
+- An optional decider: a decision model labels each shell command with a type, a verdict and
+  a confidence, in a log (`rho decisions`). It watches only and blocks nothing.
 - The `rho` command: `open`, `start`, `stop`, `status`, `key`, `logs`, `service`, `release`,
   `version`.
 - Tools: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`, `web_search`,

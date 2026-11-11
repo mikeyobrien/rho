@@ -140,6 +140,7 @@ Settings are in `~/.rho/v2/config.json`. All are optional. Restart rho after a c
 | `cwd` | The directory new conversations work in. Default: your home directory. `~` is your home directory. A conversation keeps the directory it was made with; change an existing one from the page's menu. |
 | `maxTurns` | Most tool rounds in one run. Default 200. |
 | `memory` | `{"kind": "file"}` (default), `{"kind": "honcho", "url": "...", "workspace": "...", "user": "...", "agent": "..."}`, or `{"kind": "off"}`. Honcho also takes `"apiKey"`, which is then stored in this file as plain text. |
+| `decider` | `{"baseUrl": "http://127.0.0.1:8098", "model": "clef-flash"}`: a decision model (the System One API) that labels each shell command with a type and a confidence. It only watches: nothing is blocked. Read its log with `rho decisions`. Default: off. |
 | `checkins` | `false` turns reminders off. `{"maxTurns": 20}` sets the limit of one check-in. |
 | `providers` | Servers that speak the OpenAI chat API, such as a local model: `[{"id": "local", "baseUrl": "http://127.0.0.1:8080/v1", "models": ["model-name"]}]`. Add `"apiKeyEnv": "NAME"` if the server needs a key. |
 | `claudePlan` | `true` adds Claude through your Claude Code login. See below. |

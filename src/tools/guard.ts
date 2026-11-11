@@ -84,8 +84,11 @@ export async function answerApproval(conversation: Conversation, id: string, all
 	}, context);
 }
 
+/** A command the rules let run or made wait, shown to something that only watches (the decider in shadow). Must not throw. */
+export type Watch = (seen: { conversation: string; call: string; command: string; cwd?: string; rule: "allow" | "ask" }) => void;
+
 /** The `guard` extension: wraps the tools that touch files or run commands. */
-export function guard(dataDir: string, persons: (conversation: string) => Promise<boolean> = async () => true): Extension {
+export function guard(dataDir: string, persons: (conversation: string) => Promise<boolean> = async () => true, watch?: Watch): Extension {
 	protect(dataDir);
 	/** Refuse a path in rho's data, also when a link leads there. */
 	const checkPath = async (path: unknown, api: Parameters<ToolRegistration["execute"]>[1], context: Context): Promise<void> => {
@@ -112,6 +115,8 @@ export function guard(dataDir: string, persons: (conversation: string) => Promis
 			}
 			const verdict = judgeCommand(args.command, dataDir);
 			if (verdict.kind === "refuse") throw new Error(`Refused: ${verdict.why} Do not try it another way.`);
+			// A command that names rho's own data was refused above and is shown to nobody.
+			watch?.({ conversation: String(api.conversationId), call: api.callId, command: args.command, ...(cwd?.ok ? { cwd: cwd.value } : {}), rule: verdict.kind });
 			if (verdict.kind === "ask") {
 				const command = args.command;
 				// Rho's own side work (a check-in) has nobody watching: there is no one to ask.

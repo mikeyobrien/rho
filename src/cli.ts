@@ -4,6 +4,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { describeDecisions, readDecisions } from "./decider.ts";
 import { preflight, release, type GateHost } from "./gate.ts";
 import { readConfig } from "./core.ts";
 import { rhoHome } from "./home.ts";
@@ -318,10 +319,13 @@ export async function run(args: string[], cli: CliEnv): Promise<number> {
 			const differs = now?.commit && now.commit !== commit ? ` The running rho is still ${now.commit.slice(0, 7)}; it runs ${commit.slice(0, 7)} after a restart.` : "";
 			return cli.out(`${commit}${differs}`), 0;
 		}
+		case "decisions":
+			// What the decider said about each command, from its log. It reads a file; rho need not be running.
+			return cli.out(describeDecisions(readDecisions(dir), Number(args[1]) || 0)), 0;
 		case "logs":
 			return cli.out(tail(join(dir, "daemon.log"), Number(args[1]) || 40) || "No log yet, start rho first."), 0;
 		default:
-			cli.out("Usage: rho start | stop | status | open [--print] | key [provider [--remove]] | login <provider> | logout <provider> | logs [lines] | version | service install|uninstall|status | release [commit] | release --status");
+			cli.out("Usage: rho start | stop | status | open [--print] | key [provider [--remove]] | login <provider> | logout <provider> | logs [lines] | decisions [last] | version | service install|uninstall|status | release [commit] | release --status");
 			return 2;
 	}
 }

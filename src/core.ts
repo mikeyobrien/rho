@@ -11,6 +11,8 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { homedir } from "node:os";
 import { checkins as checkinFeature, type Reminder, type ReminderSpec } from "./checkins.ts";
 import { projectExtension, type ContextOptions } from "./context.ts";
+import { openDecider, readDecider } from "./decider.ts";
+import { textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { guard } from "./tools/guard.ts";
 import { excludeFromSearch, SearchTools } from "./tools/search.ts";
@@ -33,6 +35,8 @@ export interface RhoConfig {
 	cwd?: string;
 	/** Memory: `{ "kind": "file" }` (default), `{ "kind": "honcho", "url": ... }` or `{ "kind": "off" }`. */
 	memory?: unknown;
+	/** A decision model that classifies each shell command: `{ "baseUrl": "http://127.0.0.1:8098", "model": "clef-flash" }`. It only watches and logs. Default: off. */
+	decider?: unknown;
 	/** Check-ins (reminders rho runs unattended). `false` turns them off. */
 	checkins?: boolean | { maxTurns?: number };
 	/** Most tool rounds one run takes before it stops and says so. Default: 200. */
@@ -81,6 +85,8 @@ export interface CoreOptions {
 	clock?: { now: () => number; setTimer?: HarnessOptions["setTimer"] };
 	/** The project-context section's clock. Tests change it. */
 	context?: ContextOptions;
+	/** How the decider is reached. Tests change it. */
+	deciderFetch?: typeof fetch;
 	/** How the web tools reach the web. Tests change it. */
 	web?: WebOptions;
 	/** Where tools touch files and run commands. Default: this machine, in the conversation's directory. Tests change it. */
@@ -96,6 +102,8 @@ const Conversations = defineDoc<{ items: (ConversationInfo & { ref: string | num
 
 export interface Core {
 	harness: Harness;
+	/** Resolves when the decider has logged every command it was shown; undefined when it is off. */
+	deciderIdle?: () => Promise<void>;
 	/** The reminder book; undefined when check-ins are off. */
 	reminders?: { list(): Promise<Reminder[]>; add(spec: ReminderSpec): Promise<Reminder>; remove(id: string): Promise<Reminder | undefined>; stop(): Promise<boolean> };
 	/** The first conversation; it always exists. */
@@ -163,8 +171,14 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	// `~` is the home directory here as in a shell; a config file has no shell to expand it.
 	const home = (config.cwd ?? homedir()).replace(/^~(?=\/|$)/, homedir());
 	const registry = createRegistry();
+	// The decider is shown each shell command with the person's last message. It watches; it blocks nothing.
+	const deciderConfig = readDecider(config.decider, log);
+	let asked: (id: string) => Promise<string | undefined> = async () => undefined;
+	const decider = deciderConfig ? openDecider(deciderConfig, options.dir, { log, asked: (id) => asked(id), ...(options.clock ? { now: options.clock.now } : {}), ...(options.deciderFetch ? { fetch: options.deciderFetch } : {}) }) : undefined;
+	if (deciderConfig) log(`decider: ${deciderConfig.model} at ${deciderConfig.baseUrl}, shadow (it logs and blocks nothing)`);
+	const watch = decider && ((seen: Parameters<typeof decider.watch>[0]) => decider.watch(seen));
 	// Every tool, whoever brings it, takes the optional `reasoning` argument.
-	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir, (id) => persons(id))]) registry.install(tidy(extension));
+	for (const extension of [CodingTools /* read, write, edit, bash */, SearchTools /* grep, find, ls */, webTools(options.web) /* web_search, fetch_content */, ...(options.extensions ?? []), guard(options.dir, (id) => persons(id), watch)]) registry.install(tidy(extension));
 	for (const dir of new Set([options.dir, realpathSync(options.dir)])) excludeFromSearch(dir);
 	// Only the person's own conversations are mirrored to memory or may ask for a yes, not rho's side work.
 	let persons: (id: string) => Promise<boolean> = async () => false;
@@ -212,6 +226,18 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 		}, context);
 	if (!(await listed()).some((item) => item.id === rootId)) await add(root);
 	persons = async (id) => (await listed()).some((item) => item.id === id);
+	// The newest message the person wrote themselves: a gate report or a check-in (another entry kind) is not their word.
+	// Read once far back, then only what is new since: a cache a restart may lose.
+	const lastAsked = new Map<string, { upTo: unknown; text?: string }>();
+	asked = async (id) => {
+		const known = lastAsked.get(id);
+		const conversation = await harness.conversation(id as unknown as ConversationId, context);
+		const page = await conversation?.entries({ order: "descending", ...(known ? { minEntryId: known.upTo as never } : {}) }, 400, undefined, context);
+		const mine = page?.items.find((entry) => entry.kind === "pi.user" && entry.model?.[0]?.role === "user")?.model?.[0];
+		const text = mine?.role === "user" ? textOf(mine.content).trim() || undefined : known?.text;
+		if (page?.items[0]) lastAsked.set(id, { upTo: page.items[0].id, ...(text ? { text } : {}) });
+		return text;
+	};
 	const find = async (id: string): Promise<Conversation | undefined> => {
 		const item = (await listed()).find((candidate) => candidate.id === id);
 		return item ? harness.conversation(item.ref as unknown as ConversationId, context) : undefined;
@@ -238,6 +264,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	harness.resume();
 	return {
 		harness,
+		...(decider ? { deciderIdle: decider.idle } : {}),
 		reminders: reminders ? { list: reminders.list, add: reminders.add, remove: reminders.remove, stop: reminders.stop } : undefined,
 		root,
 		rootId,
