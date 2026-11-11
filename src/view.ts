@@ -16,7 +16,7 @@ export interface ToolCallView {
 export type EntryView =
 	| { id: number; role: "user"; text: string; /** How many photos came with it. The pictures are not in the view: a client asks for each (`GET /api/image`). */ images?: number }
 	| { id: number; role: "assistant"; text: string; calls: ToolCallView[]; model?: string; cut?: true }
-	| { id: number; role: "tool"; callId: string; name: string; text: string; /** The result in a few words. */ summary: string; /** What an edit changed. */ diff?: string; error?: true }
+	| { id: number; role: "tool"; callId: string; name: string; text: string; /** The result in a few words. */ summary: string; /** What an edit changed. */ diff?: string; error?: true; /** How long it ran, in milliseconds, when the engine measured it. */ ms?: number }
 	| { id: number; role: "notice"; text: string; /** Who sent it: "gate", "check-in". */ from: string }
 	| { id: number; role: "divider"; text: string };
 
@@ -100,7 +100,7 @@ export function entryView(entry: EntryRecord): EntryView | undefined {
 		const text = textOf(message.content);
 		const details = message.details as { diff?: unknown } | undefined;
 		const diff = typeof details?.diff === "string" ? details.diff : undefined;
-		return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text, summary: summarize(text, message.isError, diff), ...(diff !== undefined ? { diff } : {}), ...(message.isError ? { error: true as const } : {}) };
+		return { id, role: "tool", callId: message.toolCallId, name: message.toolName, text, summary: summarize(text, message.isError, diff), ...(diff !== undefined ? { diff } : {}), ...(message.isError ? { error: true as const } : {}), ...(typeof message.durationMs === "number" ? { ms: Math.round(message.durationMs) } : {}) };
 	}
 	if (entry.kind === "rho.notice") return { id, role: "notice", text: textOf(message?.content), from: String((entry.data as { from?: unknown } | undefined)?.from ?? "rho") };
 	if (entry.kind === "pi.reset") return { id, role: "divider", text: "Context cleared" };

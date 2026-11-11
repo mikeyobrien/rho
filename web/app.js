@@ -179,6 +179,7 @@ export function start(env) {
 		if (state && state.conversation !== next.conversation) {
 			known.clear();
 			rendered.clear();
+			folded.clear();
 			drawn = undefined;
 		}
 		state = next;
@@ -286,6 +287,75 @@ export function start(env) {
 		return img;
 	}
 
+	// --- folding finished steps ----------------------------------------------------------------------
+	const took = (ms) => (ms < 1000 ? "" : ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`);
+	const KINDS = [["read", "read"], ["grep", "searched"], ["find", "searched"], ["ls", "searched"], ["edit", "edited"], ["write", "wrote"], ["bash", "ran"], ["web_search", "looked up"], ["fetch_content", "looked up"]];
+	/**
+	 * Whether a finished step may be folded away with its neighbours. A step that failed stays
+	 * out, and so does one that acted on a path outside the conversation's directory: those are
+	 * what a person skimming must not miss. Edits fold too; the fold's line counts them.
+	 */
+	function folds(entry, call) {
+		if (entry.error) return false;
+		const path = call?.args?.path;
+		if (typeof path !== "string") return true;
+		if (path.startsWith("~") || path.split("/").includes("..")) return false;
+		return !path.startsWith("/") || (Boolean(state?.cwd) && (path === state.cwd || path.startsWith(`${state.cwd}/`)));
+	}
+	/** What a run of folded steps did, in a line: "read 6 · edited 2 (+9 −1) · ran 3". */
+	function foldWords(steps) {
+		const counts = new Map();
+		let [added, removed] = [0, 0];
+		for (const step of steps) {
+			const word = KINDS.find(([name]) => name === step.name)?.[1] ?? "used tools";
+			counts.set(word, (counts.get(word) ?? 0) + 1);
+			const change = step.diff === undefined ? null : /^\+(\d+) −(\d+)$/.exec(step.summary);
+			if (change) [added, removed] = [added + Number(change[1]), removed + Number(change[2])];
+		}
+		return [...counts].map(([word, count]) => (word === "edited" && added + removed > 0 ? `${word} ${count} (+${added} −${removed})` : `${word} ${count}`)).join(" · ");
+	}
+	const folded = new Map(); // first entry id of a fold -> { key, node }: a fold opened by the person stays open
+	const FOLD_FROM = 3; // fewer steps than this are clearer as their own cards
+	/** One row for a run of finished steps, with the steps' own cards inside. */
+	function foldFor(steps, calls) {
+		const key = steps.map((step) => step.id).join(",");
+		const kept = folded.get(steps[0].id);
+		if (kept?.key === key) return kept.node;
+		const node = make("details", { className: "fold", open: kept?.node.open ?? false });
+		const ms = steps.reduce((sum, step) => sum + (step.ms ?? 0), 0);
+		const head = make("summary", {});
+		head.append(make("span", { className: "fold-count", textContent: `${steps.length} steps${took(ms) ? ` · ${took(ms)}` : ""}` }), make("span", { className: "fold-words", textContent: foldWords(steps) }));
+		const inside = make("div", { className: "fold-steps" });
+		inside.append(...steps.map((step) => nodeFor(step, calls)));
+		node.append(head, inside);
+		folded.set(steps[0].id, { key, node });
+		return node;
+	}
+	/**
+	 * The thread's nodes: each entry's own, except that a run of three or more foldable steps in a
+	 * row becomes one row. A tool-only turn of the model between two steps (it shows nothing) does
+	 * not break a run. The run that is still going is left as cards: its steps are what is happening.
+	 */
+	function threadNodes(entries, calls) {
+		const out = [];
+		let run = [];
+		const flush = (settled) => {
+			if (run.length >= FOLD_FROM && settled) out.push(foldFor(run, calls));
+			else out.push(...run.map((step) => nodeFor(step, calls)));
+			run = [];
+		};
+		for (const entry of entries) {
+			if (entry.role === "tool" && folds(entry, calls.get(entry.callId))) run.push(entry);
+			else if (entry.role === "assistant" && entry.text.trim() === "" && !entry.cut) out.push(nodeFor(entry, calls)); // hidden, and no break
+			else {
+				flush(true);
+				out.push(nodeFor(entry, calls));
+			}
+		}
+		flush(!state?.running); // the newest steps of work in hand stay as cards until it answers
+		return out;
+	}
+
 	function nodeFor(entry, calls) {
 		const existing = rendered.get(entry.id);
 		if (existing) return existing;
@@ -306,11 +376,12 @@ export function start(env) {
 
 	function render() {
 		const entries = [...known.values()].sort((a, b) => a.id - b.id);
-		const key = entries.map((entry) => entry.id).join(",");
+		// Whether a run is going is part of the key: when it ends, its last steps fold.
+		const key = `${entries.map((entry) => entry.id).join(",")}|${state?.running ? "working" : ""}`;
 		const calls = new Map(); // call id -> the call, for its card
 		for (const entry of entries) for (const call of entry.calls ?? []) calls.set(call.id, call);
 		if (key !== drawn) {
-			el.entries.replaceChildren(...entries.map((entry) => nodeFor(entry, calls)));
+			el.entries.replaceChildren(...threadNodes(entries, calls));
 			drawn = key;
 		}
 		el.earlier.hidden = !moreEarlier;
@@ -342,7 +413,9 @@ export function start(env) {
 			live.push(card);
 		}
 		if (state?.running) {
-			for (const tool of state.tools) if (tool.status !== "done") live.push(Object.assign(toolCard(tool.name, calls.get(tool.id), "running", tool.output.slice(-2000), false), { open: tool.output !== "" }));
+			for (const tool of state.tools) {
+				if (tool.status !== "done") live.push(Object.assign(toolCard(tool.name, calls.get(tool.id), runningWords(tool), tool.output.slice(-2000), false), { open: tool.output !== "" }));
+			}
 			if (state.partial) live.push(make("div", { className: "msg assistant streaming", textContent: state.partial }));
 			else if (state.retry) live.push(note(`Trying again, attempt ${state.retry.attempt}`, "note working"));
 			else if (!state.tools.some((tool) => tool.status !== "done")) live.push(note("Working", "note working"));
@@ -350,6 +423,7 @@ export function start(env) {
 			const text = state.failure.detail ? `${state.failure.text} ${state.failure.detail}` : state.failure.text;
 			live.push(note(text, state.failure.reason === "aborted" ? "note" : "note failure"));
 		}
+		tickRunning();
 		el.live.replaceChildren(...live);
 		el.empty.hidden = entries.length > 0 || live.length > 0 || state === undefined;
 
@@ -419,6 +493,26 @@ export function start(env) {
 		const counting = text.startsWith("Releasing");
 		if (counting && !releaseTimer) releaseTimer = setInterval(renderRelease, 1000);
 		if (!counting && releaseTimer) releaseTimer = void clearInterval(releaseTimer);
+	}
+
+	// --- a step that is running ----------------------------------------------------------------------
+	// The daemon does not say when a call began, so the time is counted from when this page first
+	// saw it running: right for a call watched from its start, short for one found already going.
+	const began = new Map(); // call id -> when this page first saw it running
+	let runTimer;
+	/** "running · 0:32", with the newest line of its output when it has printed any. */
+	function runningWords(tool) {
+		const now = env.now?.() ?? Date.now();
+		if (!began.has(tool.id)) began.set(tool.id, now);
+		const last = tool.output.trimEnd().split("\n").at(-1)?.trim() ?? "";
+		return `running · ${clock(now - began.get(tool.id))}${last ? ` · ${last.slice(0, 60)}` : ""}`;
+	}
+	/** While a step runs, its card's time counts on between the daemon's snapshots. */
+	function tickRunning() {
+		const going = (state?.running ? state.tools : []).filter((tool) => tool.status !== "done").map((tool) => tool.id);
+		for (const id of [...began.keys()]) if (!going.includes(id)) began.delete(id);
+		if (going.length > 0 && !runTimer) runTimer = setInterval(render, 1000);
+		if (going.length === 0 && runTimer) runTimer = void clearInterval(runTimer);
 	}
 
 	let flashText = "";
@@ -601,6 +695,7 @@ export function start(env) {
 		state = undefined;
 		known.clear();
 		rendered.clear();
+		folded.clear();
 		drawn = undefined; // not "": an empty thread must still replace what was drawn
 		moreEarlier = false;
 		stick = true;
@@ -700,6 +795,7 @@ export function start(env) {
 			streamAbort?.abort();
 			clearTimeout(flashTimer);
 			clearInterval(releaseTimer);
+			clearInterval(runTimer);
 		},
 	};
 }

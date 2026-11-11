@@ -66,13 +66,10 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
   reminders (22); migrating rho 1's brain (14).
 - Proposed by the agent in conversation on 2026-11-11 and written nowhere else. The owner
   asked for the mocks and for the research, not for these to be built:
-  - Tool cards: fold routine steps into one row; a run summary built from the tool
-    records, with no green ticks; a failed card that points at the likely cause; a
-    "while you were away" marker; a running card with its elapsed time and last line.
-    The owner, 2026-11-11: edits fold too (the first proposal kept them out). So the fold
-    takes every step that succeeded, and its row counts the edits with their lines added
-    and removed. What stays out of the fold: a failure, a request waiting for a yes, and
-    a step that touched something outside the working directory.
+  - Tool cards, the part not built (item 21e built the fold and the running card): a run
+    summary built from the tool records, with no green ticks; a failed card that points at
+    the likely cause; a "while you were away" marker; approval cards for a push, a publish
+    and a GitHub merge that say what the command would do, as the release card does.
   - Remove EXIF data from photos small enough to skip scaling (item 19 lists it as known).
   - Review memory for stale entries, and goals above tasks (from the talk the owner sent,
     "proactive agent engineering").
@@ -110,6 +107,8 @@ reviewers wanted first is a release killed part-way, which leaves rho stopped. A
   browser or rho scaled it is not known.
 - From before: a rollback under the real service, a reboot of the phone, a check-in's sleep
   of hours under Android's battery limits, any provider with an API key.
+
+**Built, not released:** 21e, tool cards that fold and a running step that shows its time.
 
 **Done:** items 1 to 13 (bootstrap, with its proof), 14 memory, 17 notifications on
 Android, 19 photos, 21a the decider in shadow, 21b the settings tool, 21c the release line
@@ -1087,6 +1086,30 @@ is used only through Claude Code.
       its clock, not 4 s. Both still fail if the thing they test does not happen.
     - Not built: acting on it (asking less for a kind that is always allowed, a threshold);
       a reason with a deny; noticing a card that was left unanswered; a size limit.
+
+21e. Tool cards: finished steps fold, and a running step shows its time. **Built**
+    2026-11-11, overnight, while the owner slept; **not released, not seen in a browser.**
+    The owner had asked about "UI/UX polish of tools" and said "edits can fold too"; they
+    did not say build it. It is page-only but for one field, and is one commit to revert.
+    - A run of three or more finished steps in a row becomes one row: "4 steps · 12 s" and
+      what they did, "read 2 · edited 1 (+2 −1) · ran 1". Opened, it holds each step's own
+      card, unchanged. Edits fold too, as the owner said, and the row counts their lines.
+    - What never folds: a step that failed, and a step whose path is outside the
+      conversation's directory (an absolute path elsewhere, `~`, or one that climbs with
+      `..`). A person skimming must not miss those. Fewer than three steps stay as cards.
+    - The steps of work still in hand stay as cards, so what rho is doing is in view; they
+      fold when it answers. A fold the person opened stays open.
+    - A running step's card says "running · 0:32" and the newest line of its output, and
+      counts on between the daemon's snapshots.
+    - `StateView`: a tool entry gains `ms`, how long the step took, from the engine's own
+      measure. It is the one new thing on the wire, and holds no text.
+    - Limits. The engine does not say when a running call began, so the page times it from
+      when it first saw it: a call found already running reads short. "Outside the
+      directory" is judged from the `path` argument only: a `bash` command that reaches
+      outside is folded like any other (its text is still inside the fold). A request
+      waiting for a yes is not a step and was never in the thread, so it cannot be folded.
+    - Checked: 3 page tests through a real server on the stand-in DOM. They cover logic,
+      not look: how the row reads on a narrow screen is unseen.
 
 ## Rho's own features, after it can build itself
 

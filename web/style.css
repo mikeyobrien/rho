@@ -102,3 +102,8 @@ footer { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 
 #send { min-width: 72px; background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
 #send.stop { background: var(--panel); border-color: var(--bad); color: var(--bad); }
 @media (prefers-reduced-motion: no-preference) { .working::after { content: "…"; } }
+.fold { border: 1px dashed var(--line); border-radius: 10px; font-size: 14px; }
+.fold > summary { display: flex; flex-wrap: wrap; gap: 4px 10px; min-height: 44px; align-items: center; padding: 6px 12px; cursor: pointer; list-style: none; color: var(--dim); }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold-count { color: var(--text); }
+.fold-steps { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 8px; }

@@ -563,3 +563,94 @@ test("an approval card lists what the command would do, when rho worked that out
 	await until("the plain card", () => card()?.all().find((node) => node.tag === "pre")?.textContent === "git push");
 	expect(card()!.all().map((node) => node.tag)).toEqual(["p", "pre", "div", "button", "button"]);
 }, 30_000);
+
+test("a run of finished steps folds into one row, edits too; a failure and a step outside the folder stay out", async () => {
+	for (const name of ["a.txt", "b.txt", "c.txt"]) writeFileSync(join(work, name), `${name}\nline\n`);
+	// A real file outside the conversation's folder (and outside rho's data), read by its full path.
+	const outside = join(mkdtempSync(join(tmpdir(), "rho-page-outside-")), "note.txt");
+	writeFileSync(outside, "elsewhere\n");
+	const step = (name: string, args: object) => fauxAssistantMessage(fauxToolCall(name, args as never), { stopReason: "toolUse" });
+	faux.setResponses([
+		step("read", { path: "a.txt" }),
+		step("read", { path: "b.txt" }),
+		step("edit", { path: "c.txt", edits: [{ oldText: "line", newText: "LINE\nmore" }] }),
+		step("bash", { command: "cat c.txt" }),
+		step("read", { path: "missing.txt" }), // fails: stays out, and ends the run of steps
+		step("read", { path: "a.txt" }),
+		step("read", { path: outside }), // it works, and it is outside the folder: stays out
+		step("ls", { path: "." }),
+		fauxAssistantMessage("All done."),
+	]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("do the work");
+	await until("the answer", () => page.messages().at(-1) === "msg assistant|All done." && idle(page), 20_000);
+	const shown = (page.$("entries").children as El[]).filter((node) => !node.hidden);
+	const row = (node: El) => (node.children[0] as El).children.map((cell) => (cell as El).textContent);
+	// The four steps that went well, in a row, are one row that says what they did.
+	expect(shown.map((node) => node.className)).toEqual(["msg user", "fold", "tool error", "tool", "tool", "tool", "msg assistant"]);
+	const fold = shown[1]!;
+	expect(row(fold)[0]).toMatch(/^4 steps( · \d+ s)?$/);
+	expect(row(fold)[1]).toBe("read 2 · edited 1 (+2 −1) · ran 1");
+	expect(fold.open).toBe(false);
+	// Inside it, each step's own card, with its diff and output.
+	const inside = (fold.children[1] as El).children as El[];
+	expect(inside.map((card) => card.all().find((node) => node.className === "tool-name")!.textContent)).toEqual(["read", "read", "edit", "bash"]);
+	expect(inside[2]!.all().some((node) => node.className === "diff")).toBe(true);
+	// The failure is its own card. After it, two steps are too few to fold, and one of them left the folder.
+	expect(shown[2]!.all().find((node) => node.className === "tool-target")!.textContent).toBe("missing.txt");
+	expect(shown.slice(3, 6).map((node) => node.all().find((cell) => cell.className === "tool-target")!.textContent)).toEqual(["a.txt", outside.slice(0, 80), "."]);
+	rmSync(join(outside, ".."), { recursive: true, force: true });
+	// A fold the person opened stays open when the thread is drawn again.
+	fold.open = true;
+	faux.setResponses([fauxAssistantMessage("Yes.")]);
+	await page.send("still there?");
+	await until("the next answer", () => page.messages().at(-1) === "msg assistant|Yes." && idle(page));
+	const again = (page.$("entries").children as El[]).filter((node) => !node.hidden);
+	expect(again[1]).toBe(fold);
+	expect(again[1]!.open).toBe(true);
+}, 40_000);
+
+test("steps of work in hand stay as cards and fold when it answers; a path that climbs out of the folder never folds", async () => {
+	for (const name of ["a.txt", "b.txt", "c.txt"]) writeFileSync(join(work, name), "x\n");
+	const step = (name: string, args: object) => fauxAssistantMessage(fauxToolCall(name, args as never), { stopReason: "toolUse" });
+	faux.setResponses([step("read", { path: "a.txt" }), step("read", { path: "b.txt" }), step("read", { path: "c.txt" }), step("wait", { why: "hold the run open" }), fauxAssistantMessage("Done.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("read them");
+	await gate.started;
+	const classes = () => (page.$("entries").children as El[]).filter((node) => !node.hidden).map((node) => node.className);
+	await until("three finished cards", () => classes().filter((name) => name === "tool").length === 3);
+	expect(classes()).toEqual(["msg user", "tool", "tool", "tool"]); // still working: what it just did is in view
+	gate.release();
+	await until("the answer", () => page.messages().at(-1) === "msg assistant|Done." && idle(page));
+	expect(classes()).toEqual(["msg user", "fold", "msg assistant"]);
+	expect(((page.$("entries").children as El[]).find((node) => node.className === "fold")!.children[0] as El).children.map((cell) => (cell as El).textContent)[1]).toBe("read 3 · used tools 1");
+	// Paths that leave the folder by `..` or `~`, three in a row, are each their own card.
+	faux.setResponses([step("read", { path: "../x" }), step("read", { path: "sub/../../y" }), step("ls", { path: "~" }), fauxAssistantMessage("Looked.")]);
+	await page.send("look outside");
+	await until("the second answer", () => page.messages().at(-1) === "msg assistant|Looked." && idle(page));
+	// Whether each read worked is the machine's business; what matters is that none was folded away.
+	const after = classes().slice(3);
+	expect(after.length).toBe(5);
+	expect([after[0], after[4]]).toEqual(["msg user", "msg assistant"]);
+	expect(after.slice(1, 4).every((name) => name === "tool" || name === "tool error")).toBe(true);
+}, 40_000);
+
+test("a running step shows how long it has run and its newest line", async () => {
+	let now = 1_000_000;
+	faux.setResponses([fauxAssistantMessage(fauxToolCall("wait", { why: "a long job" }), { stopReason: "toolUse" }), fauxAssistantMessage("Finished.")]);
+	const page = await open({ now: () => now });
+	await until("live", () => idle(page));
+	await page.send("start it");
+	await gate.started;
+	const result = () => (page.$("live").children as El[]).find((node) => node.className === "tool")?.all().find((cell) => cell.className === "tool-result")?.textContent;
+	await until("the running card", () => result()?.startsWith("running · 0:00") === true);
+	expect(result()).toBe("running · 0:00 · waiting for the test");
+	// The time counts on its own while the daemon sends nothing new.
+	now += 32_000;
+	await until("the clock to move", () => result() === "running · 0:32 · waiting for the test", 5_000);
+	gate.release();
+	await until("the answer", () => page.messages().at(-1) === "msg assistant|Finished." && idle(page));
+	expect(result()).toBeUndefined();
+}, 30_000);

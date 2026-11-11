@@ -12,6 +12,9 @@ See [MIGRATION.md](MIGRATION.md).
 - A web page served on loopback: streaming answers, stop, steering while rho works, a
   message queue, several conversations, a model picker, tool cards with output and diffs.
 - Photos in a message: picked or pasted in the page, up to four, scaled to what a model takes.
+- Tool cards: three or more finished steps in a row fold into one row that says what they
+  did; a failure and a step outside the working directory stay out. A running step shows
+  how long it has run.
 - Notifications on Android (Termux:API): when rho needs your yes, a run fails, or a check-in or
   release reports. Not for a finished answer, and not while that conversation is open.
 - An answer log: each request for your yes and what you answered, read with `rho answers`.
