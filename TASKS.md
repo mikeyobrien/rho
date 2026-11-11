@@ -47,7 +47,7 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
 **Next, in order:**
 
 1. Item 20, delegates, once the criteria are confirmed.
-2. Item 20a, checks out of the agent's turn.
+2. Item 20a, a command run outside the agent's turn: built, not in the installed rho yet.
 3. Item 20b, delegates on a node, with a daemon per node. Its shape is confirmed, and it
    now has a plan for pulling changes back (git over SSH, into a local branch, never onto
    the checked-out one). The re-attach question was answered from the engine's README.
@@ -112,7 +112,10 @@ how it ended, and nothing yet brings a hand-started rho back up. Added since:
 - From before: a rollback under the real service, a reboot of the phone, a check-in's sleep
   of hours under Android's battery limits, any provider with an API key.
 
-**Built, not released:** 21e, tool cards that fold and a running step that shows its time.
+**Built overnight (2026-11-11 to 12), not in the installed rho yet:** 21e, tool cards that
+fold and a running step that shows its time; 20a, the `background` tool; a gate that died
+is settled at the next start; the two logs are bounded; a photo's metadata is always taken
+off. The fix to the guard's inode memory is in the same batch.
 
 **Done:** items 1 to 13 (bootstrap, with its proof), 14 memory, 17 notifications on
 Android, 19 photos, 21a the decider in shadow, 21b the settings tool, 21c the release line
@@ -841,15 +844,47 @@ is used only through Claude Code.
     - Out of scope: a model per job; remote hosts (item 20b), which add places to the cap.
     - Where it starts: a check-in already is a task-owned conversation with a turn limit and
       one report (`src/checkins.ts`).
-20a. Checks out of the agent's turn. **Not built.** The owner asked for it after item 20.
-    - Why: `bun run check` takes about a minute and runs at every commit (the hook) and
-      again in the release gate. The agent holds a turn open for each, and the person waits.
-    - Wanted: the check runs in the background and its result reaches the agent as a notice,
-      so a turn is not held. Not designed further. Open: whether this is a delegate with a
-      fixed job or its own task; how a commit made by the agent waits for it; never two
-      checks at once on the phone.
-    - It is also the proper answer to the timing tests that blocked three commits on
-      2026-11-11 (see item 21d); they were loosened in the meantime.
+20a. Checks out of the agent's turn: the `background` tool. **Built** 2026-11-11, overnight,
+    while the owner slept (`src/tools/background.ts`, `test/background.test.ts`); **not
+    released.** The owner had said to build this after item 20; it was built first because it
+    needs none of item 20's unconfirmed criteria.
+    - Why: `bun run check` takes about a minute and runs at every commit and again in the
+      gate. The agent held a turn open for each, and the person waited.
+    - `background` takes `start {command, timeout?}`, `status` and `stop`. `start` returns at
+      once. When the command ends, how it ended reaches the conversation as a `rho.notice`
+      (passed; failed with its exit code and last 40 lines; timed out), and the model takes
+      a turn on it. It notifies, like any report (item 17).
+    - It is a shell command, not a second agent: nothing reasons while it runs. That is the
+      line between this and item 20.
+    - The guard judges the command exactly as it judges `bash`: the check was taken out of
+      the `bash` wrap into one function both call. A command that is refused is refused; one
+      that waits for the person's yes shows its card and does not start.
+    - One at a time, for the whole of rho, not per conversation: a second `start` is refused
+      in words. This is the fixed cap the owner removed from item 20's criteria; it stays
+      here until that item's cap per place exists, because two test suites at once on this
+      phone fail each other.
+    - Durable as a task of its own (the check-in's pattern): the start is committed before
+      the command runs, and the report is written in the commit that ends the task, so
+      there is one report or none. A stop ends the command and reports nothing.
+    - Killed while the command runs: the command dies with rho (nothing owns a process once
+      rho is dead). The next start reports "was cut off: rho was restarted while it ran" and
+      does not run it again, because a command may not be safe to run twice.
+    - Checked: 4 tests in a real core running real shell commands, and one in a real second
+      process killed with SIGKILL mid-command (`test/core.test.ts`): one report, the command's
+      mark written once. Not checked: a live model choosing to use it; the agent's own
+      commit with the hook, which is the case it was built for; the installed rho.
+    - Found while building it, each fixed: a task's id is a number in SQLite, and stored as
+      text it names no task (a stop then did nothing); a document's objects cannot be cloned
+      or stored again as they are (plain copies are); and "idle" does not wait for a
+      background task, which is the point, so a test that kills one must keep its host up.
+    - Not built: the commit hook is unchanged, so a commit the agent makes still runs the
+      whole check in its turn; using this for it means running the check in the background
+      first and committing when told it passed, which the agent has to choose to do. The
+      gate's own check is unchanged. Nothing in the instructions tells the agent when to
+      use it beyond the tool's description. The page shows no running job.
+    - It was also the proper answer to the timing tests that blocked commits on 2026-11-11
+      (item 21d); the cause of the commonest of those was found and fixed the same night
+      (the guard's inode memory, under "Known issues").
 20b. Delegates on a node the person owns: ephemeral, remote, durable. **Not built.** Asked
     by the owner 2026-11-11 ("cloud delegates, with self hosted onboardings"; then "a
     mechanism for ephemeral remote delegations, that are durable"; then "what if we install

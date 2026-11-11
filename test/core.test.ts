@@ -141,3 +141,35 @@ test("config", () => {
 	expect(readConfig(dir, (line) => logged.push(line))).toEqual({});
 	expect(logged[0]).toMatch(/not JSON and was ignored/);
 });
+
+test("killed while a background command runs: the next process reports it once, as cut off, and does not run it again", async () => {
+	// The command leaves a mark each time it really starts, then sleeps long enough to be killed in.
+	// The mark is outside the host's data directory: a command that names rho's own data is refused by the guard.
+	const outside = mkdtempSync(join(tmpdir(), "rho-core-marks-"));
+	dirs.push(outside);
+	const mark = join(outside, "marks.txt");
+	const dir = scratch([{ tool: "background", args: { action: "start", command: `echo ran >>${mark};sleep 20` } }, { text: "Started it." }, { text: "I see it was cut off." }]);
+	// The turn ends at once and the job goes on in the background, so the host is told to stay up to be killed.
+	const first = start(dir, ["req-bg-1", "Run the long job."], { STAY_UP: "1" });
+	await first.until("submitted");
+	const marks = () => (existsSync(mark) ? readFileSync(mark, "utf8").trim().split("\n") : []);
+	for (let waited = 0; marks().length === 0 && waited < 15_000; waited += 50) await Bun.sleep(50);
+	expect(marks()).toEqual(["ran"]); // the command really started
+	await first.kill();
+	// Reopened: the job's task finds it had started. It reports that it was cut off and does not run the command again.
+	// The host waits for a report before it looks for idle, since a job's report starts a run of its own.
+	const second = start(dir, undefined, { WAIT_FOR_KIND: "rho.notice" });
+	const idle = await second.until("idle", 40_000);
+	const reports = idle.entries.filter((entry: any) => entry.kind === "rho.notice");
+	expect(reports.length).toBe(1);
+	// The host shows the first 120 characters of an entry: enough for how it ended.
+	expect(reports[0].text).toContain("` was cut off: rho");
+	expect(idle.entries.at(-1).text).toBe("I see it was cut off.");
+	expect(await second.exited).toBe(0);
+	expect(marks()).toEqual(["ran"]); // once: not run again, and the killed one did not finish
+	// A third start has nothing more to say.
+	const third = await start(dir).until("idle");
+	expect(third.entries.filter((entry: any) => entry.kind === "rho.notice").length).toBe(1);
+	expect(lines(dir, "model.log").length).toBe(3);
+	expect(marks()).toEqual(["ran"]);
+}, 90_000);

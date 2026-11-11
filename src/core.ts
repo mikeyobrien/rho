@@ -15,7 +15,8 @@ import { openDecider, readDecider } from "./decider.ts";
 import { textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { describeRelease } from "./gate.ts";
-import { guard, RELEASE, type Explain } from "./tools/guard.ts";
+import { backgroundTool } from "./tools/background.ts";
+import { commandCheck, guard, RELEASE, type Explain } from "./tools/guard.ts";
 import { settingsTool } from "./tools/settings.ts";
 import { excludeFromSearch, SearchTools } from "./tools/search.ts";
 import { tidy } from "./tools/tidy.ts";
@@ -41,6 +42,8 @@ export interface RhoConfig {
 	decider?: unknown;
 	/** Notifications when rho needs a yes, a run fails or a report arrives. `false` turns them off. */
 	notifications?: boolean;
+	/** The `background` tool: a shell command run outside the agent's turn. `false` leaves it out. */
+	background?: boolean;
 	/** Check-ins (reminders rho runs unattended). `false` turns them off. */
 	checkins?: boolean | { maxTurns?: number };
 	/** Most tool rounds one run takes before it stops and says so. Default: 200. */
@@ -198,6 +201,9 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	const now = options.clock?.now ?? Date.now;
 	const reminders = config.checkins === false ? undefined : checkinFeature({ now, log, noticeKind: NOTICE, maxTurns: typeof config.checkins === "object" ? config.checkins.maxTurns : undefined });
 	if (reminders) registry.install(tidy(reminders.extension));
+	// A command that runs outside the agent's turn, judged by the guard as `bash` is. `false` in the config leaves it out.
+	let endTask: (task: never, ctx: typeof context) => Promise<unknown> = async () => undefined;
+	if (config.background !== false) registry.install(tidy(backgroundTool({ check: (args, api, ctx) => commandCheck(options.dir)(args, api, ctx), noticeKind: NOTICE, stop: (task, ctx) => endTask(task as never, ctx), now, log })));
 	// The person's standing instructions live beside rho's data, where the agent cannot rewrite them.
 	registry.install(projectExtension(home, { personal: join(options.dir, "AGENTS.md"), ...options.context }));
 	const harness = await Harness.open(
@@ -270,6 +276,9 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 			log(`models: ${now.provider}/${now.modelId} cannot be used; "${item.title || "the first conversation"}" now uses ${wanted.provider}/${wanted.modelId}.`);
 		}
 	}
+	endTask = async (task, ctx) => {
+		if ((await harness.abortTask(task, ctx)) !== "terminal") await harness.waitForTask(task, ctx);
+	};
 	await reminders?.attach(harness, root, context); // before scheduling starts, so one task holds the book
 	harness.resume();
 	return {

@@ -649,7 +649,7 @@ test("a running step shows how long it has run and its newest line", async () =>
 	expect(result()).toBe("running · 0:00 · waiting for the test");
 	// The time counts on its own while the daemon sends nothing new.
 	now += 32_000;
-	await until("the clock to move", () => result() === "running · 0:32 · waiting for the test", 5_000);
+	await until("the clock to move", () => result() === "running · 0:32 · waiting for the test", 15_000); // a one-second timer, on a phone that the suite itself loads
 	gate.release();
 	await until("the answer", () => page.messages().at(-1) === "msg assistant|Finished." && idle(page));
 	expect(result()).toBeUndefined();

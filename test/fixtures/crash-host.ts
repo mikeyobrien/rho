@@ -44,7 +44,17 @@ if (requestId && text) {
 	const submission = await core.root.submit({ type: "input", content: text, requestId }, context);
 	say({ event: "submitted", id: String(submission.id) });
 }
+// A job left by the process before this one reports by itself, a moment after open: wait for that
+// entry before looking for idle, or "idle" is seen before the report's own run has begun.
+const awaited = process.env.WAIT_FOR_KIND;
+for (let waited = 0; awaited && waited < 20_000; waited += 50) {
+	if ((await core.root.entries({ order: "descending" }, 40, undefined, context)).items.some((entry) => entry.kind === awaited)) break;
+	await Bun.sleep(50);
+}
 await core.harness.waitForIdle(context);
+// A background job is not part of "idle" (that is its point). A test that means to kill this
+// process while one runs asks it to stay up after its turn.
+if (process.env.STAY_UP) await new Promise(() => {});
 const page = await core.root.entries({ order: "ascending" }, 200, undefined, context);
 const entries = page.items.map((entry) => {
 	const message = entry.model?.[0] as { role?: string; content?: unknown; stopReason?: string; isError?: boolean } | undefined;

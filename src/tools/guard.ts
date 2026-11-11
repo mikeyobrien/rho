@@ -95,6 +95,15 @@ export async function answerApproval(conversation: Conversation, id: string, all
 /** A command the rules let run or made wait, shown to something that only watches (the decider in shadow). Must not throw. */
 export type Watch = (seen: { conversation: string; call: string; command: string; cwd?: string; rule: "allow" | "ask" }) => void;
 
+type CommandCheck = (args: { command: string }, api: Parameters<ToolRegistration["execute"]>[1], context: Context) => Promise<void>;
+const commands = new Map<string, CommandCheck>();
+/** The guard's check of a shell command, for a tool other than `bash` that runs one. The guard for `dataDir` must have been made. */
+export function commandCheck(dataDir: string): CommandCheck {
+	const check = commands.get(dataDir);
+	if (!check) throw new Error("The guard for this data directory has not been made.");
+	return check;
+}
+
 /** The `guard` extension: wraps the tools that touch files or run commands. */
 /** Says what a waiting command would do, for its card. May answer nothing. */
 export type Explain = (ask: { what: string; command: string; cwd?: string }) => Promise<string[] | undefined>;
@@ -113,9 +122,13 @@ export function guard(dataDir: string, persons: (conversation: string) => Promis
 	};
 	const paths = <T extends ToolRegistration<any, any>>(tool: T) =>
 		wrapTool(tool, (inner) => ({ ...inner, execute: async (args: any, api: any, context: Context) => (await checkPath(args.path, api, context), inner.execute(args, api, context)) }) as T);
-	const bash = wrapTool(createBashTool(), (inner) => ({
-		...inner,
-		execute: async (args, api, context) => {
+	/**
+	 * The guard's whole judgement of one shell command, for any tool that runs one (`bash`, and
+	 * `background`). Returns when the command may run; throws, in words for the model, when it is
+	 * refused or waits for the person's yes. `tool` names who asks, for the card and the logs.
+	 */
+	const checkCommand = async (args: { command: string }, api: Parameters<ToolRegistration["execute"]>[1], context: Context): Promise<void> => {
+		{
 			// A command run from inside rho's data needs no path to reach it.
 			const cwd = await api.env?.absolutePath(".", context);
 			if (cwd?.ok && isProtected(cwd.value)) throw new Error(REFUSED);
@@ -150,9 +163,10 @@ export function guard(dataDir: string, persons: (conversation: string) => Promis
 				if (outcome === "asked") recordAnswer(dataDir, { at: api.now(), event: "asked", id: api.callId, conversation: String(api.conversationId), tool: "bash", what: verdict.what, command });
 				if (outcome !== "granted") throw new Error(`Not run: ${verdict.what} cannot be undone, so it waits for the person's yes. They are shown the command with Allow and Deny. Stop here and say what it will do; do not try it another way.`);
 			}
-			return inner.execute(args, api, context);
-		},
-	}));
+		}
+	};
+	const bash = wrapTool(createBashTool(), (inner) => ({ ...inner, execute: async (args, api, context) => (await checkCommand(args, api, context), inner.execute(args, api, context)) }));
+	commands.set(dataDir, checkCommand);
 	// The wraps differ in their tools' argument types; the extension holds them as plain tool wraps.
 	const wraps = [bash, paths(createReadTool()), paths(createWriteTool()), paths(createEditTool()), paths(grepTool), paths(findTool), paths(lsTool)] as unknown as NonNullable<Extension["wraps"]>;
 	return defineExtension({ name: "guard", wraps });

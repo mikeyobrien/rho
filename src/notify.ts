@@ -37,7 +37,7 @@ const oneLine = (text: string, most: number): string => {
 	const line = text.trim().replace(/\s+/g, " ");
 	return line.length > most ? `${line.slice(0, most - 1)}…` : line;
 };
-const TITLES: Record<string, string> = { "check-in": "rho check-in", gate: "rho release" };
+const TITLES: Record<string, string> = { "check-in": "rho check-in", gate: "rho release", background: "rho: a background command ended" };
 
 /** What in a conversation's state is worth the person's attention, as notes. Pure. */
 export function attention(state: StateView): { approvals: Note[]; failure?: Note; notices: Note[] } {
