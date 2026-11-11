@@ -46,7 +46,9 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
 
 1. Item 20, delegates, once the criteria are confirmed.
 2. Item 20a, a command run outside the agent's turn: built, not in the installed rho yet.
-3. Item 20b, delegates on a node, with a daemon per node. Its shape is confirmed, and it
+3. Item 20b, delegates on a node. Designed in detail on 2026-11-12 (three pieces, a build
+   order of seven steps, and one open question for the owner: daemon or no daemon). Its
+   first shape, with a daemon per node, was confirmed, and it
    now has a plan for pulling changes back (git over SSH, into a local branch, never onto
    the checked-out one). The re-attach question was answered from the engine's README.
 
@@ -1199,6 +1201,82 @@ is used only through Claude Code.
         that a push waits for the person.
     - Order: item 20 first. The daemon's job interface can be the one a local delegate
       already has, with the phone as the first place to run.
+    - **Design in detail, second pass (2026-11-12).** The owner asked for it once local
+      delegates were released ("we need to start working on the remote compute design in
+      more detail"). Nothing below is built. Read for it: pi-durable 1.5.1's types for the
+      two engine facts the first pass only took from the README, and three sections of
+      pi-dobo's `docs/compute.md` at `027da28e` (the incident, the `ExecutionEnv` seam,
+      durability and recovery: about 250 of 2,405 lines). Dobo is unproven by the owner's
+      word; it is used here as a record of what a build of this ran into, not as proof.
+      - Confirmed in the engine's types: `HarnessOptions.env` is called with
+        `{ conversationId, cwd, read }` at each use, so one function can give one
+        conversation the phone and another a node. `ToolRegistration.replay` is
+        `"safe" | "unsafe"`, default unsafe. None of the built-in tools declares it. A
+        tool's abort signal carries no reason: a stop and a shutdown look the same to it.
+      - **The contract a remote environment must meet** is `ExecutionEnv`: 23 file
+        operations, `exec`, and `cleanup`. Dobo's finding, taken as a starting point: every
+        file operation can be one short script over `exec` with exact bytes and exact error
+        codes, so a node needs only "run this command" and "give me this job's state". That
+        makes the node side small. `watch` is the known gap.
+      - **Three pieces**, each testable alone:
+        1. `RemoteEnv` on the phone: `ExecutionEnv` over one function, `run(script)`.
+           Tested against the same conformance cases as the local environment, with `run`
+           bound to a local shell, so no node is needed to prove it.
+        2. A transport: `run` over SSH with one kept connection (`ControlMaster`), so a
+           call costs a message and not a handshake. Measure first: round-trip time from
+           the phone on Wi-Fi and on mobile data decides whether `edit` (three calls) is
+           bearable. Not measured yet.
+        3. The node agent: what owns jobs on the node. See the open question below on
+           whether it needs to be a daemon at all.
+      - **A long command that survives.** A replay-safe `bash` for conversations bound to
+        a node, wrapping the built-in one. The job's key is the tool task's id, which is
+        the same on a rerun. Start: make the job's directory (that is the lock), run the
+        command detached in its own process group with its output, exit code and pid in
+        files there. A rerun finds the directory: exit code present, return it; pid alive,
+        follow the output from the byte offset reached; neither, say "the command stopped".
+        A dropped link is not a dropped command: ask for the job's state and go on.
+      - **Stop is not shutdown.** Because the abort carries no reason, an abort of the
+        tool leaves the remote command running. A person's Stop reaches it by another road:
+        the worker's task, on abort, kills the process groups of that job. So a release of
+        rho, or the phone sleeping, never kills a remote build. Local `bash` keeps today's
+        behaviour.
+      - **Where a worker runs** becomes part of the worker's record: `place` is already
+        there (`local`). `delegate start` gains an optional `place`; with none, the agent's
+        default applies (local unless the person says otherwise, as a preference like the
+        model ones). The cap per place (item 20, criterion 6) already exists in code; a
+        node's ceiling and live room come from the node.
+      - **What the person sees**: the worker's row in the Running card says the place and,
+        when the link is down, "waiting for the node" in place of the step. The report
+        card says the branch, the commits by title and the size of the change.
+      - **Open question for the owner, the largest one: daemon or no daemon.** The owner
+        chose a daemon on 2026-11-11 for three reasons: sandboxing, commands that outlive
+        the link, cleanup. Dobo's design gets the second with no daemon (a detached process
+        group and files), and the third by tying jobs to a workspace that is removed whole.
+        Sandboxing needs no daemon either: `bwrap` can wrap each command. What a daemon
+        still adds: it reports capacity without a shell round trip, it can clean up when
+        the phone never returns, and it is one place to hold a node's secrets. What it
+        costs is in the first pass (a second program, versions that drift, a listening
+        process that is a target). Proposed: build the three pieces with **no daemon**
+        first (a node needs only SSH, git, `bwrap`), and add a daemon when one of its three
+        remaining gains is actually missed. This would reverse the owner's choice, so it
+        waits for their word.
+      - **Order to build, each step useful by itself:**
+        1. Measure the SSH round trip from the phone to the owner's Linux machine, kept
+           connection, Wi-Fi and mobile data. An hour; decides if the rest is worth it.
+        2. `RemoteEnv` with the conformance tests, `run` bound to a local shell.
+        3. The replay-safe remote `bash`, tested by killing a real second process while a
+           command runs (the project's rule for kill behaviour), locally.
+        4. The transport, and one worker run on the Linux machine by hand: `place` on
+           `delegate`, a workspace made from a pushed commit, the result fetched to a local
+           branch. No sandbox yet; said so in the report.
+        5. `bwrap` around each command; the trial job that proves a worker cannot read the
+           account's home.
+        6. `rho host add`: the checks a node must pass, its ceiling, saved by the person.
+        7. Loss of a node: start again elsewhere from the saved ref.
+      - **Not designed yet:** secrets a job needs on a node; a project that is not a git
+        repository; macOS as a node; the phone itself as a node for another rho; fetching
+        a named file that is not in git; cost or time limits per job; what the pick check
+        (models) and a future place check have in common.
 21. A terminal client over the same API.
 21a. A decider: a second, small model that classifies each shell command. **Shadow only**,
     built 2026-11-11 (`src/decider.ts`, `test/decider.test.ts`, `rho decisions`). Off unless
