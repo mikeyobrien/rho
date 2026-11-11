@@ -13,22 +13,11 @@
 </head>
 <body>
 <header>
-	<div class="title">
+	<div id="title" class="title">
 		<h1>rho</h1>
 		<p id="status" role="status" aria-live="polite">Connecting</p>
 	</div>
-	<button id="menu-button" class="icon" aria-label="Menu" aria-haspopup="true" aria-expanded="false">⋯</button>
-	<div id="menu" class="menu" hidden>
-		<label for="model">Model</label>
-		<select id="model"></select>
-		<label for="thinking">Thinking</label>
-		<select id="thinking"></select>
-		<button id="new-chat">Clear context</button>
-		<button id="show-workers" hidden></button>
-		<p class="menu-label">Conversations</p>
-		<ul id="conversations"></ul>
-		<button id="new-conversation">New conversation</button>
-	</div>
+	<button id="menu-button" class="icon" aria-label="Details" aria-haspopup="dialog" aria-expanded="false">⋯</button>
 </header>
 
 <main id="thread" role="log" aria-label="Conversation" tabindex="0">
@@ -53,6 +42,14 @@
 
 <section id="notice" class="notice" hidden>
 	<p id="notice-text">Can't reach rho.</p>
+</section>
+
+<section id="details" class="details" role="dialog" aria-modal="true" aria-labelledby="details-title" hidden>
+	<div class="details-bar">
+		<button id="details-back" class="icon" aria-label="Back to the conversation">←</button>
+		<h2 id="details-title">Details</h2>
+	</div>
+	<div id="details-body" class="details-body"></div>
 </section>
 
 <footer>

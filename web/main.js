@@ -23,4 +23,4 @@ async function shrink(file) {
 	}
 }
 
-start({ document, storage: localStorage, location, history, fetch: (path, init) => fetch(path, init), touch: matchMedia("(pointer: coarse)").matches, shrink });
+start({ document, window, storage: localStorage, location, history, fetch: (path, init) => fetch(path, init), touch: matchMedia("(pointer: coarse)").matches, shrink });

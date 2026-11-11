@@ -12,6 +12,9 @@ export class El {
 	selected = false;
 	value = "";
 	className = "";
+	id = "";
+	/** The element that was last given the focus, in any document: a test reads it after an action. */
+	static focused: El | undefined;
 	scrollTop = 0;
 	scrollHeight = 0;
 	clientHeight = 0;
@@ -29,6 +32,9 @@ export class El {
 	async fire(type: string, event: object = {}) { for (const listener of this.listeners[type] ?? []) await listener({ preventDefault() {}, target: this, ...event }); }
 	requestSubmit() { return this.fire("submit"); }
 	click() { return this.fire("click"); }
+	focus() { El.focused = this; }
+	/** The element below this one that has this id, as a page that built it would find it. */
+	find(id: string): El | undefined { return this.all().find((node) => node.id === id); }
 	/** Every element below this one, in order. */
 	all(): El[] { return this.children.flatMap((child) => (child instanceof El ? [child, ...child.all()] : [])); }
 }
@@ -39,11 +45,11 @@ export class TextNode {
 export function fakeDocument() {
 	const byId = new Map<string, El>();
 	const listeners: Record<string, ((event: any) => unknown)[]> = {};
-	const hiddenAtStart = new Set(["earlier", "empty", "latest", "notice", "menu", "release", "workers", "worker-thread", "show-workers"]);
+	const hiddenAtStart = new Set(["earlier", "empty", "latest", "notice", "details", "release", "workers", "worker-thread"]);
 	return {
 		visibilityState: "visible",
 		getElementById(id: string) {
-			if (!byId.has(id)) byId.set(id, Object.assign(new El(id), { hidden: hiddenAtStart.has(id) }));
+			if (!byId.has(id)) byId.set(id, Object.assign(new El(id), { id, hidden: hiddenAtStart.has(id) }));
 			return byId.get(id)!;
 		},
 		createElement: (tag: string) => new El(tag),
@@ -51,5 +57,25 @@ export function fakeDocument() {
 		addEventListener: (type: string, listener: (event: any) => unknown) => void (listeners[type] ??= []).push(listener),
 		async fire(type: string, event: object = {}) { for (const listener of listeners[type] ?? []) await listener(event); },
 	};
+}
+/**
+ * A stand-in for the browser's history and the window that hears it move. `depth` is how many
+ * steps the page has pushed and not gone back over. As in a browser, going back is heard a
+ * moment later, not inside the call.
+ */
+export function fakeHistory(location: { hash: string }) {
+	const listeners: ((event: any) => unknown)[] = [];
+	const history = {
+		depth: 0,
+		replaceState: () => void (location.hash = ""),
+		pushState: () => void history.depth++,
+		go(by: number) {
+			if (by >= 0 || history.depth + by < 0) return;
+			history.depth += by;
+			queueMicrotask(() => listeners.forEach((listener) => listener({ state: null })));
+		},
+		back: () => history.go(-1),
+	};
+	return { history, window: { addEventListener: (type: string, listener: (event: any) => unknown) => void (type === "popstate" && listeners.push(listener)) } };
 }
 export const tags = (node: El | TextNode): string[] => [node.tag, ...(node instanceof El ? node.children.flatMap(tags) : [])];

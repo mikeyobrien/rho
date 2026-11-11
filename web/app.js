@@ -17,7 +17,7 @@ function toBase64(bytes) {
 }
 
 /**
- * Start the page. `env` is what it touches of the browser: `document`, `storage` (localStorage),
+ * Start the page. `env` is what it touches of the browser: `document`, `window`, `storage` (localStorage),
  * `location`, `history`, `fetch`, and optionally `touch`, `visible()` and `shrink(file)`, which
  * makes a large photo smaller before it is sent. Returns `stop()`.
  */
@@ -28,10 +28,9 @@ export function start(env) {
 	const el = {
 		status: $("status"), thread: $("thread"), entries: $("entries"), live: $("live"), empty: $("empty"), earlier: $("earlier"), latest: $("latest"),
 		notice: $("notice"), noticeText: $("notice-text"), queue: $("queue"), composer: $("composer"), input: $("input"), send: $("send"),
-		menuButton: $("menu-button"), menu: $("menu"), model: $("model"), thinking: $("thinking"), newChat: $("new-chat"),
-		conversations: $("conversations"), newConversation: $("new-conversation"),
+		menuButton: $("menu-button"), title: $("title"), details: $("details"), detailsBack: $("details-back"), detailsTitle: $("details-title"), detailsBody: $("details-body"),
 		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
-		showWorkers: $("show-workers"), workers: $("workers"), workerThread: $("worker-thread"), footer: $("composer"),
+		workers: $("workers"), workerThread: $("worker-thread"), footer: $("composer"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -490,7 +489,6 @@ export function start(env) {
 			}),
 		);
 
-		if (!el.menu.hidden) syncMenu();
 		renderStatus();
 		renderSend();
 		if (stick) el.thread.scrollTop = el.thread.scrollHeight;
@@ -520,11 +518,10 @@ export function start(env) {
 	// background command, and each worker that is working, waiting or asking. A row is there while
 	// its job is; when the job ends the row goes, and the report it leaves in the thread is the
 	// record. Nothing sits outside the thread for them. The header counts what is live, and the
-	// menu lists the workers that ended.
+	// details page lists every worker, ended ones too.
 	const liveWorkers = () => (state?.workers ?? []).filter((worker) => worker.endedAt === undefined);
 	const WORKER_WORDS = { waiting: "waiting for a slot", working: "working", asking: "needs your yes", done: "done", partial: "partial", failed: "failed", stopped: "stopped" };
 	let runningTimer;
-	let endedShown = false; // the ended workers, asked for from the menu; not kept
 	function workerLine(worker) {
 		const now = env.now?.() ?? Date.now();
 		const ended = worker.endedAt !== undefined;
@@ -570,32 +567,19 @@ export function start(env) {
 		if (release.startsWith("Releasing")) rows.push(runningRow("release", "Release", release.replace(/^Releasing /, "")));
 		const job = state?.background;
 		if (job) rows.push(runningRow("background", job.command, `running · ${clock(Math.max(0, now - job.startedAt))} · background command`, undefined, { path: "background/stop", body: {}, label: "Stop the background command" }));
-		const workers = state?.workers ?? [];
 		rows.push(...liveWorkers().map(workerRow));
-		// Asked for from the menu: the workers that ended in the last day, until the card is closed.
-		const ended = endedShown ? workers.filter((worker) => worker.endedAt !== undefined) : [];
-		rows.push(...ended.map(workerRow));
 		if (rows.length === 0) return undefined;
 		const card = make("section", { className: "running" });
 		card.setAttribute("aria-label", "Running now");
 		const head = make("div", { className: "running-head" });
-		head.append(make("span", { textContent: ended.length > 0 && rows.length === ended.length ? "Ended today" : "Running" }));
-		if (ended.length > 0) {
-			const close = make("button", { type: "button", className: "running-close", textContent: "Hide ended" });
-			close.addEventListener("click", () => {
-				endedShown = false;
-				render();
-			});
-			head.append(close);
-		}
+		head.append(make("span", { textContent: "Running" }));
 		const list = make("ul", {});
 		list.append(...rows);
 		card.append(head, list);
 		return card;
 	}
-	/** The parts that are not in the thread: the worker thread's banner, the menu entry, and the clock that redraws the card. */
+	/** The parts that are not in the thread: the worker thread's banner, and the clock that redraws the card. */
 	function renderWorkers() {
-		const workers = state?.workers ?? [];
 		const thread = state?.workerThread;
 		// In a worker's own thread: say whose it is, and how to go back. There is nothing to send there.
 		el.workers.hidden = !thread;
@@ -606,20 +590,11 @@ export function start(env) {
 			el.workerThread.replaceChildren(document.createTextNode(`Worker ${thread.id}: ${thread.title}. Its thread is read only.`), back);
 		}
 		el.footer.hidden = Boolean(thread);
-		const ended = workers.filter((worker) => worker.endedAt !== undefined).length;
-		el.showWorkers.hidden = ended === 0 || endedShown;
-		el.showWorkers.textContent = `Workers: ${ended} ended`;
 		// The times count on between the daemon's snapshots.
 		const counting = liveWorkers().some((worker) => worker.startedAt !== undefined) || Boolean(state?.background) || releaseText().startsWith("Releasing");
 		if (counting && !runningTimer) runningTimer = setInterval(render, 1000);
 		if (!counting && runningTimer) runningTimer = void clearInterval(runningTimer);
 	}
-	el.showWorkers.addEventListener("click", () => {
-		endedShown = true;
-		stick = true; // the card is at the tail: go to it
-		closeMenu();
-		render();
-	});
 
 	// --- a step that is running ----------------------------------------------------------------------
 	// The daemon does not say when a call began, so the time is counted from when this page first
@@ -674,7 +649,7 @@ export function start(env) {
 		el.noticeText.textContent = setup !== "" ? setup : connection === "unpaired"
 			? "This browser is not paired. On the machine rho runs on, run: rho open"
 			: outbox.length > 0 ? "Can't reach rho. Your message is kept and sends when it is back." : "Can't reach rho.";
-		if (el.newChat) el.newChat.textContent = "Clear context";
+		drawDetails(); // it repeats the status line, and counts what the state holds
 	}
 
 	function renderSend() {
@@ -829,82 +804,218 @@ export function start(env) {
 		drawn = undefined; // not "": an empty thread must still replace what was drawn
 		moreEarlier = false;
 		stick = true;
-		closeMenu();
+		info = { commit: info.commit, models: info.models }; // the rest was the other conversation's
+		closeDetails();
 		render();
 		void stream();
 	}
-	async function listConversations() {
-		try {
-			const { items } = await api("conversations");
-			el.conversations.replaceChildren(
-				...items.map((item) => {
-					const open = make("button", { type: "button", className: "conversation" });
-					const current = item.root ? conversation === "" : conversation === item.id;
-					if (current) open.setAttribute("aria-current", "true");
-					open.append(make("span", { className: "conversation-title", textContent: item.title || "New conversation" }), make("span", { className: "conversation-where", textContent: `${item.running ? "Working · " : ""}${item.cwd ?? ""}` }));
-					open.addEventListener("click", () => switchTo(item.id, item.root));
-					const row = make("li", {});
-					row.append(open);
-					return row;
-				}),
-			);
-		} catch (error) {
-			flash(error.message);
-		}
-	}
-	el.newConversation.addEventListener("click", async () => {
-		try {
-			const { id } = await api("conversations", state?.cwd ? { cwd: state.cwd } : {}); // it starts where this one works
-			switchTo(id, false);
-		} catch (error) {
-			flash(error.message);
-		}
-	});
-
-	// --- menu ------------------------------------------------------------------------------------
-	function syncMenu() {
-		for (const option of el.thinking.children) option.selected = option.value === state?.thinking;
-		for (const option of el.model.children) option.selected = option.value === state?.model;
-	}
-	function closeMenu() {
-		el.menu.hidden = true;
-		el.menuButton.setAttribute("aria-expanded", "false");
-	}
-	el.menuButton.addEventListener("click", async () => {
-		if (!el.menu.hidden) return closeMenu();
-		el.menu.hidden = false;
-		el.menuButton.setAttribute("aria-expanded", "true");
-		el.thinking.replaceChildren(...THINKING.map((level) => make("option", { value: level, textContent: level, selected: level === state?.thinking })));
-		void listConversations();
-		try {
-			const { items } = await api("models");
-			el.model.replaceChildren(...items.map((model) => make("option", { value: model.id, textContent: model.name, selected: model.id === state?.model })));
-		} catch (error) {
-			flash(error.message);
-		}
-	});
-	document.addEventListener("keydown", (event) => {
-		if (event.key === "Escape") closeMenu();
-	});
-	document.addEventListener("click", (event) => {
-		if (!el.menu.hidden && !el.menu.contains(event.target) && event.target !== el.menuButton) closeMenu();
-	});
-	const choose = (field) => async () => {
-		try {
-			await api("model", { [field]: el[field].value });
-		} catch (error) {
-			flash(error.message);
-		}
+	// --- details ---------------------------------------------------------------------------------
+	// One page over the thread, as a chat app's info screen: a header block, then rows; a row opens
+	// a list, and back returns. The thread under it is not touched, so its place is kept. Each
+	// level is a step of the browser's history, so the back gesture closes a level and does not
+	// leave the page. Which level is open is kept only in this page: a reload shows the thread.
+	const pops = Boolean(env.window && history.pushState && history.go);
+	let trail = []; // the open levels, innermost last; none when the page is closed
+	let skipPops = 0; // history steps this page took back itself: their events are not the person's
+	let info = {}; // what the page asked the daemon for when it opened: the commit, the lists
+	let detailsKey; // what is drawn, so a snapshot that changes none of it moves nothing under a finger
+	let optionsFor; // the model list the picker was last filled from
+	const picker = (id, label) => {
+		const select = make("select", { id });
+		select.setAttribute("aria-label", label);
+		select.addEventListener("change", async () => {
+			try {
+				await api("model", { [id]: select.value });
+			} catch (error) {
+				flash(error.message);
+			}
+		});
+		return select;
 	};
-	el.model.addEventListener("change", choose("model"));
-	el.thinking.addEventListener("change", choose("thinking"));
-	el.newChat.addEventListener("click", async () => {
-		closeMenu();
-		try {
-			await api("new", {});
-		} catch (error) {
-			flash(error.message);
+	const modelSelect = picker("model", "Model");
+	const thinkingSelect = picker("thinking", "Thinking");
+	thinkingSelect.replaceChildren(...THINKING.map((level) => make("option", { value: level, textContent: level })));
+	function syncPickers() {
+		if (info.models && info.models !== optionsFor) {
+			optionsFor = info.models;
+			modelSelect.replaceChildren(...info.models.map((model) => make("option", { value: model.id, textContent: model.name })));
 		}
+		for (const option of thinkingSelect.children) option.selected = option.value === state?.thinking;
+		for (const option of modelSelect.children) option.selected = option.value === state?.model;
+		modelSelect.disabled = thinkingSelect.disabled = Boolean(state?.workerThread);
+	}
+	const quiet = (text) => make("p", { className: "quiet-line", textContent: text });
+	const heading = (text) => make("h3", { className: "section-label", textContent: text });
+	const rows = (items) => {
+		const list = make("ul", { className: "rows" });
+		list.append(...items);
+		return list;
+	};
+	/** A row that does something: a button with a title, a quiet second line, a value at the right, and beside it an action of its own. */
+	function row({ title, sub = "", value = "", go, label, current = false, chevron = true, action }) {
+		const item = make("li", { className: "row-line" });
+		const main = make("span", { className: "row-main" });
+		main.append(make("span", { className: "row-title", textContent: title }), ...(sub === "" ? [] : [make("span", { className: "row-sub", textContent: sub })]));
+		const mark = make("span", { className: "row-chevron", textContent: "›" });
+		mark.setAttribute("aria-hidden", "true");
+		const parts = [main, ...(value === "" ? [] : [make("span", { className: "row-value", textContent: String(value) })]), ...(chevron && go ? [mark] : [])];
+		const body = make(go ? "button" : "div", { className: "row", ...(go ? { type: "button" } : {}) });
+		body.append(...parts);
+		if (go) body.addEventListener("click", go);
+		if (label) body.setAttribute("aria-label", label);
+		if (current) body.setAttribute("aria-current", "true");
+		item.append(body, ...(action ? [action] : []));
+		return item;
+	}
+	/** A row of words to read, whole: it wraps and opens nothing. */
+	const textRow = (text) => {
+		const item = make("li", { className: "row-line" });
+		item.append(make("div", { className: "row-text", textContent: text }));
+		return item;
+	};
+	const shortModel = () => (state?.model ? state.model.slice(state.model.indexOf("/") + 1) : "");
+
+	// The sections, in the order of the page. `value` is what the row shows at its right: a count, or a word.
+	const SECTIONS = [
+		{ id: "settings", title: "Settings", sub: "Model, thinking, context", value: () => shortModel(), data: () => [state?.cwd, Boolean(state?.workerThread)], draw: drawSettings },
+		{ id: "conversations", title: "Conversations", sub: "Open another, or start one", value: () => info.conversations?.length ?? "", data: () => [conversation, info.conversations], draw: drawConversations },
+	];
+	function drawMain() {
+		const head = make("div", { className: "details-head" });
+		const thread = state?.workerThread;
+		head.append(
+			make("p", { className: "details-name", textContent: "rho" }),
+			make("p", { className: "details-status", textContent: el.status.textContent }),
+			...(thread ? [make("p", { className: "details-line", textContent: `Worker ${thread.id}: ${thread.title}. Its thread is read only.` })] : []),
+			...(info.commit ? [make("p", { className: "details-line details-commit", textContent: `Commit ${info.commit.slice(0, 7)}` })] : []),
+			...(state?.cwd ? [make("p", { className: "details-line details-cwd", textContent: state.cwd })] : []),
+		);
+		return [head, rows(SECTIONS.map((section) => row({ title: section.title, sub: section.sub, value: section.value(), go: () => showView(section.id) })))];
+	}
+	function drawSettings() {
+		const fields = make("div", { className: "fields" });
+		const clear = make("button", { type: "button", id: "new-chat", textContent: "Clear context", disabled: Boolean(state?.workerThread) });
+		clear.addEventListener("click", async () => {
+			closeDetails();
+			try {
+				await api("new", {});
+			} catch (error) {
+				flash(error.message);
+			}
+		});
+		fields.append(
+			make("label", { htmlFor: "model", textContent: "Model" }), modelSelect,
+			make("label", { htmlFor: "thinking", textContent: "Thinking" }), thinkingSelect,
+			heading("Working directory"), make("p", { className: "field-value", id: "cwd", textContent: state?.cwd ?? "Not set" }),
+			quiet("This conversation's tools work here. A new conversation starts in the same place."),
+			clear,
+			quiet("Clear context starts over in this conversation. The messages stay in the thread, above a line."),
+		);
+		return [fields];
+	}
+	function drawConversations() {
+		const items = (info.conversations ?? []).map((item) =>
+			row({
+				title: item.title || "New conversation",
+				sub: `${item.running ? "Working · " : ""}${item.cwd ?? ""}`,
+				current: item.root ? conversation === "" : conversation === item.id,
+				chevron: false,
+				go: () => switchTo(item.id, item.root),
+			}),
+		);
+		const fresh = make("button", { type: "button", id: "new-conversation", textContent: "New conversation" });
+		fresh.addEventListener("click", async () => {
+			try {
+				const { id } = await api("conversations", state?.cwd ? { cwd: state.cwd } : {}); // it starts where this one works
+				switchTo(id, false);
+			} catch (error) {
+				flash(error.message);
+			}
+		});
+		return [...(items.length > 0 ? [rows(items)] : [quiet(info.conversations ? "No conversations." : "Loading")]), fresh];
+	}
+	const viewOf = (id) => SECTIONS.find((section) => section.id === id);
+	/** What the open level shows: when it is the same as what is drawn, nothing is rebuilt, so a picker that is open stays open. */
+	const mainData = () => [el.status.textContent, state?.cwd, state?.workerThread, info.commit, SECTIONS.map((section) => section.value())];
+	function drawDetails(moved = false) {
+		const view = trail.at(-1);
+		el.details.hidden = view === undefined;
+		el.menuButton.setAttribute("aria-expanded", view === undefined ? "false" : "true");
+		if (view === undefined) return void (detailsKey = undefined);
+		syncPickers();
+		const key = JSON.stringify([view, view === "main" ? mainData() : viewOf(view).data()]);
+		if (key !== detailsKey) {
+			detailsKey = key;
+			el.detailsTitle.textContent = view === "main" ? "Details" : viewOf(view).title;
+			el.detailsBack.setAttribute("aria-label", view === "main" ? "Back to the conversation" : "Back to details");
+			el.detailsBody.replaceChildren(...(view === "main" ? drawMain() : viewOf(view).draw()));
+		}
+		if (moved) el.detailsBack.focus?.();
+	}
+	/** Ask the daemon for what the state does not carry. Each answer is drawn as it comes; one that fails leaves its list as it was. */
+	const SOURCES = [["commit", "health", (data) => data.commit ?? ""], ["conversations", "conversations", (data) => data.items], ["models", "models", (data) => data.items]];
+	let loading = 0;
+	const busy = () => el.detailsBody.setAttribute("aria-busy", loading > 0 ? "true" : "false");
+	async function loadInfo() {
+		loading++;
+		busy();
+		await Promise.all(
+			SOURCES.map(async ([name, path, pick]) => {
+				try {
+					const value = pick(await api(path));
+					info = { ...info, [name]: value }; // read after the wait: the answers come in any order
+				} catch (error) {
+					flash(error.message);
+				}
+				drawDetails();
+			}),
+		);
+		loading--;
+		busy();
+	}
+	function showView(view) {
+		trail = [...trail, view];
+		if (pops) history.pushState({ details: view }, "");
+		drawDetails(true);
+	}
+	function openDetails() {
+		if (trail.length > 0) return;
+		showView("main");
+		void loadInfo();
+	}
+	/** One level back: to the list of sections, or to the thread. */
+	function popView() {
+		trail = trail.slice(0, -1);
+		drawDetails(true);
+		if (trail.length === 0) el.menuButton.focus?.();
+	}
+	/** The page's own back button and Escape: the same step as the browser's back. */
+	function stepBack() {
+		if (trail.length === 0) return;
+		if (pops) history.back();
+		else popView();
+	}
+	/** Close every level at once, for a row that leads back into the thread. */
+	function closeDetails() {
+		const levels = trail.length;
+		if (levels === 0) return;
+		trail = [];
+		drawDetails();
+		el.menuButton.focus?.();
+		if (pops) {
+			skipPops++;
+			history.go(-levels);
+		}
+	}
+	env.window?.addEventListener("popstate", () => {
+		if (skipPops > 0) return void skipPops--;
+		if (trail.length > 0) popView(); // after a reload nothing is open, and back is the browser's own
+	});
+	el.menuButton.addEventListener("click", openDetails);
+	el.title.addEventListener("click", openDetails);
+	el.detailsBack.addEventListener("click", stepBack);
+	document.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") stepBack();
 	});
 
 	// --- start -----------------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import { Approvals } from "../src/tools/guard.ts";
 import { serve, type Server } from "../src/http.ts";
 import { noticeCard } from "../src/view.ts";
 import { start } from "../web/app.js";
-import { El, fakeDocument } from "./fixtures/dom.ts";
+import { El, fakeDocument, fakeHistory } from "./fixtures/dom.ts";
 
 // The page's real script against a real daemon with a scripted model, on a stand-in DOM.
 // It proves the page's logic. It does not prove layout or anything a real browser adds.
@@ -28,7 +28,7 @@ const pages: { stop(): void }[] = [];
 
 async function boot(port = 0) {
 	core = await openCore({ dir, models, config: { model: `${faux.getModel().provider}/${faux.getModel().id}`, cwd: work }, extensions: [defineExtension({ name: "t", tools: [waitTool()] })], workerRetryMs: 40 });
-	server = await serve({ core, models, dir, port, workerPollMs: 100 });
+	server = await serve({ core, models, dir, port, workerPollMs: 100, commit: "0123abc456def7890123abc456def7890123abc4" });
 }
 function waitTool() {
 	let release!: () => void;
@@ -45,7 +45,7 @@ function waitTool() {
 beforeEach(async () => {
 	dir = mkdtempSync(join(tmpdir(), "rho-page-test-"));
 	work = mkdtempSync(join(tmpdir(), "rho-page-work-"));
-	faux = fauxProvider();
+	faux = fauxProvider({ models: [{ id: "faux-1" }, { id: "faux-2" }] });
 	models = createModels();
 	models.setProvider(faux.provider);
 	down = false;
@@ -60,16 +60,17 @@ afterEach(async () => {
 	rmSync(work, { recursive: true, force: true });
 });
 
-interface Page { $(id: string): El; stored: Map<string, string>; location: { hash: string; pathname: string; search: string }; document: ReturnType<typeof fakeDocument>; messages(): string[]; type(words: string): Promise<void>; send(words: string): Promise<void> }
+interface Page { $(id: string): El; stored: Map<string, string>; location: { hash: string; pathname: string; search: string }; document: ReturnType<typeof fakeDocument>; history: ReturnType<typeof fakeHistory>["history"]; messages(): string[]; type(words: string): Promise<void>; send(words: string): Promise<void> }
 async function open(options: { pair?: boolean; stored?: Map<string, string>; touch?: boolean; shrink?: (file: any) => Promise<any>; now?: () => number } = {}): Promise<Page> {
 	const document = fakeDocument();
 	const stored = options.stored ?? new Map<string, string>();
 	const location = { hash: options.pair === false ? "" : `#pair=${server.pairCode()}`, pathname: "/", search: "" };
+	const past = fakeHistory(location);
 	const page = start({
 		document,
 		storage: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => void stored.set(key, value) },
 		location,
-		history: { replaceState: () => void (location.hash = "") },
+		...past,
 		fetch: (path: string, init?: RequestInit) => (down ? Promise.reject(new TypeError("fetch failed")) : fetch(`http://127.0.0.1:${server.port}${path}`, init)),
 		touch: options.touch ?? true,
 		...(options.shrink ? { shrink: options.shrink } : {}),
@@ -79,7 +80,7 @@ async function open(options: { pair?: boolean; stored?: Map<string, string>; tou
 	await page.ready;
 	const $ = (id: string) => document.getElementById(id);
 	const type = async (words: string) => { $("input").value = words; await $("input").fire("input"); };
-	return { $, stored, location, document, type, messages: () => [...$("entries").children, ...$("live").children].filter((node): node is El => node instanceof El && !node.hidden).map((node) => `${node.className}|${node.textContent}`),
+	return { $, stored, location, document, history: past.history, type, messages: () => [...$("entries").children, ...$("live").children].filter((node): node is El => node instanceof El && !node.hidden).map((node) => `${node.className}|${node.textContent}`),
 		send: async (words) => { await type(words); await $("composer").requestSubmit(); } };
 }
 async function until(what: string, check: () => unknown, ms = 8_000): Promise<void> {
@@ -90,6 +91,28 @@ async function until(what: string, check: () => unknown, ms = 8_000): Promise<vo
 	}
 }
 const idle = (page: Page) => page.$("status").textContent.includes("/");
+
+// --- the details page ---------------------------------------------------------------------------
+/** Every element below `node` with exactly this class. */
+const inside = (node: El, name: string) => node.all().filter((child) => child.className === name);
+/** The rows of the open level, each as "title | second line | value". */
+const detailRows = (page: Page) => inside(page.$("details-body"), "row").map((row) => ["row-title", "row-sub", "row-value"].map((name) => inside(row, name)[0]?.textContent ?? "").join(" | "));
+/** Until what the page asked the daemon for when it opened has been drawn. */
+const loaded = (page: Page) => until("the details to load", () => page.$("details-body").attrs["aria-busy"] === "false");
+/** Leave every level of the details page. */
+async function leave(page: Page) {
+	while (!page.$("details").hidden) {
+		const depth = page.history.depth;
+		await page.$("details-back").click();
+		await until("one level back", () => page.history.depth < depth);
+	}
+}
+/** Open the details page afresh and go into one of its sections. */
+async function section(page: Page, title: string) {
+	await leave(page);
+	await page.$("menu-button").click();
+	await inside(page.$("details-body"), "row").find((row) => inside(row, "row-title")[0]!.textContent === title)!.click();
+}
 
 test("a browser with no pairing code is refused and told what to run", async () => {
 	const page = await open({ pair: false });
@@ -275,28 +298,107 @@ test("a message kept across a daemon restart and a page reload is still sent onc
 	expect(second.messages()).toEqual(["msg user|survive this", "msg assistant|Kept and answered."]);
 }, 25_000);
 
-test("the menu lists models and thinking levels and changes them; new chat puts a divider", async () => {
+test("the details page opens over the thread from ⋯ and from the title, and closes by its button, Escape and the back gesture", async () => {
+	const page = await open();
+	await until("live", () => idle(page));
+	// The reader is part-way up the thread: that place is theirs, and the page must not move it.
+	Object.assign(page.$("thread"), { scrollHeight: 1000, clientHeight: 300, scrollTop: 120 });
+	await page.$("thread").fire("scroll");
+	expect([page.$("details").hidden, page.$("menu-button").attrs["aria-expanded"]]).toEqual([true, "false"]);
+	await page.$("menu-button").click();
+	expect([page.$("details").hidden, page.$("menu-button").attrs["aria-expanded"], page.history.depth]).toEqual([false, "true", 1]);
+	expect(El.focused).toBe(page.$("details-back"));
+	expect([page.$("details-title").textContent, page.$("details-back").attrs["aria-label"]]).toEqual(["Details", "Back to the conversation"]);
+	await loaded(page);
+	// The header block: the name, the status line, the commit this rho runs, where the conversation works.
+	const head = (name: string) => inside(page.$("details-body"), name)[0]?.textContent;
+	expect([head("details-name"), head("details-status"), head("details-line details-commit"), head("details-line details-cwd")]).toEqual(["rho", page.$("status").textContent, "Commit 0123abc", work]);
+	expect(detailRows(page).slice(0, 2)).toEqual(["Settings | Model, thinking, context | faux-1", "Conversations | Open another, or start one | 1"]);
+	expect(inside(page.$("details-body"), "row").every((row) => row.tag === "button")).toBe(true);
+	// Its own back button is one step of the browser's history.
+	await page.$("details-back").click();
+	await until("closed", () => page.$("details").hidden);
+	expect([page.history.depth, El.focused === page.$("menu-button"), page.$("thread").scrollTop]).toEqual([0, true, 120]);
+	// The title block opens it too; Escape closes it.
+	await page.$("title").click();
+	expect(page.$("details").hidden).toBe(false);
+	await page.document.fire("keydown", { key: "Escape" });
+	await until("closed by Escape", () => page.$("details").hidden);
+	// A section is a second level: the back gesture leaves it first, then the page, and never the app.
+	await section(page, "Settings");
+	expect([page.$("details-title").textContent, page.$("details-back").attrs["aria-label"], page.history.depth]).toEqual(["Settings", "Back to details", 2]);
+	expect(El.focused).toBe(page.$("details-back"));
+	page.history.back();
+	await until("the sections again", () => page.$("details-title").textContent === "Details");
+	expect(page.$("details").hidden).toBe(false);
+	page.history.back();
+	await until("closed by back", () => page.$("details").hidden);
+	expect([page.history.depth, page.$("thread").scrollTop]).toEqual([0, 120]);
+	// A back with nothing open is the browser's own: the page does nothing with it.
+	page.history.depth = 1;
+	page.history.back();
+	await Bun.sleep(20);
+	expect(page.$("details").hidden).toBe(true);
+});
+
+test("settings on the details page list models and thinking levels and change them; clear context puts a divider", async () => {
 	faux.setResponses([fauxAssistantMessage("first"), fauxAssistantMessage("second")]);
 	const page = await open();
 	await until("live", () => idle(page));
-	await page.$("menu-button").fire("click");
-	await until("the model list", () => page.$("model").children.length > 0);
-	expect(page.$("menu").hidden).toBe(false);
-	expect((page.$("thinking").children as El[]).map((node) => node.value)).toEqual(["low", "medium", "high", "xhigh", "max"]);
-	expect((page.$("thinking").children as El[]).find((node) => node.selected)?.value).toBe("medium");
-	page.$("thinking").value = "high";
-	await page.$("thinking").fire("change");
+	await section(page, "Settings");
+	const field = (id: string) => page.$("details-body").find(id)!;
+	await until("the model list", () => field("model").children.length === 2);
+	expect((field("model").children as El[]).map((node) => [node.value, node.selected])).toEqual([["faux/faux-1", true], ["faux/faux-2", false]]);
+	expect((field("thinking").children as El[]).map((node) => node.value)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	expect((field("thinking").children as El[]).find((node) => node.selected)?.value).toBe("medium");
+	expect(field("cwd").textContent).toBe(work);
+	field("thinking").value = "high";
+	await field("thinking").fire("change");
+	await until("the new level", () => (field("thinking").children as El[]).find((node) => node.selected)?.value === "high");
+	field("model").value = "faux/faux-2";
+	await field("model").fire("change");
+	await until("the new model", () => page.$("status").textContent === "faux/faux-2" && (field("model").children as El[]).find((node) => node.selected)?.value === "faux/faux-2");
+	expect((await core.root.agent(context)).model).toMatchObject({ modelId: "faux-2" });
+	// A reload draws the same from the daemon's state: which section was open is not kept.
+	const again = await open({ pair: false, stored: page.stored });
+	await until("the second page live", () => idle(again));
+	expect(again.$("details").hidden).toBe(true);
+	await section(again, "Settings");
+	await until("its pickers", () => (again.$("details-body").find("model")!.children as El[]).find((node) => node.selected)?.value === "faux/faux-2");
+	expect((again.$("details-body").find("thinking")!.children as El[]).find((node) => node.selected)?.value).toBe("high");
 	await page.document.fire("keydown", { key: "Escape" });
-	expect(page.$("menu").hidden).toBe(true);
-	await page.$("menu-button").fire("click");
-	await until("the new level", () => (page.$("thinking").children as El[]).find((node) => node.selected)?.value === "high");
+	await page.document.fire("keydown", { key: "Escape" });
+	await until("closed", () => page.$("details").hidden);
 	await page.send("one");
 	await until("first answer", () => page.messages().includes("msg assistant|first") && idle(page));
-	await page.$("new-chat").fire("click");
+	await section(page, "Settings");
+	await field("new-chat").click();
+	await until("the page closed", () => page.$("details").hidden && page.history.depth === 0);
 	await page.send("two");
 	await until("second answer", () => page.messages().includes("msg assistant|second") && idle(page));
 	expect(page.messages().map((line) => line.split("|")[0])).toEqual(["msg user", "msg assistant", "divider", "msg user", "msg assistant"]);
 	expect(page.messages()[2]).toBe("divider|Context cleared");
+});
+
+test("conversations on the details page: the open one is marked, a new one opens empty, and a row opens its thread", async () => {
+	faux.setResponses([fauxAssistantMessage("first answer")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("About the build");
+	await until("the answer", () => page.messages().includes("msg assistant|first answer") && idle(page));
+	await section(page, "Conversations");
+	await loaded(page);
+	const list = () => inside(page.$("details-body"), "row").map((row) => `${row.attrs["aria-current"] ? "*" : " "}${inside(row, "row-title")[0]!.textContent} | ${inside(row, "row-sub")[0]?.textContent ?? ""}`);
+	expect(list()).toEqual([`*About the build | ${work}`]);
+	await page.$("details-body").find("new-conversation")!.click();
+	await until("the empty thread, with the page closed", () => page.$("details").hidden && page.messages().length === 0 && idle(page) && !page.$("empty").hidden);
+	expect(page.history.depth).toBe(0);
+	await section(page, "Conversations");
+	await loaded(page);
+	expect(list()).toEqual([` About the build | ${work}`, `*New conversation | ${work}`]);
+	expect(detailRows(page).length).toBe(2);
+	await inside(page.$("details-body"), "row")[0]!.click();
+	await until("the first thread", () => page.$("details").hidden && page.messages().includes("msg assistant|first answer") && idle(page));
 });
 
 test("on a keyboard Enter sends and Shift+Enter does not; on touch Enter is a new line", async () => {
@@ -726,15 +828,6 @@ test("a worker is a row of the Running card at the tail of the thread; its reque
 	// Its job over, the row is gone, and with nothing else running so is the card.
 	await until("the card to go", () => runningCard(page) === undefined);
 	expect(page.$("status").textContent).not.toContain("running");
-	// The menu brings the ended ones back, in the same card, without a Stop; and puts them away again.
-	expect([page.$("show-workers").hidden, page.$("show-workers").textContent]).toEqual([false, "Workers: 1 ended"]);
-	await page.$("show-workers").click();
-	expect(part(runningCard(page)!, "running-head")!.textContent).toStartWith("Ended today");
-	expect(runningRows(page)[0]).toMatch(/^Publish the branch \| done · 0:\d\d · local · .+$/);
-	expect(part(runningRowEls(page)[0]!, "running-stop")).toBeUndefined();
-	expect(page.$("show-workers").hidden).toBe(true);
-	await part(runningCard(page)!, "running-close")!.click();
-	expect(runningCard(page)).toBeUndefined();
 }, 60_000);
 
 test("a worker's No is told to it; its thread opens from its row, to read; Stop on the row ends it and leaves no report", async () => {
@@ -812,21 +905,13 @@ test("five workers: the card holds only the ones still at it; each that ended le
 		"report failed: failed / Job fails / The remote does not exist. / worker w3",
 	]);
 	expect(page.$("status").textContent).toEndWith(" · 2 running");
-	// The ended ones on request, in the same card after the live ones; then away again.
-	expect(page.$("show-workers").textContent).toBe("Workers: 3 ended");
-	await page.$("show-workers").click();
-	expect(runningRows(page).length).toBe(5);
-	expect(part(runningCard(page)!, "running-head")!.textContent).toStartWith("Running");
-	expect(runningRows(page).slice(0, 2).every((row) => row.includes("| working"))).toBe(true);
-	await part(runningCard(page)!, "running-close")!.click();
-	expect(runningRows(page).length).toBe(2);
+	expect(part(runningCard(page)!, "running-head")!.textContent).toBe("Running"); // the ended ones are on the details page
 	// A second browser is shown the same, from the daemon's state alone.
 	const again = await open({ pair: false, stored: page.stored });
 	await until("the second page's rows", () => runningRows(again).length === 2 && reports(again).length === 3);
-	// The last two end: no card on either page, five reports, and the menu offers all five.
+	// The last two end: no card on either page, and five reports.
 	gate.release();
 	await until("the cards to go", () => runningCard(page) === undefined && runningCard(again) === undefined && reports(page).length === 5, 25_000);
-	expect(again.$("show-workers").textContent).toBe("Workers: 5 ended");
 }, 90_000);
 
 test("a background command is a row too: its command, its time, a Stop; and how it ended is a report card", async () => {

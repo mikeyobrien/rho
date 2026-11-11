@@ -3,7 +3,10 @@ export interface PageEnv {
 	document: any;
 	storage: { getItem(key: string): string | null; setItem(key: string, value: string): void };
 	location: { hash: string; pathname: string; search: string };
-	history: { replaceState(state: unknown, title: string, url?: string): void };
+	/** `pushState`, `back` and `go` let the back gesture close the details page; without them its own back button still does. */
+	history: { replaceState(state: unknown, title: string, url?: string): void; pushState?(state: unknown, title: string): void; back?(): void; go?(by: number): void };
+	/** Where `popstate` is heard. */
+	window?: { addEventListener(type: string, listener: (event: any) => unknown): void };
 	fetch(path: string, init?: RequestInit): Promise<Response>;
 	touch?: boolean;
 	visible?(): boolean;

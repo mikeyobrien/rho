@@ -336,7 +336,7 @@ test("a large photo is scaled by the processor, and one it cannot read is refuse
 	expect(await (await sendPhotos({ requestId: "req-scaled-2", images: [{ data: broken }] })).json()).toEqual({ error: "That photo could not be read as a picture." });
 	// A model that takes only words: said before the photo is in the thread.
 	expect((await call("/api/model", { model: "blind/words-only" })).status).toBe(200);
-	expect(await (await sendPhotos({ text: "look", requestId: "req-scaled-3", images: [{ data: PNG }] })).json()).toEqual({ error: "This conversation's model does not take photos. Choose another model in the menu." });
+	expect(await (await sendPhotos({ text: "look", requestId: "req-scaled-3", images: [{ data: PNG }] })).json()).toEqual({ error: "This conversation's model does not take photos. Choose another model in Details, under Settings." });
 	expect((await sendPhotos({ text: "words are fine", requestId: "req-scaled-4" })).status).toBe(200);
 });
 

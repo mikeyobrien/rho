@@ -310,7 +310,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 				// Said now, in words, rather than by a provider's error after the photo is in the thread.
 				const ref = (await conversation.agent(context)).model;
 				const model = ref && (await models.getAvailable()).find((known) => known.provider === ref.provider && known.id === ref.modelId);
-				if (model && !model.input.includes("image")) throw new Refusal(400, "This conversation's model does not take photos. Choose another model in the menu.");
+				if (model && !model.input.includes("image")) throw new Refusal(400, "This conversation's model does not take photos. Choose another model in Details, under Settings.");
 				try {
 					// Pictures first, then the words about them.
 					content = [...(await takePhotos(images, options.images)), ...(text.trim() === "" ? [] : [{ type: "text" as const, text }])];
@@ -442,7 +442,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			if (!photo) throw new Refusal(404, "No such photo.");
 			return { mimeType: photo.mimeType, data: photo.data };
 		},
-		"GET /api/health": async () => ({ ok: true, pid: process.pid, startedAt }),
+		"GET /api/health": async () => ({ ok: true, pid: process.pid, startedAt, ...(options.commit ? { commit: options.commit } : {}) }),
 	};
 
 	const startedAt = Date.now();

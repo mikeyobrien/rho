@@ -8,7 +8,7 @@ import { context, openCore, type Core } from "../src/core.ts";
 import { serve, type Server } from "../src/http.ts";
 import type { StateView } from "../src/view.ts";
 import { start } from "../web/app.js";
-import { El, fakeDocument } from "./fixtures/dom.ts";
+import { El, fakeDocument, fakeHistory } from "./fixtures/dom.ts";
 
 // Several conversations over HTTP and in the page: a real core and server, a scripted model
 // with two models to choose between.
@@ -151,11 +151,12 @@ async function open(options: { stored?: Map<string, string>; down?: () => boolea
 	const document = fakeDocument();
 	const stored = options.stored ?? new Map<string, string>();
 	const location = { hash: options.stored ? "" : `#pair=${server.pairCode()}`, pathname: "/", search: "" };
+	const past = fakeHistory(location);
 	const page = start({
 		document,
 		storage: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => void stored.set(key, value) },
 		location,
-		history: { replaceState: () => void (location.hash = "") },
+		...past,
 		fetch: (path: string, init?: RequestInit) => (options.down?.() ? Promise.reject(new TypeError("fetch failed")) : fetch(`http://127.0.0.1:${server.port}${path}`, init)),
 		touch: true,
 	});
@@ -166,14 +167,17 @@ async function open(options: { stored?: Map<string, string>; down?: () => boolea
 		$, stored, document,
 		messages: () => [...$("entries").children, ...$("live").children].filter((node): node is El => node instanceof El && !node.hidden).map((node) => `${node.className}|${node.textContent}`),
 		send: async (words) => { $("input").value = words; await $("input").fire("input"); await $("composer").requestSubmit(); },
-		/** Open the menu and return its conversation buttons. */
+		/** Open the details page afresh, go into Conversations, and return its rows once the daemon's list is drawn. */
 		rows: async () => {
-			if ($("menu").hidden) await $("menu-button").fire("click");
-			$("conversations").replaceChildren();
-			await $("menu-button").fire("click");
-			await $("menu-button").fire("click");
-			await until("the list", () => $("conversations").children.length > 0);
-			return ($("conversations").children as El[]).map((row) => row.children[0] as El);
+			while (!$("details").hidden) {
+				const depth = past.history.depth;
+				await $("details-back").click();
+				await until("one level back", () => past.history.depth < depth);
+			}
+			await $("menu-button").click();
+			await within($("details-body"), "row").find((row) => within(row, "row-title")[0]!.textContent === "Conversations")!.click();
+			await until("the list", () => $("details-body").attrs["aria-busy"] === "false");
+			return within($("details-body"), "row");
 		},
 	};
 }
@@ -185,7 +189,8 @@ async function until(what: string, check: () => unknown, ms = 8_000): Promise<vo
 	}
 }
 const idle = (page: Page) => page.$("status").textContent.includes("/");
-const titles = (rows: El[]) => rows.map((row) => `${row.attrs["aria-current"] ? "*" : " "}${(row.children[0] as El).textContent}`);
+const within = (node: El, name: string) => node.all().filter((child) => child.className === name);
+const titles = (rows: El[]) => rows.map((row) => `${row.attrs["aria-current"] ? "*" : " "}${within(row, "row-title")[0]!.textContent}`);
 
 test("in the page: a new conversation starts empty, each keeps its thread, and switching shows the other", async () => {
 	const workA = await setup();
@@ -195,15 +200,15 @@ test("in the page: a new conversation starts empty, each keeps its thread, and s
 	await page.send("About the build");
 	await until("the first answer", () => page.messages().includes("msg assistant|first answer") && idle(page));
 	expect(titles(await page.rows())).toEqual(["*About the build"]);
-	await page.$("new-conversation").fire("click");
+	await page.$("details-body").find("new-conversation")!.click();
 	await until("the empty thread", () => page.messages().length === 0 && idle(page) && !page.$("empty").hidden);
-	expect(page.$("menu").hidden).toBe(true);
+	expect(page.$("details").hidden).toBe(true);
 	await page.send("About the garden");
 	await until("the second answer", () => page.messages().includes("msg assistant|second answer") && idle(page));
 	expect(page.messages()).toEqual(["msg user|About the garden", "msg assistant|second answer"]);
 	const rows = await page.rows();
 	expect(titles(rows)).toEqual([" About the build", "*About the garden"]);
-	expect((rows[1]!.children[1] as El).textContent).toBe(workA); // it started where the first one works
+	expect(within(rows[1]!, "row-sub")[0]!.textContent).toBe(workA); // it started where the first one works
 	await rows[0]!.fire("click");
 	await until("the first thread", () => page.messages().includes("msg assistant|first answer") && idle(page));
 	expect(page.messages()).toEqual(["msg user|About the build", "msg assistant|first answer"]);
@@ -216,8 +221,8 @@ test("in the page: a reload opens the conversation that was open, and a kept mes
 	let down = false;
 	const page = await open({ down: () => down });
 	await until("live", () => idle(page));
-	await page.$("menu-button").fire("click");
-	await page.$("new-conversation").fire("click");
+	await page.rows();
+	await page.$("details-body").find("new-conversation")!.click();
 	await until("the new one", () => idle(page) && JSON.parse(page.stored.get("conversation") ?? '""') !== "");
 	await page.send("In the garden");
 	await until("its answer", () => page.messages().includes("msg assistant|garden answer") && idle(page));

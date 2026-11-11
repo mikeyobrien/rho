@@ -1534,6 +1534,10 @@ is used only through Claude Code.
 24. Memory page with review.
 25. Vault, Termux tools, channels (Telegram, email) with effect records.
 26. The phone agent becomes a host for this core.
+27. Details page: ⋯ and the title open a page over the thread, as a chat app's info screen.
+    Asked by the owner 2026-11-11. **Under way** 2026-11-11: the page, its header block,
+    Settings and Conversations are built and the dropdown menu is gone; the sections that
+    follow are added in the next commits, and this item is then written in full.
 
 ## Taken from dobo and mov-agent
 
