@@ -596,7 +596,74 @@ is used only through Claude Code.
       taken.
     - Not built: sharing a photo to rho from another app; a waiting message's photos cannot be
       taken back into the composer (Remove says so); photos in a check-in or a notice.
-20. Subagents: a task-owned child conversation with its own model.
+20. Delegates (was "subagents"): the agent hands a job to a worker in its own conversation
+    and the main thread is free at once. **Not built.** Asked for by the owner 2026-11-11
+    ("how do we get your work off the main thread"); they said yes to building it.
+    Acceptance criteria, as proposed to the owner that day. **They have not confirmed them
+    or the three choices below**; confirm before building.
+    1. `delegate` hands the worker its job and returns in under a second.
+    2. The worker runs in its own conversation. The main thread gets no tool cards or text
+       from it while it works.
+    3. When it ends, exactly one notice arrives in the main thread: done, partial or failed,
+       with what it did and what it checked. It is a `rho.notice`, so memory never takes it
+       as the person's words, and it notifies (item 17).
+    4. Killed mid-job, the next start finishes that same job and still sends one report.
+    5. A worker has a turn limit. A job that hits it reports that it stopped at its limit.
+    6. One worker at a time. A second `delegate` while one runs is refused in words: the
+       phone could not carry the test suite alone that day (load average 10 to 13).
+    7. The person can see that a worker runs and what its job is, and can stop it. A stopped
+       job reports nothing more.
+    8. A command that needs the person's yes shows its card in the main thread and notifies.
+       (A check-in is refused there today; this is the largest piece and may be split out.)
+    9. The worker has the same guard and working directory as the agent, and cannot delegate.
+    10. While a worker runs, the person can message the agent and it answers.
+    - Proof wanted: tests in a real core with a scripted model, one that kills a real second
+      process mid-job, and one live run on Haiku recorded here.
+    - Choices proposed, not confirmed: (A) the worker uses the conversation's model; (B) it
+      starts with only the brief the agent writes, nothing of the thread; (C) approvals as
+      in criterion 8.
+    - Out of scope: more than one worker, a model per job, a live view of the worker in the
+      page, remote hosts (item 20b).
+    - Where it starts: a check-in already is a task-owned conversation with a turn limit and
+      one report (`src/checkins.ts`).
+20a. Checks out of the agent's turn. **Not built.** The owner asked for it after item 20.
+    - Why: `bun run check` takes about a minute and runs at every commit (the hook) and
+      again in the release gate. The agent holds a turn open for each, and the person waits.
+    - Wanted: the check runs in the background and its result reaches the agent as a notice,
+      so a turn is not held. Not designed further. Open: whether this is a delegate with a
+      fixed job or its own task; how a commit made by the agent waits for it; never two
+      checks at once on the phone.
+    - It is also the proper answer to the timing tests that blocked three commits on
+      2026-11-11 (see item 21d); they were loosened in the meantime.
+20b. Delegates on a host the person owns. **Not built, not designed in detail.** Asked by the
+    owner 2026-11-11 ("cloud delegates, with self hosted onboardings"). The shape below was
+    proposed; **the owner has not said whether it is what they meant** (the other reading is
+    a hosted cloud: a VPS or Kubernetes).
+    - Shape: the model loop and the durable record stay in rho on the phone. Only a worker's
+      tools (`read`, `write`, `edit`, `bash`) run on the host, over SSH. Losing the host
+      loses no state: the job pauses and the command in flight is treated as interrupted.
+      No model key or Claude login goes to the host.
+    - It reverses a decision: on 2026-11-10 the owner decided the phone agent has no hard
+      dependency on other compute. So a host is optional: with none registered, a delegate
+      runs on the phone (item 20).
+    - Needs: (1) a remote tool environment: pi-durable's `HarnessOptions.env` chooses where a
+      conversation's tools run, and today it is always `NodeExecutionEnv` on the phone; what
+      an SSH one takes was not looked at; (2) a workspace per job on the host, on a branch,
+      with the work coming back as git refs rho fetches, not through a forge; (3) the guard
+      rethought: its rules protect rho's data on the phone, and on a host what the worker
+      can reach is a question of the user or container it runs as; (4) lifecycle: a probe
+      before use, one job per host, cleaning old workspaces, "waiting for host".
+    - Onboarding wanted: one command, `rho host add <name>`, that tests SSH, checks git and
+      the toolchain, makes the workspace directory, runs one trivial job and saves the host.
+      The host needs no rho install and no inbound port. The list of hosts is the person's
+      to edit, not one of the settings the agent may propose.
+    - Not chosen: a full rho on the host. It runs with the phone off, but needs model
+      credentials there, a second install to keep in step, and two stores.
+    - Reference, unproven by the owner's own word: pi-dobo's `docs/compute.md` on their Linux
+      machine (2,405 lines; only its first 45 lines and its headings were read).
+    - Seen 2026-11-11: that machine has git and the `claude` command, and `bun` is not on
+      its SSH path, so rho's own checks could not run there as it stands.
+    - Order: item 20 first; this is the same tool with another place to run.
 21. A terminal client over the same API.
 21a. A decider: a second, small model that classifies each shell command. **Shadow only**,
     built 2026-11-11 (`src/decider.ts`, `test/decider.test.ts`, `rho decisions`). Off unless
