@@ -48,8 +48,9 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
 
 1. Item 20, delegates, once the criteria are confirmed.
 2. Item 20a, checks out of the agent's turn.
-3. Item 20b, delegates on a node, with a daemon per node. Its shape is confirmed; the
-   first thing to find out is whether a tool can re-attach to a command after a restart.
+3. Item 20b, delegates on a node, with a daemon per node. Its shape is confirmed, and it
+   now has a plan for pulling changes back (git over SSH, into a local branch, never onto
+   the checked-out one). The re-attach question was answered from the engine's README.
 
 **Open, not ordered:**
 
@@ -871,10 +872,15 @@ is used only through Claude Code.
       `HarnessOptions.env` chooses where a conversation's tools run, and today it is always
       `NodeExecutionEnv` on the phone. The contract (`ExecutionEnv`, read 2026-11-11) is
       about 25 file operations and one `exec`; a remote one speaks to the daemon.
-      **Not checked: whether pi-durable lets a tool take up a command again after a
-      restart.** Today an interrupted `bash` is never run again and its output is lost. If
-      a tool cannot re-attach, criterion 1 needs another way, and that is the first thing
-      to find out.
+      Whether a tool can take up a command again after a restart was the first thing to
+      find out, and it was read on 2026-11-11 in pi-durable 1.5.1's README (not tried): a
+      tool declared `replay: "safe"` is run again when rho reopens, up to the restart
+      limit; one that is not gets an `interrupted` result. So a remote `bash` can be a
+      replay-safe tool whose `execute` asks the daemon for the job by an id made from the
+      tool call's own id: the first run starts the command, a rerun finds it running or
+      finished and collects it. The daemon must make "start job X" the same request twice
+      over. Today's local `bash` is not replay-safe, which is right for it: nothing owns
+      its command once rho dies.
     - Onboarding wanted: one command, `rho host add <name>`, that installs the daemon over
       SSH, starts it as a user service, reads the node's capacity, runs one trial job in a
       sandbox and saves the node. No inbound port is opened. The list of nodes is the
@@ -898,6 +904,44 @@ is used only through Claude Code.
       has to bring its own.
     - Reference, unproven by the owner's own word: pi-dobo's `docs/compute.md` on their Linux
       machine (2,405 lines; only its first 45 lines and its headings were read).
+    - **Pulling changes back from a node.** Asked by the owner 2026-11-11 ("how we pull
+      changes back from remotes need to be planned out"). A plan; nothing is built.
+      - The way in and out is git over the SSH connection rho already has. Seen that day:
+        `git ls-remote` from the phone to a repository on the owner's Linux machine
+        answered in 274 ms; both ends have git 2.56. No forge is involved, and a job's
+        work never needs to be pushed anywhere to come home.
+      - Out: when a job starts, the daemon makes the workspace from the phone's
+        repository at one named commit (rho pushes that commit to a bare repository the
+        daemon keeps per project on the node, so later jobs send only what is new). The
+        job's base commit is recorded with the job. Work that is not committed on the
+        phone is not sent; the brief says so, or the agent commits first.
+      - Back, while it runs: after each step that changed files, the daemon commits the
+        whole workspace to `refs/rho/jobs/<job>/wip` on the node (its own commits, not the
+        worker's; the worker's branch is untouched). Rho fetches that ref when it next
+        talks to the node. This is the safety copy, not the result.
+      - Back, at the end: the worker's own commits are on a branch named for the job.
+        Rho fetches it into the phone's repository as `rho/job-<n>`, a local branch,
+        never onto the branch the person has checked out. Fetching is automatic: it adds
+        commits and changes no file the person sees. The report says the branch, the
+        commits by title, and the diff's size against the base.
+      - Landing it is a separate step and the person's or the main agent's, like any
+        branch: look, merge or drop. If the phone's branch moved while the job ran, the
+        job's branch is simply behind; a merge or rebase is ordinary git on the phone.
+        A conflict is found there, never on the node.
+      - Files that are not in git (a build output, a log, a screenshot) do not come home
+        by this road. The report can quote a short one; a way to fetch a named file from
+        a finished job is wanted and not designed.
+      - When the workspace is removed: only after rho has fetched the job's branch and
+        the fetch was checked against the node's commit id. Until then the daemon keeps
+        it, up to its time limit; a job whose work was never fetched is said so, not
+        silently deleted.
+      - Two jobs on one project get two branches from their own bases; they are merged on
+        the phone one after the other. Nothing on a node merges.
+      - Open: jobs in a repository with submodules or large files; a project that is not
+        a git repository at all (then there is nothing to send by this road); whether a
+        finished job's branch is deleted on the phone once merged; what the guard says
+        about a worker running `git push` on a node, where the phone's rule still holds
+        that a push waits for the person.
     - Order: item 20 first. The daemon's job interface can be the one a local delegate
       already has, with the phone as the first place to run.
 21. A terminal client over the same API.
