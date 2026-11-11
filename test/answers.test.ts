@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { describeAnswers, readAnswers, recordAnswer, type AnswerLine } from "../src/answers.ts";
+import { appendLine, describeAnswers, readAnswers, recordAnswer, type AnswerLine } from "../src/answers.ts";
 import { run } from "../src/cli.ts";
 import { context, openCore, type Core } from "../src/core.ts";
 import { COMMAND_TYPES, readDecisions, VERDICTS, type DecisionLine } from "../src/decider.ts";
@@ -139,4 +139,31 @@ test("rho answers says how the requests went, by kind, and a log that cannot be 
 	expect(readFileSync(join(home, "v2", "answers.jsonl"), "utf8").split("\n").filter((text) => text === "").length).toBe(1); // no blank lines but the file's end
 	// A directory that is not there loses the line without a throw.
 	expect(() => recordAnswer(join(home, "nowhere"), line("asked", "9", "git push", "git push"))).not.toThrow();
+});
+
+test("a log past its limit is cut to its newer half on whole lines, and stays readable", () => {
+	const dir = mkdtempSync(join(tmpdir(), "rho-answers-trim-"));
+	dirs.push(dir);
+	const path = join(dir, "log.jsonl");
+	const line = (n: number) => JSON.stringify({ n, pad: "x".repeat(80) });
+	const numbers = () => readFileSync(path, "utf8").split("\n").filter(Boolean).map((text) => (JSON.parse(text) as { n: number }).n);
+	// A small limit, so the test writes kilobytes and not megabytes.
+	for (let n = 0; n < 60; n++) appendLine(path, line(n), 2_000);
+	const kept = numbers();
+	expect(kept.at(-1)).toBe(59); // the newest line is always there
+	expect(kept[0]).toBeGreaterThan(0); // old ones were dropped
+	expect(kept).toEqual(Array.from({ length: kept.length }, (_, at) => kept[0]! + at)); // no gap, no half line
+	expect(statSync(path).size).toBeLessThan(2_000 + 200);
+	expect(statSync(path).mode & 0o777).toBe(0o600);
+	expect(existsSync(`${path}.tmp`)).toBe(false);
+	// Under the limit nothing is cut.
+	const small = join(dir, "small.jsonl");
+	for (let n = 0; n < 5; n++) appendLine(small, line(n), 2_000);
+	expect(readFileSync(small, "utf8").split("\n").filter(Boolean).length).toBe(5);
+	// One line longer than half the limit is left whole.
+	const wide = join(dir, "wide.jsonl");
+	appendLine(wide, JSON.stringify({ n: 0, pad: "y".repeat(3_000) }), 2_000);
+	appendLine(wide, line(1), 2_000);
+	expect(readFileSync(wide, "utf8").split("\n").filter(Boolean).length).toBeGreaterThanOrEqual(1);
+	expect(() => JSON.parse(readFileSync(wide, "utf8").split("\n").filter(Boolean).at(-1)!)).not.toThrow();
 });

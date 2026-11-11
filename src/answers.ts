@@ -8,7 +8,7 @@
 //
 // It is a log beside the durable state, not part of it: a kill between a commit and its line loses
 // that line, and the request then reads as not answered. Writing it never fails a command or an answer.
-import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DecisionLine } from "./decider.ts";
 
@@ -31,12 +31,15 @@ const LOG = "answers.jsonl";
  * Append one line to a log of lines. A kill can leave the last line cut short, with no line end;
  * the new line then starts on a line of its own, so it is not lost with the broken one.
  */
-export function appendLine(path: string, text: string): void {
+/** A log past this size is cut down to its newer half, on whole lines. About 5,000 lines of either log. */
+export const MAX_LOG_BYTES = 2 * 1024 * 1024;
+export function appendLine(path: string, text: string, maxBytes = MAX_LOG_BYTES): void {
 	let broken = false;
+	let size = 0;
 	try {
 		const file = openSync(path, "r");
 		try {
-			const size = fstatSync(file).size;
+			size = fstatSync(file).size;
 			const last = Buffer.alloc(1);
 			broken = size > 0 && readSync(file, last, 0, 1, size - 1) === 1 && last[0] !== 0x0a;
 		} finally {
@@ -46,6 +49,19 @@ export function appendLine(path: string, text: string): void {
 		// no file yet
 	}
 	appendFileSync(path, `${broken ? "\n" : ""}${text}\n`, { mode: 0o600 });
+	if (size > maxBytes) trim(path, maxBytes);
+}
+/** Keep the newer half of a log, from the start of a line. The older lines are dropped: nothing reads them to decide anything. */
+function trim(path: string, maxBytes: number): void {
+	try {
+		const all = readFileSync(path);
+		const from = all.indexOf(0x0a, Math.max(0, all.length - Math.floor(maxBytes / 2)));
+		if (from < 0) return; // one line longer than half the limit: left as it is
+		writeFileSync(`${path}.tmp`, all.subarray(from + 1), { mode: 0o600 });
+		renameSync(`${path}.tmp`, path); // whole or not at all: a kill here leaves the old log
+	} catch {
+		// the log stays as it was, and is tried again at the next line
+	}
 }
 
 /** Append one line. Never throws: a log that cannot be written costs the line, nothing else. */

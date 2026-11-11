@@ -93,7 +93,11 @@ how it ended, and nothing yet brings a hand-started rho back up. Added since:
   afterwards; before, about one in four failed. The four files' workarounds were left in:
   they are harmless. Not proven: that this was the only cause of those four failures,
   because their text was never captured when they happened.
-- `answers.jsonl` and `decisions.jsonl` grow without limit.
+- Fixed 2026-11-11, overnight: `answers.jsonl` and `decisions.jsonl` grew without limit.
+  Past 2 MB (about 5,000 lines) a log is cut to its newer half, on whole lines, through a
+  temporary file and a rename. The older lines are dropped, not archived: nothing reads
+  them to decide anything yet. When something does (a threshold from the answer log),
+  dropping them needs a second look.
 
 **Built, and not yet seen to work for real:**
 
