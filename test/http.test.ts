@@ -359,3 +359,54 @@ test("the page can be installed as an app: a manifest and icons are served witho
 		expect(`${size}x${size}`).toBe(icon.sizes);
 	}
 });
+
+test("a photo that needs no scaling has its metadata taken off before it is stored; its picture is untouched", async () => {
+	const { stripMetadata } = await import("../src/photos.ts");
+	// A JPEG as a camera writes it: start, an Exif segment with a place in it, a comment, a quantization table, the picture.
+	const segment = (marker: number, body: Buffer) => Buffer.concat([Buffer.from([0xff, marker, (body.length + 2) >> 8, (body.length + 2) & 0xff]), body]);
+	const exif = segment(0xe1, Buffer.from("Exif\0\0MM\0*GPSLatitude 52.37 home"));
+	const xmp = segment(0xe1, Buffer.from("http://ns.adobe.com/xap/1.0/\0<x:xmpmeta>owner@example.com</x:xmpmeta>"));
+	const comment = segment(0xfe, Buffer.from("taken at home"));
+	const table = segment(0xdb, Buffer.alloc(65, 1));
+	const picture = Buffer.concat([Buffer.from([0xff, 0xda, 0, 2]), Buffer.from("PIXELS-AND-AN-FF-00-INSIDE"), Buffer.from([0xff, 0x00, 0xff, 0xd9])]);
+	const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8]), exif, table, xmp, comment, picture]);
+	const clean = Buffer.from(stripMetadata(jpeg, "image/jpeg"));
+	expect(clean.equals(Buffer.concat([Buffer.from([0xff, 0xd8]), table, picture]))).toBe(true); // only the three segments are gone
+	for (const secret of ["GPSLatitude", "owner@example.com", "taken at home"]) expect(clean.includes(secret)).toBe(false);
+	// A PNG: its text and time chunks go, its picture chunks stay byte for byte.
+	const png = Buffer.from(PNG, "base64");
+	const chunk = (name: string, body: Buffer) => Buffer.concat([Buffer.from([0, 0, 0, body.length]), Buffer.from(name), body, Buffer.alloc(4)]);
+	const tagged = Buffer.concat([png.subarray(0, 33), chunk("tEXt", Buffer.from("Author\0Sam at home")), chunk("eXIf", Buffer.from("MM\0*GPS")), chunk("tIME", Buffer.alloc(7)), png.subarray(33)]);
+	expect(Buffer.from(stripMetadata(tagged, "image/png")).equals(png)).toBe(true);
+	expect(Buffer.from(stripMetadata(png, "image/png")).equals(png)).toBe(true); // nothing to take off: the same bytes
+	// A WebP: the Exif and XMP chunks go, the header's flags for them are cleared, and the size is right again.
+	const riff = (chunks: Buffer[]) => { const body = Buffer.concat(chunks); const head = Buffer.from("RIFF\0\0\0\0WEBP"); head.writeUInt32LE(body.length + 4, 4); return Buffer.concat([head, body]); };
+	const part = (name: string, body: Buffer) => { const size = Buffer.alloc(4); size.writeUInt32LE(body.length); return Buffer.concat([Buffer.from(name), size, body, Buffer.alloc(body.length & 1)]); };
+	const webp = riff([part("VP8X", Buffer.from([0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0])), part("VP8 ", Buffer.from("pixels")), part("EXIF", Buffer.from("GPS home!")), part("XMP ", Buffer.from("<x>me</x>"))]);
+	const bare = Buffer.from(stripMetadata(webp, "image/webp"));
+	expect(bare.equals(riff([part("VP8X", Buffer.from([0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0])), part("VP8 ", Buffer.from("pixels"))]))).toBe(true);
+	// A file that is not what it says, a file cut short, and a GIF come back as they are.
+	for (const [bytes, type] of [[Buffer.from("not a jpeg at all"), "image/jpeg"], [jpeg.subarray(0, 20), "image/jpeg"], [tagged.subarray(0, 50), "image/png"], [Buffer.from("GIF89a...."), "image/gif"]] as const) expect(Buffer.from(stripMetadata(bytes, type)).equals(bytes)).toBe(true);
+
+	// Through rho: with a processor that passes a small photo through, what is stored has no metadata.
+	await server.stop();
+	const models = createModels();
+	models.setProvider(faux.provider);
+	const passThrough = { prepare: async (bytes: Uint8Array, mimeType: string) => ({ data: Buffer.from(bytes).toString("base64"), mimeType }) };
+	server = await serve({ core, models, dir, port: 0, images: passThrough });
+	base = `http://127.0.0.1:${server.port}`;
+	faux.setResponses([fauxAssistantMessage("Seen.")]);
+	expect((await sendPhotos({ requestId: "req-exif-1", images: [{ data: tagged.toString("base64") }] })).status).toBe(200);
+	const states = await follow(idleWith(2));
+	const stored = (await (await call(`/api/image?entry=${states.at(-1)!.entries[0]!.id}&n=0`)).json()) as { data: string };
+	expect(stored.data).toBe(PNG);
+	// With no processor a photo is stored as it came: nothing here could turn one whose metadata says it is rotated.
+	await server.stop();
+	server = await serve({ core, models, dir, port: 0 });
+	base = `http://127.0.0.1:${server.port}`;
+	faux.setResponses([fauxAssistantMessage("Seen.")]);
+	expect((await sendPhotos({ requestId: "req-exif-2", images: [{ data: tagged.toString("base64") }] })).status).toBe(200);
+	const later = await follow(idleWith(4));
+	const kept = (await (await call(`/api/image?entry=${later.at(-1)!.entries.findLast((entry) => entry.role === "user")!.id}&n=0`)).json()) as { data: string };
+	expect(kept.data).toBe(tagged.toString("base64"));
+}, 30_000);

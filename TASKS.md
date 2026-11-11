@@ -70,7 +70,6 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
     summary built from the tool records, with no green ticks; a failed card that points at
     the likely cause; a "while you were away" marker; approval cards for a push, a publish
     and a GitHub merge that say what the command would do, as the release card does.
-  - Remove EXIF data from photos small enough to skip scaling (item 19 lists it as known).
   - Review memory for stale entries, and goals above tasks (from the talk the owner sent,
     "proactive agent engineering").
 
@@ -729,6 +728,15 @@ is used only through Claude Code.
     - Known: a photo that needs no scaling (at most 2000 px a side and 1 MB) is stored and
       sent to the model as it is, EXIF data included; a camera photo's can say where it was
       taken.
+    - Fixed 2026-11-11, overnight (`stripMetadata` in `src/photos.ts`): a photo the
+      processor did not need to change has its metadata taken off before it is stored or
+      sent: a JPEG's Exif, XMP, IPTC and comment segments, a PNG's text, time and Exif
+      chunks, a WebP's Exif and XMP chunks. Segments are dropped whole; nothing is decoded
+      and the picture's bytes are untouched. Checked by a test on hand-built files of all
+      three formats, and by hand on the owner's camera photo (read only, sent nowhere): a
+      small copy carrying the camera's Exif came out of `takePhotos` without it and still
+      decoded. Not done: a GIF; and a rho with no image processor keeps a photo's metadata,
+      because nothing there could turn one that its metadata says is rotated.
     - Not built: sharing a photo to rho from another app; a waiting message's photos cannot be
       taken back into the composer (Remove says so); photos in a check-in or a notice.
 20. Delegates (was "subagents"): the agent hands a job to a worker in its own conversation

@@ -85,8 +85,9 @@ Rho is an agent with a shell. This page states what protects you and what does n
   relay on loopback puts your conversation into them. Anthropic may refuse such use of a
   plan or charge it to usage credits; see the README.
 - Your conversations, and the photos in them, are sent to the model provider you chose. A
-  photo that rho had to make smaller loses its EXIF data on the way. A small one is sent as
-  it is, and a camera photo's EXIF data can say where it was taken. With the Honcho memory
+  photo's metadata (where and when it was taken, the device) is taken off before it is
+  stored or sent, whether rho made it smaller or not. The exceptions: a GIF, and a rho
+  that has no image processor, which says so in its log at start. With the Honcho memory
   provider, each turn is also sent to your Honcho server.
 - With a `decider` configured, each shell command the agent runs is sent to that server with
   your last message and the working directory. Commands that name rho's own data are not
