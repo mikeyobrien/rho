@@ -39,7 +39,7 @@ See [MIGRATION.md](MIGRATION.md).
 ### Not in 2.0
 
 These exist in rho 1 and are not in rho 2: the vault, Telegram and email, subagents, the
-terminal client, voice, image input, and import of rho 1's brain and vault.
+terminal client, voice, and import of rho 1's brain and vault.
 
 ### Known limits
 

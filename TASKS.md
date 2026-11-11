@@ -26,31 +26,29 @@ notifications (`f902b0c`, item 17) and edits to this file. Nothing is pushed to 
 
 **Waiting on the owner** (nothing here can move without them):
 
-- Release `f902b0c` (an Allow), and install the Termux:API app with `pkg install termux-api`
-  to see a notification at all (item 17).
+- Release the notifications commit (an Allow). The Termux:API app and its commands are
+  installed and a notification was seen (item 17); rho itself has not sent one yet.
 - Item 20: confirm the ten acceptance criteria and the three choices (model, brief,
   approvals). They said yes to building it, not yet to the criteria.
-- Item 20b: say whether "tools on a host over SSH, brain on the phone" is what they meant
-  by cloud delegates, or a hosted cloud. It reverses their 2026-11-10 decision that the
-  phone agent depends on no other compute.
-- Photos in 2.0 or held back. They are built and released into the installed rho, and
-  `CHANGELOG.md` lists them under "Added" while its "Not in 2.0" still names image input.
-  The agent recommended keeping them; the owner did not answer.
-- The decider (item 21a): whether to turn it on. It needs a tunnel to the owner's Linux
-  machine that nothing keeps open, and a decision on depending on that machine. The owner
-  also showed Strands Decider as another model for the job; it was not tried.
 - Whether a release the owner typed themselves still needs the Allow card (asked
   2026-11-11, not answered).
-- Memory: point the installed rho at Honcho, or stay on the file provider (item 14).
 - Publishing: every step of `RELEASE.md` (push as `rho2`, tag, GitHub release, npm), the
   branch-name choice, and one real request with an API key, which has never been tried.
-- Only they can see: whether Chrome offers "Install app" and the installed app opens paired.
+
+Answered by the owner on 2026-11-11, and so no longer waiting:
+
+- Cloud delegates are tools on a host over SSH, with the brain on the phone (item 20b).
+- Photos stay in 2.0. `CHANGELOG.md` no longer lists image input under "Not in 2.0".
+- Memory stays on the file provider for now (item 14).
+- Chrome's "Install app" works, by the owner's word. Whether the installed app opens
+  paired was not said.
+- The decider was left to the agent, which decided: not on for now (item 21a).
 
 **Next, in order:**
 
 1. Item 20, delegates, once the criteria are confirmed.
 2. Item 20a, checks out of the agent's turn.
-3. Item 20b, delegates on a host, once its shape is confirmed.
+3. Item 20b, delegates on a host. Its shape is confirmed.
 
 **Open, not ordered:**
 
@@ -89,7 +87,8 @@ reviewers wanted first is a release killed part-way, which leaves rho stopped. A
 
 **Built, and not yet seen to work for real:**
 
-- Notifications (17): no notification has ever been sent.
+- Notifications (17): the phone's sender works (see the item); rho has not sent one,
+  because the commit is not released.
 - The release line and the release card's commit list (21c): not seen in a browser. The
   next release is the first that can show them.
 - The settings tool (21b): `list` was called in the installed rho and answered; a change
@@ -617,8 +616,8 @@ is used only through Claude Code.
     memory); a live model actually choosing to save, or obeying a refusal; the section's
     re-read after a real compaction; an answer that lands after a restart is mirrored only
     if its run-end hook runs again.
-    Open, for the owner: the rho installed on the phone uses the file provider. Pointing it
-    at Honcho is a config change (`"memory": {"kind": "honcho", "url": ..., "user":
+    Decided by the owner 2026-11-11: the installed rho stays on the file provider for now.
+    Pointing it at Honcho later is a config change (`"memory": {"kind": "honcho", "url": ..., "user":
     "<your peer name>", "agent": <a peer name for rho>}`) and starts writing to that workspace.
     Not built: an external-module provider (dobo has one); migrating rho 1's `brain.jsonl`.
 15. Skills: `SKILL.md` directories listed in a prompt section and loaded with `read`.
@@ -647,9 +646,19 @@ is used only through Claude Code.
     - Checked: 6 tests, no model: the rule; ring once, not while watched, ring on leaving,
       removed when answered; across a restart; a stand-in `termux-notification` that records
       its arguments; and a real core and server with a recording sender.
-    - Not checked: any real notification. Whether `termux-notification` works on Android 17
-      with this Termux build, whether its tap action opens Chrome, how it looks, and whether
-      Android's battery limits delay it.
+    - The owner asked for the Termux:API app to be installed (2026-11-11). Done: `pkg install
+      termux-api` (0.60.0) for the commands, and the app v0.53.0 from the Termux project's
+      GitHub release, its SHA-256 matched to the release's checksum file, installed through
+      Shizuku. It is the build that matches a Termux installed from GitHub; an F-Droid
+      Termux needs F-Droid's. Android had already granted it notifications.
+    - Checked by hand on the phone (Android 17, Termux 0.119.0-beta.3): `termux-notification`
+      with the arguments rho uses posted a notification that Android listed as active at
+      high importance; `termux-notification-remove` took a second one away. Read from
+      `dumpsys notification`, not from the screen.
+    - Not checked: a notification sent by rho itself (not released yet); whether a tap opens
+      Chrome on rho's page; how it looks; whether Android's battery limits delay it. The
+      first test notification was removed and then still found in Android's history list,
+      which was first misread as "not removed".
     - Not built: other systems (`notify-send`, macOS) and a command of the person's own;
       "looks stuck" (nothing detects it yet); buttons; a check-in that notifies without
       also writing to the first conversation; quiet hours; grouping several at once.
@@ -729,8 +738,7 @@ is used only through Claude Code.
       2026-11-11 (see item 21d); they were loosened in the meantime.
 20b. Delegates on a host the person owns. **Not built, not designed in detail.** Asked by the
     owner 2026-11-11 ("cloud delegates, with self hosted onboardings"). The shape below was
-    proposed; **the owner has not said whether it is what they meant** (the other reading is
-    a hosted cloud: a VPS or Kubernetes).
+    proposed and **the owner confirmed it the same day ("tools over ssh")**.
     - Shape: the model loop and the durable record stay in rho on the phone. Only a worker's
       tools (`read`, `write`, `edit`, `bash`) run on the host, over SSH. Losing the host
       loses no state: the job pauses and the command in flight is treated as interrupted.
@@ -794,6 +802,14 @@ is used only through Claude Code.
     - Not checked: any real traffic; calibration; the decider running in the installed rho
       (it is not configured there, and its server listens on that machine's loopback only, so
       it needs a tunnel that nothing keeps open yet); a long command near the 8k context.
+    - Decided by the agent 2026-11-11, when the owner left it to the agent: **not turned on
+      for now.** It would need a tunnel to another machine that nothing keeps open, which
+      goes against the owner's "no hard dependency on other compute"; it would add a request
+      per shell command to observe a verdict that was weak on the 15 cases tried; and
+      nothing acts on it yet. It is worth turning on when (a) item 20b gives rho a kept
+      connection to a host, and (b) the answer log has real answers to set a threshold
+      against. Then compare Clef-Flash with Strands Decider (a 2B model the owner pointed
+      to, small enough that it might run on the phone; not tried) before choosing.
     - Not built: acting on a verdict (ask, block, redraw the step, a per-run strike count);
       a fallback model when the decider is unreachable; "no verdict, no run"; corrections to
       a logged verdict; showing verdicts in the page (`StateView` is unchanged); the script a
@@ -984,6 +1000,10 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
 - DECIDED 2026-11-10, by the owner: the phone agent is its own agent with no hard
   dependency on other compute. Items 20b and 21a both press on this.
 - DECIDED 2026-11-11, by the owner: notifications are built for Android first.
+- DECIDED 2026-11-11, by the owner: photos stay in 2.0; memory stays on the file provider
+  for now; delegates on a host run their tools over SSH with the brain on the phone.
+- DECIDED 2026-11-11, by the agent, the owner having left it to the agent: the decider is
+  not turned on for now (item 21a says when it would be).
 - Settled by what was built, not by a stated decision: `web_search` uses Exa's key-less
   endpoint (item 10); a `git push` by rho waits for the person's yes each time (item 12).
 - Open decisions are listed under "Where things stand", "Waiting on the owner".
