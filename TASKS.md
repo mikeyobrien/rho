@@ -65,9 +65,13 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
   reminders (22); migrating rho 1's brain (14).
 - Proposed by the agent in conversation on 2026-11-11 and written nowhere else. The owner
   asked for the mocks and for the research, not for these to be built:
-  - Tool cards: fold routine reads and searches into one row; a run summary built from the
-    tool records, with no green ticks; a failed card that points at the likely cause; a
-    "while you were away" marker.
+  - Tool cards: fold routine steps into one row; a run summary built from the tool
+    records, with no green ticks; a failed card that points at the likely cause; a
+    "while you were away" marker; a running card with its elapsed time and last line.
+    The owner, 2026-11-11: edits fold too (the first proposal kept them out). So the fold
+    takes every step that succeeded, and its row counts the edits with their lines added
+    and removed. What stays out of the fold: a failure, a request waiting for a yes, and
+    a step that touched something outside the working directory.
   - Remove EXIF data from photos small enough to skip scaling (item 19 lists it as known).
   - Review memory for stale entries, and goals above tasks (from the talk the owner sent,
     "proactive agent engineering").
