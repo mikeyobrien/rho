@@ -519,6 +519,10 @@ test("the pick check's setting and the checker's words", () => {
 	expect(readVerdict("FITS\nHaiku is what they asked for.")).toEqual({ fits: true, why: "Haiku is what they asked for." });
 	expect(readVerdict("**Does not fit.** They said never Opus.")).toEqual({ fits: false, why: "** They said never Opus." });
 	expect(readVerdict("DOESN'T FIT: too costly")).toEqual({ fits: false, why: "too costly" });
+	// The checker is asked to reason first and end with the verdict: the last line decides.
+	expect(readVerdict("This is a writing job, so Sonnet is called for; the worker runs on Sonnet.\nFITS")).toEqual({ fits: true, why: "This is a writing job, so Sonnet is called for; the worker runs on Sonnet." });
+	expect(readVerdict("No preference speaks of running checks, so the default is called for.\n\nDOES NOT FIT.")).toEqual({ fits: false, why: "No preference speaks of running checks, so the default is called for." });
+	expect(readVerdict("It fits the first rule.\nDOES NOT FIT")).toMatchObject({ fits: false }); // a "fits" in the reasoning is not the verdict
 	expect(readVerdict("It fits, I think")).toBeUndefined();
 	expect(readVerdict("")).toBeUndefined();
 	expect(describePicks([])).toStartWith("No picks yet.");
