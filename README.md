@@ -135,6 +135,11 @@ notifications when Android asks. Restart rho afterwards; `rho logs` then says
 `notifications: termux-notification`. Without the app rho runs as before and says in its log
 that notifications are off. `"notifications": false` in the settings turns them off.
 
+For a tap to open rho, Termux also needs the "Display over other apps" permission: Android
+settings, Apps, Termux, "Appear on top" (the name differs between phones). Without it the
+notification still arrives and a tap does nothing, because Android does not let an app in
+the background open another one.
+
 Other systems do not notify yet.
 
 The service does not get your shell's environment. It keeps `PATH`, `RHO_HOME`, `RHO_PORT`

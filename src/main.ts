@@ -32,7 +32,8 @@ const commit = head.exitCode === 0 ? head.stdout.toString().trim() : undefined;
 const images = await import("@earendil-works/pi-durable/images/node").then((module) => module.createNodePhotonImages()).catch((error: Error) => (log(`photos: no image scaling here, so a large photo is refused: ${error.message}`), undefined));
 // Notifications go out from here, so they arrive with the page closed. `"notifications": false` turns them off.
 const sender = config.notifications === false ? undefined : findSender();
-if (config.notifications !== false) log(sender ? `notifications: ${sender.label}` : NO_SENDER);
+// Whether Termux may open the browser from the background cannot be read from inside Termux, so it is said, not checked.
+if (config.notifications !== false) log(sender ? `notifications: ${sender.label}. For a tap to open rho, Termux needs Android's "Display over other apps" permission.` : NO_SENDER);
 const notifier = sender ? openNotifier({ dir, sender, open: `http://127.0.0.1:${port}/`, log }) : undefined;
 const server = await serve({ core, models, dir, port, commit, images, log, ...(notifier ? { notifier } : {}) });
 log(`rho: pid ${process.pid} on http://127.0.0.1:${server.port}, data in ${dir}${commit ? `, commit ${commit.slice(0, 7)}` : ""}`);

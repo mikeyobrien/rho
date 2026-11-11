@@ -21,13 +21,11 @@ An index of the rest of this file. The record under each item number is the sour
 section only says what is open and in what order. Item numbers are kept as they were, also
 the awkward ones (20a, 21a to 21d), because commits and other items name them.
 
-As of this grooming: the installed rho runs `f627a94`. The work checkout is ahead of it by
-notifications (`f902b0c`, item 17) and edits to this file. Nothing is pushed to GitHub.
+As of 2026-11-11, late: the installed rho runs `2885f2f`, with notifications on. Nothing is
+pushed to GitHub.
 
 **Waiting on the owner** (nothing here can move without them):
 
-- Release the notifications commit (an Allow). The Termux:API app and its commands are
-  installed and a notification was seen (item 17); rho itself has not sent one yet.
 - Item 20: confirm the ten acceptance criteria and the three choices (model, brief,
   approvals). They said yes to building it, not yet to the criteria.
 - Whether a release the owner typed themselves still needs the Allow card (asked
@@ -87,22 +85,21 @@ reviewers wanted first is a release killed part-way, which leaves rho stopped. A
 
 **Built, and not yet seen to work for real:**
 
-- Notifications (17): the phone's sender works (see the item); rho has not sent one,
-  because the commit is not released.
 - The release line and the release card's commit list (21c): not seen in a browser. The
   next release is the first that can show them.
 - The settings tool (21b): `list` was called in the installed rho and answered; a change
   and its card were not tried there.
 - The decider (21a): 15 made-up commands by hand, no real traffic.
-- The answer log (21d): nothing has been asked since it was released.
+- The answer log (21d): it recorded its first real request and answer (a release, allowed
+  after 49 s). One line pair is not a test of its summary.
 - Photos (19): one screenshot from Chrome reached the model at 2000 px wide. Whether the
   browser or rho scaled it is not known.
 - From before: a rollback under the real service, a reboot of the phone, a check-in's sleep
   of hours under Android's battery limits, any provider with an API key.
 
-**Done:** items 1 to 13 (bootstrap, with its proof), 14 memory, 19 photos, 21a the decider
-in shadow, 21b the settings tool, 21c the release line and card, 21d the answer log, 22
-check-ins. Item 17, notifications, is built and not released.
+**Done:** items 1 to 13 (bootstrap, with its proof), 14 memory, 17 notifications on
+Android, 19 photos, 21a the decider in shadow, 21b the settings tool, 21c the release line
+and card, 21d the answer log, 22 check-ins.
 
 ## Bootstrap: the least that lets rho build rho
 
@@ -655,8 +652,18 @@ is used only through Claude Code.
       with the arguments rho uses posted a notification that Android listed as active at
       high importance; `termux-notification-remove` took a second one away. Read from
       `dumpsys notification`, not from the screen.
-    - Not checked: a notification sent by rho itself (not released yet); whether a tap opens
-      Chrome on rho's page; how it looks; whether Android's battery limits delay it. The
+    - Released into the installed rho the same day (`2885f2f`). Its first notification was
+      the gate's report of that release, sent with the page closed.
+    - **The owner's first tap did nothing.** The tap runs `termux-open-url` inside Termux, and
+      Android does not let an app in the background start another app's screen unless it
+      holds "Display over other apps". Termux did not: `appops get com.termux
+      SYSTEM_ALERT_WINDOW` said `default`, with a rejection seconds old. It was set to
+      `allow` through Shizuku, a test notification was posted, and the owner tapped it:
+      "That worked". No log line named the block, so the cause is shown by the fix working.
+    - The README now says so, and the start-up log line names the permission. Rho cannot
+      check it: Termux may not read app-ops ("Exception occurred while executing 'get'").
+    - Not checked: how the notification looks; whether Android's battery limits delay it; a
+      tap with Chrome not running; a phone where Termux was installed from F-Droid. The
       first test notification was removed and then still found in Android's history list,
       which was first misread as "not removed".
     - Not built: other systems (`notify-send`, macOS) and a command of the person's own;
