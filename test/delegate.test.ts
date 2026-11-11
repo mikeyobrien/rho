@@ -208,7 +208,10 @@ test("the cap follows the place: past it a job waits its turn in order, and a pl
 	await t.until("the fourth to start", async () => (await t.workers())[3]!.status === "working");
 	await pass(gates, "d");
 	await t.until("all four reports", async () => (await t.reports()).length === 4);
-	expect((await t.reports()).map((text) => /\[worker (w\d)\]/.exec(text)![1])).toEqual(["w1", "w2", "w3", "w4"]);
+	// One report each. w2 and w3 were let go together, so which of those two reports first is not fixed.
+	const order = (await t.reports()).map((text) => /\[worker (w\d)\]/.exec(text)![1]);
+	expect([...order].sort()).toEqual(["w1", "w2", "w3", "w4"]);
+	expect([order[0], order[3]]).toEqual(["w1", "w4"]);
 
 	// A place that is short of memory: the ceiling is 4, but a second worker does not start beside a running one.
 	let free = 100 * 1024 * 1024;
