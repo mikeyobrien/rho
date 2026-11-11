@@ -33,8 +33,12 @@ h1 { margin: 0; font-size: 17px; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; width: 100%; min-height: 52px; padding: 8px 12px; border: 0; border-radius: 0; background: none; text-align: left; }
 .row[aria-current] .row-title { color: var(--accent); }
 .row-main { display: grid; grid-template-columns: minmax(0, 1fr); }
-.row-title, .row-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-sub { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+.row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.row-line.wrap .row-title { white-space: normal; overflow-wrap: anywhere; }
+.row-line.asking .row-sub { color: var(--warn); }
+.row-line.failed .row-sub { color: var(--bad); }
+.row-action.sure { border-color: var(--bad); color: var(--bad); }
 .row-value { max-width: 40vw; color: var(--dim); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-chevron { color: var(--dim); font-size: 20px; }
 .row-text { grid-column: 1 / -1; padding: 10px 12px; overflow-wrap: anywhere; white-space: pre-wrap; }

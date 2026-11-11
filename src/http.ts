@@ -405,7 +405,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			checked.clear();
 			return { ...(await setupOf(models, model)), available: (await models.getAvailable()).length };
 		},
-		"GET /api/workers": async () => ({ items: (await core.workers.list()).map(({ id, title, place, status, from, createdAt, startedAt, endedAt, model }) => ({ id, title, place, status, from, createdAt, startedAt, endedAt, model })) }),
+		"GET /api/workers": async () => ({ items: (await core.workers.list()).map(({ id, title, place, status, from, createdAt, startedAt, endedAt, model, conversation }) => ({ id, title, place, status, from, createdAt, startedAt, endedAt, model, ...(conversation !== undefined ? { conversation: String(conversation) } : {}) })) }),
 		"POST /api/workers/stop": async (request) => {
 			const { id } = await bodyOf(request);
 			if (typeof id !== "string") throw new Refusal(400, "id is required.");

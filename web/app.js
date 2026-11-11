@@ -820,6 +820,7 @@ export function start(env) {
 	let info = {}; // what the page asked the daemon for when it opened: the commit, the lists
 	let detailsKey; // what is drawn, so a snapshot that changes none of it moves nothing under a finger
 	let optionsFor; // the model list the picker was last filled from
+	let ticks = []; // what the open level writes again each second without being rebuilt: a worker's time
 	const picker = (id, label) => {
 		const select = make("select", { id });
 		select.setAttribute("aria-label", label);
@@ -852,10 +853,13 @@ export function start(env) {
 		return list;
 	};
 	/** A row that does something: a button with a title, a quiet second line, a value at the right, and beside it an action of its own. */
-	function row({ title, sub = "", value = "", go, label, current = false, chevron = true, action }) {
-		const item = make("li", { className: "row-line" });
+	function row({ title, sub = "", value = "", go, label, current = false, chevron = true, action, kind = "" }) {
+		const item = make("li", { className: kind === "" ? "row-line" : `row-line ${kind}` });
 		const main = make("span", { className: "row-main" });
-		main.append(make("span", { className: "row-title", textContent: title }), ...(sub === "" ? [] : [make("span", { className: "row-sub", textContent: sub })]));
+		// A second line that counts time is given as a function, and is written again in place between drawings.
+		const second = make("span", { className: "row-sub", textContent: typeof sub === "function" ? sub() : sub });
+		if (typeof sub === "function") ticks.push(() => (second.textContent = sub()));
+		main.append(make("span", { className: "row-title", textContent: title }), ...(sub === "" ? [] : [second]));
 		const mark = make("span", { className: "row-chevron", textContent: "›" });
 		mark.setAttribute("aria-hidden", "true");
 		const parts = [main, ...(value === "" ? [] : [make("span", { className: "row-value", textContent: String(value) })]), ...(chevron && go ? [mark] : [])];
@@ -877,6 +881,8 @@ export function start(env) {
 
 	// The sections, in the order of the page. `value` is what the row shows at its right: a count, or a word.
 	const SECTIONS = [
+		{ id: "workers", title: "Workers", sub: () => (liveWorkers().length > 0 ? `${liveWorkers().length} running` : "Jobs rho handed off"), value: () => allWorkers().length, data: () => [state?.conversation, allWorkers()], draw: drawWorkers },
+		{ id: "reminders", title: "Reminders", sub: "What rho checks on its own", value: () => info.reminders?.length ?? "", data: () => [info.reminders], draw: drawReminders },
 		{ id: "settings", title: "Settings", sub: "Model, thinking, context", value: () => shortModel(), data: () => [state?.cwd, Boolean(state?.workerThread)], draw: drawSettings },
 		{ id: "conversations", title: "Conversations", sub: "Open another, or start one", value: () => info.conversations?.length ?? "", data: () => [conversation, info.conversations], draw: drawConversations },
 	];
@@ -890,7 +896,86 @@ export function start(env) {
 			...(info.commit ? [make("p", { className: "details-line details-commit", textContent: `Commit ${info.commit.slice(0, 7)}` })] : []),
 			...(state?.cwd ? [make("p", { className: "details-line details-cwd", textContent: state.cwd })] : []),
 		);
-		return [head, rows(SECTIONS.map((section) => row({ title: section.title, sub: section.sub, value: section.value(), go: () => showView(section.id) })))];
+		return [head, rows(SECTIONS.map((section) => row({ title: section.title, sub: subOf(section), value: section.value(), go: () => showView(section.id) })))];
+	}
+	const pad = (n) => String(n).padStart(2, "0");
+	const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+	/** A time of day, with the date when it is not today. */
+	function when(ms) {
+		const [then, now] = [new Date(ms), new Date(env.now?.() ?? Date.now())];
+		const time = `${pad(then.getHours())}:${pad(then.getMinutes())}`;
+		if (then.toDateString() === now.toDateString()) return time;
+		return `${then.getDate()} ${MONTHS[then.getMonth()]}${then.getFullYear() === now.getFullYear() ? "" : ` ${then.getFullYear()}`} ${time}`;
+	}
+	/**
+	 * Every worker of this conversation the daemon still knows: the state's (fresh, with the step
+	 * it is on) over the list asked for when the page opened, which also holds those that ended
+	 * more than a day ago. Live ones first, then the newest first.
+	 */
+	function allWorkers() {
+		const byId = new Map();
+		for (const worker of (info.workers ?? []).filter((item) => item.from === state?.conversation)) byId.set(worker.id, worker);
+		for (const worker of state?.workers ?? []) byId.set(worker.id, worker);
+		const live = (worker) => worker.endedAt == null;
+		return [...byId.values()].sort((a, b) => Number(live(b)) - Number(live(a)) || b.createdAt - a.createdAt);
+	}
+	const workerWhen = (worker) => (worker.endedAt != null ? `ended ${when(worker.endedAt)}` : worker.startedAt != null ? `started ${when(worker.startedAt)}` : `asked ${when(worker.createdAt)}`);
+	function drawWorkers() {
+		const items = allWorkers().map((found) => {
+			// The list the daemon answers with writes "none" as null; the state leaves it out.
+			const worker = Object.fromEntries(Object.entries(found).filter(([, value]) => value !== null));
+			const stop = make("button", { type: "button", className: "row-action", textContent: "Stop" });
+			stop.setAttribute("aria-label", `Stop worker ${worker.id}: ${worker.title}`);
+			stop.addEventListener("click", async () => {
+				stop.disabled = true;
+				try {
+					await api("workers/stop", { id: worker.id });
+				} catch (error) {
+					flash(error.message);
+				}
+				void loadInfo(["workers"]);
+			});
+			return row({
+				title: worker.title,
+				sub: () => `${workerLine(worker)} · ${workerWhen(worker)}`,
+				kind: `worker ${worker.status}`,
+				go: worker.conversation === undefined ? undefined : () => switchTo(worker.conversation, false),
+				action: worker.endedAt === undefined ? stop : undefined,
+			});
+		});
+		return [...(items.length > 0 ? [rows(items)] : [quiet("No workers yet in this conversation.")]), quiet("A worker is a job rho handed off, in its own thread. Tap one to read its thread. How each ended is a report card in this thread.")];
+	}
+	const UNITS = [["d", 86_400_000], ["h", 3_600_000], ["m", 60_000]];
+	function cadenceWords(cadence) {
+		if (cadence.kind === "once") return "once";
+		if (cadence.kind === "daily") return `daily at ${cadence.at}`;
+		const [unit, size] = UNITS.find(([, ms]) => cadence.everyMs % ms === 0) ?? UNITS[2];
+		return `every ${cadence.everyMs / size}${unit}`;
+	}
+	function drawReminders() {
+		const items = (info.reminders ?? []).map((item) => {
+			// Removing cannot be taken back, so it takes two taps: the button asks once.
+			let sure = false;
+			const remove = make("button", { type: "button", className: "row-action", textContent: "Remove" });
+			remove.setAttribute("aria-label", `Remove reminder: ${item.text.slice(0, 60)}`);
+			remove.addEventListener("click", async () => {
+				if (!sure) {
+					sure = true;
+					Object.assign(remove, { className: "row-action sure", textContent: "Remove now" });
+					remove.setAttribute("aria-label", `Remove now, for good: ${item.text.slice(0, 60)}`);
+					return;
+				}
+				remove.disabled = true;
+				try {
+					await api("reminders/remove", { id: item.id });
+				} catch (error) {
+					flash(error.message);
+				}
+				await loadInfo(["reminders"]);
+			});
+			return row({ title: item.text, sub: `${cadenceWords(item.cadence)} · next ${when(item.nextDue)}`, kind: "wrap", action: remove });
+		});
+		return [...(items.length > 0 ? [rows(items)] : [quiet(info.reminders ? "No reminders." : "Loading")]), quiet("Reminders are rho's, not one conversation's: what it finds is said in the first conversation. Tell rho in chat to add or change one.")];
 	}
 	function drawSettings() {
 		const fields = make("div", { className: "fields" });
@@ -936,16 +1021,19 @@ export function start(env) {
 	}
 	const viewOf = (id) => SECTIONS.find((section) => section.id === id);
 	/** What the open level shows: when it is the same as what is drawn, nothing is rebuilt, so a picker that is open stays open. */
-	const mainData = () => [el.status.textContent, state?.cwd, state?.workerThread, info.commit, SECTIONS.map((section) => section.value())];
+	const mainData = () => [el.status.textContent, state?.cwd, state?.workerThread, info.commit, SECTIONS.map((section) => [section.value(), subOf(section)])];
+	const subOf = (section) => (typeof section.sub === "function" ? section.sub() : section.sub);
 	function drawDetails(moved = false) {
 		const view = trail.at(-1);
 		el.details.hidden = view === undefined;
 		el.menuButton.setAttribute("aria-expanded", view === undefined ? "false" : "true");
-		if (view === undefined) return void (detailsKey = undefined);
+		if (view === undefined) return void ((detailsKey = undefined), (ticks = []));
 		syncPickers();
 		const key = JSON.stringify([view, view === "main" ? mainData() : viewOf(view).data()]);
-		if (key !== detailsKey) {
+		if (key === detailsKey) for (const tick of ticks) tick();
+		else {
 			detailsKey = key;
+			ticks = [];
 			el.detailsTitle.textContent = view === "main" ? "Details" : viewOf(view).title;
 			el.detailsBack.setAttribute("aria-label", view === "main" ? "Back to the conversation" : "Back to details");
 			el.detailsBody.replaceChildren(...(view === "main" ? drawMain() : viewOf(view).draw()));
@@ -953,14 +1041,14 @@ export function start(env) {
 		if (moved) el.detailsBack.focus?.();
 	}
 	/** Ask the daemon for what the state does not carry. Each answer is drawn as it comes; one that fails leaves its list as it was. */
-	const SOURCES = [["commit", "health", (data) => data.commit ?? ""], ["conversations", "conversations", (data) => data.items], ["models", "models", (data) => data.items]];
+	const SOURCES = [["commit", "health", (data) => data.commit ?? ""], ["conversations", "conversations", (data) => data.items], ["models", "models", (data) => data.items], ["workers", "workers", (data) => data.items], ["reminders", "reminders", (data) => data.items]];
 	let loading = 0;
 	const busy = () => el.detailsBody.setAttribute("aria-busy", loading > 0 ? "true" : "false");
-	async function loadInfo() {
+	async function loadInfo(names = SOURCES.map(([name]) => name)) {
 		loading++;
 		busy();
 		await Promise.all(
-			SOURCES.map(async ([name, path, pick]) => {
+			SOURCES.filter(([name]) => names.includes(name)).map(async ([name, path, pick]) => {
 				try {
 					const value = pick(await api(path));
 					info = { ...info, [name]: value }; // read after the wait: the answers come in any order

@@ -313,7 +313,7 @@ test("the details page opens over the thread from ⋯ and from the title, and cl
 	// The header block: the name, the status line, the commit this rho runs, where the conversation works.
 	const head = (name: string) => inside(page.$("details-body"), name)[0]?.textContent;
 	expect([head("details-name"), head("details-status"), head("details-line details-commit"), head("details-line details-cwd")]).toEqual(["rho", page.$("status").textContent, "Commit 0123abc", work]);
-	expect(detailRows(page).slice(0, 2)).toEqual(["Settings | Model, thinking, context | faux-1", "Conversations | Open another, or start one | 1"]);
+	expect(detailRows(page)).toEqual(["Workers | Jobs rho handed off | 0", "Reminders | What rho checks on its own | 0", "Settings | Model, thinking, context | faux-1", "Conversations | Open another, or start one | 1"]);
 	expect(inside(page.$("details-body"), "row").every((row) => row.tag === "button")).toBe(true);
 	// Its own back button is one step of the browser's history.
 	await page.$("details-back").click();
@@ -396,7 +396,6 @@ test("conversations on the details page: the open one is marked, a new one opens
 	await section(page, "Conversations");
 	await loaded(page);
 	expect(list()).toEqual([` About the build | ${work}`, `*New conversation | ${work}`]);
-	expect(detailRows(page).length).toBe(2);
 	await inside(page.$("details-body"), "row")[0]!.click();
 	await until("the first thread", () => page.$("details").hidden && page.messages().includes("msg assistant|first answer") && idle(page));
 });
@@ -828,6 +827,14 @@ test("a worker is a row of the Running card at the tail of the thread; its reque
 	// Its job over, the row is gone, and with nothing else running so is the card.
 	await until("the card to go", () => runningCard(page) === undefined);
 	expect(page.$("status").textContent).not.toContain("running");
+	// The details page keeps it: its job, how it ended, how long it took, on which model, and when. No Stop.
+	await page.$("menu-button").click();
+	await loaded(page);
+	expect(detailRows(page)[0]).toBe("Workers | Jobs rho handed off | 1");
+	await section(page, "Workers");
+	expect(detailRows(page).length).toBe(1);
+	expect(detailRows(page)[0]).toMatch(/^Publish the branch \| done · 0:\d\d · local · faux-1 · ended \d\d:\d\d \| $/);
+	expect(inside(page.$("details-body"), "row-action")).toEqual([]);
 }, 60_000);
 
 test("a worker's No is told to it; its thread opens from its row, to read; Stop on the row ends it and leaves no report", async () => {
@@ -865,6 +872,14 @@ test("a worker's No is told to it; its thread opens from its row, to read; Stop 
 	await until("back in the main thread", () => page.$("worker-thread").hidden === true && page.messages().includes("msg assistant|Handed off."));
 	expect(page.$("composer").hidden).toBe(false);
 	await until("its row again", () => runningRows(page).length === 1);
+	// The details page opens its thread too, and closes itself; the row there has a Stop while it works.
+	await section(page, "Workers");
+	expect(detailRows(page)[0]).toMatch(/^Publish the branch \| working · \d:\d\d · local · faux-1( · wait)? · started \d\d:\d\d \| $/);
+	expect(inside(page.$("details-body"), "row-action").map((button) => [button.textContent, button.attrs["aria-label"]])).toEqual([["Stop", "Stop worker w1: Publish the branch"]]);
+	await inside(page.$("details-body"), "row")[0]!.click();
+	await until("the worker's thread, from the details page", () => page.$("details").hidden && page.history.depth === 0 && page.$("worker-thread").hidden === false && page.messages().some((line) => line.startsWith("msg user|You are a worker.")));
+	await part(page.$("worker-thread"), "worker-back")!.fire("click");
+	await until("back again", () => page.$("worker-thread").hidden === true && runningRows(page).length === 1);
 	// Stop, from the row: it ends, its row and the card go, and it reports nothing.
 	await part(runningRowEls(page)[0]!, "running-stop")!.fire("click");
 	await until("the card to go, the only worker being stopped", () => runningCard(page) === undefined, 15_000);
@@ -909,10 +924,56 @@ test("five workers: the card holds only the ones still at it; each that ended le
 	// A second browser is shown the same, from the daemon's state alone.
 	const again = await open({ pair: false, stored: page.stored });
 	await until("the second page's rows", () => runningRows(again).length === 2 && reports(again).length === 3);
-	// The last two end: no card on either page, and five reports.
+	// The details page lists all five, the live ones first with a Stop each, then the newest first.
+	await page.$("menu-button").click();
+	await loaded(page);
+	expect(detailRows(page)[0]).toBe("Workers | 2 running | 5");
+	await section(page, "Workers");
+	const listed = () => detailRows(page).map((line) => line.split(" | ").slice(0, 2).join(" | ").replace(/ · \d:\d\d · local · faux-1.*$/, ""));
+	expect(listed()).toEqual(["Job queued | working", "Job held | working", "Job fails | failed", "Job done-b | done", "Job done-a | done"]);
+	expect(inside(page.$("details-body"), "row-line worker failed").length).toBe(1);
+	expect(inside(page.$("details-body"), "row-action").map((button) => button.attrs["aria-label"])).toEqual(["Stop worker w5: Job queued", "Stop worker w4: Job held"]);
+	// The list the page asked the daemon for names this conversation as the one each came from.
+	const known = (await (await fetch(`http://127.0.0.1:${server.port}/api/workers`, { headers: { authorization: `Bearer ${JSON.parse(page.stored.get("token")!)}` } })).json()) as { items: { from: string; conversation?: string }[] };
+	expect(known.items.map((item) => [item.from, typeof item.conversation])).toEqual(Array.from({ length: 5 }, () => [String(core.root.id), "string"]));
+	// Stop, from the details page: it ends there and in the Running card, and leaves no report.
+	await inside(page.$("details-body"), "row-action")[0]!.click();
+	await until("the stopped one, after the one still at work", () => JSON.stringify(listed().slice(0, 2)) === JSON.stringify(["Job held | working", "Job queued | stopped"]), 15_000);
+	expect(inside(page.$("details-body"), "row-action").length).toBe(1);
+	await leave(page);
+	await until("one row left in the card", () => runningRows(page).length === 1 && runningRows(again).length === 1);
+	// The last one ends: no card on either page, and four reports.
 	gate.release();
-	await until("the cards to go", () => runningCard(page) === undefined && runningCard(again) === undefined && reports(page).length === 5, 25_000);
+	await until("the cards to go", () => runningCard(page) === undefined && runningCard(again) === undefined && reports(page).length === 4, 25_000);
 }, 90_000);
+
+test("reminders on the details page: each with its cadence and next time, and Remove asks once before it removes", async () => {
+	const kept = await core.reminders!.add({ text: "Check the build and say only what broke, with the name of the test and the commit that broke it", every: "2h" });
+	await core.reminders!.add({ text: "Morning summary", daily: "08:00" });
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.$("menu-button").click();
+	await loaded(page);
+	expect(detailRows(page)[1]).toBe("Reminders | What rho checks on its own | 2");
+	await section(page, "Reminders");
+	await loaded(page);
+	const lines = () => detailRows(page).map((line) => line.replace(/ · next .*$/, (next) => (/^ · next (\d+ \w{3} )?\d\d:\d\d \| $/.test(next) ? " · next (time)" : next)));
+	expect(lines().sort()).toEqual([`${kept.text} | every 2h · next (time)`, "Morning summary | daily at 08:00 · next (time)"]);
+	expect(inside(page.$("details-body"), "row").every((row) => row.tag === "div")).toBe(true); // a reminder opens nothing
+	// The first tap asks; nothing is removed by it.
+	const remove = () => inside(page.$("details-body"), "row-line wrap").find((line) => line.textContent.includes("Morning summary"))!.all().find((node) => node.tag === "button")!;
+	expect([remove().textContent, remove().attrs["aria-label"]]).toEqual(["Remove", "Remove reminder: Morning summary"]);
+	await remove().click();
+	expect([remove().textContent, remove().className]).toEqual(["Remove now", "row-action sure"]);
+	expect((await core.reminders!.list()).length).toBe(2);
+	await remove().click();
+	await until("one reminder left", () => detailRows(page).length === 1);
+	expect((await core.reminders!.list()).map((item) => item.text)).toEqual([kept.text]);
+	await leave(page);
+	await page.$("menu-button").click();
+	await loaded(page);
+	expect(detailRows(page)[1]).toBe("Reminders | What rho checks on its own | 1");
+});
 
 test("a background command is a row too: its command, its time, a Stop; and how it ended is a report card", async () => {
 	faux.setResponses([
