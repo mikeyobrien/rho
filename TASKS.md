@@ -871,8 +871,16 @@ is used only through Claude Code.
       does not run it again, because a command may not be safe to run twice.
     - Checked: 4 tests in a real core running real shell commands, and one in a real second
       process killed with SIGKILL mid-command (`test/core.test.ts`): one report, the command's
-      mark written once. Not checked: a live model choosing to use it; the agent's own
-      commit with the hook, which is the case it was built for; the installed rho.
+      mark written once.
+    - Checked live, once, on Haiku through the Claude plan, in a scratch home (2026-11-12):
+      asked to run a 6-second command in the background, the model called
+      `background(start)` and its turn ended at 4.3 s; a second question ("12 times 12")
+      was answered "144" at 5.7 s while the command ran; the report arrived at 12.1 s
+      ("passed in 6 s"), once, and the model took a turn on it and checked the file the
+      command wrote. The model was told to use the tool: whether it chooses it unprompted
+      was not tried.
+    - Not checked: the agent's own commit with the hook, which is the case it was built
+      for; the installed rho; a job of minutes; what the model does with a failure report.
     - Found while building it, each fixed: a task's id is a number in SQLite, and stored as
       text it names no task (a stop then did nothing); a document's objects cannot be cloned
       or stored again as they are (plain copies are); and "idle" does not wait for a
