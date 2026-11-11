@@ -35,7 +35,9 @@ pushed to GitHub.
 
 Answered by the owner on 2026-11-11, and so no longer waiting:
 
-- Cloud delegates are tools on a host over SSH, with the brain on the phone (item 20b).
+- Cloud delegates keep the brain on the phone and run a worker's tools on a node. First
+  confirmed as plain SSH; later the same day the owner chose a daemon on each node that
+  sandboxes jobs and keeps them alive (item 20b).
 - Photos stay in 2.0. `CHANGELOG.md` no longer lists image input under "Not in 2.0".
 - Memory stays on the file provider for now (item 14).
 - Chrome's "Install app" works, by the owner's word. Whether the installed app opens
@@ -46,7 +48,8 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
 
 1. Item 20, delegates, once the criteria are confirmed.
 2. Item 20a, checks out of the agent's turn.
-3. Item 20b, delegates on a host. Its shape is confirmed.
+3. Item 20b, delegates on a node, with a daemon per node. Its shape is confirmed; the
+   first thing to find out is whether a tool can re-attach to a command after a restart.
 
 **Open, not ordered:**
 
@@ -727,8 +730,8 @@ is used only through Claude Code.
          does not let Termux read the load average, so memory and a count of rho's own
          running jobs are what the phone can check. The ceiling proposed for it is 1
          heavy job (one that runs the project's checks) or 2 light ones; not yet measured.
-       - A host (item 20b): ceiling from the host's cores and memory, read over SSH when
-         it is added and again by the probe before a start.
+       - A node (item 20b): ceiling from the node's cores and memory, reported by its
+         daemon when it is added and again before a start.
        - What counts as heavy is the open part: the agent could say so in the brief, or
          rho could learn it from what the job runs. Not designed.
     7. A minimum view of workers, in the page: every worker that is running, waiting or
@@ -815,34 +818,84 @@ is used only through Claude Code.
       checks at once on the phone.
     - It is also the proper answer to the timing tests that blocked three commits on
       2026-11-11 (see item 21d); they were loosened in the meantime.
-20b. Delegates on a host the person owns. **Not built, not designed in detail.** Asked by the
-    owner 2026-11-11 ("cloud delegates, with self hosted onboardings"). The shape below was
-    proposed and **the owner confirmed it the same day ("tools over ssh")**.
-    - Shape: the model loop and the durable record stay in rho on the phone. Only a worker's
-      tools (`read`, `write`, `edit`, `bash`) run on the host, over SSH. Losing the host
-      loses no state: the job pauses and the command in flight is treated as interrupted.
-      No model key or Claude login goes to the host.
+20b. Delegates on a node the person owns: ephemeral, remote, durable. **Not built.** Asked
+    by the owner 2026-11-11 ("cloud delegates, with self hosted onboardings"; then "a
+    mechanism for ephemeral remote delegations, that are durable"; then "what if we install
+    daemons on each node that handle the sandboxing"). The design below is the third shape
+    proposed that day and **the one the owner said yes to**. It replaces the first (tools
+    over plain SSH, no install on the host), which they had confirmed earlier; that one is
+    kept at the end as what was set aside and why.
+    - What the two words mean here. Ephemeral: a job's workspace on the node. It is made
+      for one job and removed when the job ends; the node keeps no rho state between jobs.
+      Durable: the job. Its brief, its conversation and its result are in rho's store on
+      the phone, as every conversation is.
+    - Unchanged from the first shape: the model loop and the durable record stay in rho on
+      the phone. A node runs a worker's tools and never talks to a model. No model key or
+      Claude login goes to a node.
+    - **A daemon on each node.** The same program as rho in a second mode (`rho node`, the
+      name is not settled), so there is one codebase and one installer. It does five things:
+      1. Sandbox: it starts each job in a sandbox it controls, so a worker's commands reach
+         the job's workspace and not the rest of the account.
+      2. Jobs that outlive the connection: it owns each running command, its output and its
+         exit code. The phone may sleep or lose the link; rho asks for the job again by id
+         and gets what happened. A command already running is collected, never run twice.
+      3. Cleanup: it removes a workspace when its job ends, and after a time limit when rho
+         never comes back for it.
+      4. Capacity: it reports the node's cores, memory and running jobs, which is the live
+         number the cap in item 20 criterion 6 needs.
+      5. Secrets: what a job needs on the node (a registry token) is held there by the
+         person, so rho copies no key to a node. Not designed further.
+    - Work is saved to git as it goes: after each step the workspace is committed to a job
+      ref that rho fetches. A node lost for good costs the step in flight, not the job.
+    - What durable promises, as acceptance criteria:
+      1. The phone killed or asleep mid-job: the job goes on where it was at the next start.
+      2. The link drops: the job shows "waiting for the node" and goes on when it is back.
+      3. The node lost for good: the job can be started again on another node, or on the
+         phone, from the last saved ref.
+      4. Exactly one report in every case.
+    - Transport: the daemon listens on loopback only and rho reaches it through SSH, so the
+      rule "loopback only, token always" holds on a node too and the person's SSH keys are
+      the only credential between machines.
+    - Sandbox, simplest first: `bwrap` on Linux, which needs no root: the job sees its
+      workspace, and has no network unless the job is given it. A container is the heavier
+      choice. Not looked at: macOS (the owner's Mac), and Termux, where the phone as a node
+      may have no sandbox at all.
     - It reverses a decision: on 2026-11-10 the owner decided the phone agent has no hard
       dependency on other compute. So a host is optional: with none registered, a delegate
       runs on the phone (item 20).
-    - Needs: (1) a remote tool environment: pi-durable's `HarnessOptions.env` chooses where a
-      conversation's tools run, and today it is always `NodeExecutionEnv` on the phone; what
-      an SSH one takes was not looked at; (2) a workspace per job on the host, on a branch,
-      with the work coming back as git refs rho fetches, not through a forge; (3) the guard
-      rethought: its rules protect rho's data on the phone, and on a host what the worker
-      can reach is a question of the user or container it runs as; (4) lifecycle: a probe
-      before use, one job per host, cleaning old workspaces, "waiting for host".
-    - Onboarding wanted: one command, `rho host add <name>`, that tests SSH, checks git and
-      the toolchain, makes the workspace directory, runs one trivial job and saves the host.
-      The host needs no rho install and no inbound port. The list of hosts is the person's
-      to edit, not one of the settings the agent may propose.
-    - Not chosen: a full rho on the host. It runs with the phone off, but needs model
-      credentials there, a second install to keep in step, and two stores.
+    - What rho needs on the phone: a remote tool environment. pi-durable's
+      `HarnessOptions.env` chooses where a conversation's tools run, and today it is always
+      `NodeExecutionEnv` on the phone. The contract (`ExecutionEnv`, read 2026-11-11) is
+      about 25 file operations and one `exec`; a remote one speaks to the daemon.
+      **Not checked: whether pi-durable lets a tool take up a command again after a
+      restart.** Today an interrupted `bash` is never run again and its output is lost. If
+      a tool cannot re-attach, criterion 1 needs another way, and that is the first thing
+      to find out.
+    - Onboarding wanted: one command, `rho host add <name>`, that installs the daemon over
+      SSH, starts it as a user service, reads the node's capacity, runs one trial job in a
+      sandbox and saves the node. No inbound port is opened. The list of nodes is the
+      person's to edit, not one of the settings the agent may propose.
+    - What the daemon costs: every node has to be updated when rho changes, and versions
+      can drift apart, so the two ends need a version check. A program that runs commands
+      on request is a target: loopback and SSH keep it off the network, and a job that gets
+      out of its sandbox could still talk to it. It is a second program with its own
+      protocol and tests, a larger build than the first shape.
+    - The guard, on a node: its rules protect rho's data on the phone. On a node the sandbox
+      is what bounds a worker, and the rules for what waits for the person's yes (a push, a
+      publish) still apply to what the worker asks to run.
+    - Set aside: (a) tools over plain SSH with nothing installed on the host. Simpler, and
+      it left three questions open that the daemon answers: nothing bounded a worker's
+      commands, nothing kept a command alive across a dropped link, nothing cleaned up.
+      (b) A full rho on the host: it runs with the phone off, but needs model credentials
+      there and two stores to keep in step.
+    - Seen on the owner's Linux machine 2026-11-11: `bwrap`, Docker (their user is in the
+      docker group), `systemd-run`, unprivileged user namespaces on, lingering on, 16
+      cores, 61 GB of memory with 12 GB free. No `bun` on its SSH path, so the installer
+      has to bring its own.
     - Reference, unproven by the owner's own word: pi-dobo's `docs/compute.md` on their Linux
       machine (2,405 lines; only its first 45 lines and its headings were read).
-    - Seen 2026-11-11: that machine has git and the `claude` command, and `bun` is not on
-      its SSH path, so rho's own checks could not run there as it stands.
-    - Order: item 20 first; this is the same tool with another place to run.
+    - Order: item 20 first. The daemon's job interface can be the one a local delegate
+      already has, with the phone as the first place to run.
 21. A terminal client over the same API.
 21a. A decider: a second, small model that classifies each shell command. **Shadow only**,
     built 2026-11-11 (`src/decider.ts`, `test/decider.test.ts`, `rho decisions`). Off unless
@@ -1080,7 +1133,8 @@ principles as a store (rho has `AGENTS.md`; skills come after 2.0), the phone ap
   dependency on other compute. Items 20b and 21a both press on this.
 - DECIDED 2026-11-11, by the owner: notifications are built for Android first.
 - DECIDED 2026-11-11, by the owner: photos stay in 2.0; memory stays on the file provider
-  for now; delegates on a host run their tools over SSH with the brain on the phone.
+  for now; delegates on a node keep the brain on the phone, and each node runs a daemon
+  that sandboxes jobs and keeps them alive across a lost connection (item 20b).
 - DECIDED 2026-11-11, by the agent, the owner having left it to the agent: the decider is
   not turned on for now (item 21a says when it would be).
 - Settled by what was built, not by a stated decision: `web_search` uses Exa's key-less
