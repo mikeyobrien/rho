@@ -1,6 +1,7 @@
 // The `delegate` tool: the agent hands a whole job to a worker and is free at once. The worker
-// is a second agent in a conversation of its own, with the same model, tools, guard and working
-// directory. It starts from a brief and nothing else: it does not see the thread it came from.
+// is a second agent in a conversation of its own, with the same tools, guard and working
+// directory, and the same model and thinking unless the agent picks others for the job (guided
+// by the person's model preferences, which the tool reads as they stand at the handoff). It starts from a brief and nothing else: it does not see the thread it came from.
 // When it ends, what it reports reaches that thread once, as a message the person did not write.
 //
 // Where workers run is a "place". Today there is one, this machine. Each place has a cap, and
@@ -40,6 +41,11 @@ export type Worker = {
 	told?: string[];
 	/** Its work is over and its report is being written. */
 	reporting?: boolean;
+	/** What it runs on, `provider/id`, and its thinking level. Absent on a record older than the choice. */
+	model?: string;
+	thinking?: string;
+	/** The agent chose the model or the thinking for this job; otherwise they are the asking conversation's. */
+	picked?: boolean;
 };
 type Book = { workers: Worker[]; seq: number };
 export const Workers = defineDoc<Book>({ kind: "rho.workers", version: 1, scope: "session", initial: () => ({ workers: [], seq: 0 }), checkpointWhen: () => true });
@@ -75,7 +81,7 @@ type State =
 	/** The worker stopped at commands that need the person's yes: these wait on cards in the thread that asked. */
 	| { phase: "ask"; round: number; commands: string[] }
 	| { phase: "report"; outcome: "done" | "partial" | "failed"; text: string };
-type Input = { id: string; title: string; brief: string; from: string | number; maxTurns: number; /** The asking conversation's model, thinking, directory and instructions at the handoff. */ agent: { model?: { provider: string; modelId: string }; thinking?: string; cwd?: string; instructions?: string } };
+type Input = { id: string; title: string; brief: string; from: string | number; maxTurns: number; /** The model and thinking the worker runs on (the agent's pick, else the asking conversation's), and that conversation's directory and instructions at the handoff. */ agent: { model?: { provider: string; modelId: string }; thinking?: string; cwd?: string; instructions?: string } };
 
 const BRIEF_HEAD =
 	"You are a worker. Another agent handed you this job and is not watching; the person is not here either. Do the whole job yourself: read, change, run and check as it needs. " +
@@ -101,6 +107,10 @@ export interface DelegateOptions {
 	deliver?: (worker: Worker, text: string) => Promise<void>;
 	/** What a worker is doing and has lately done, in lines for the agent. */
 	peek?: (worker: Worker) => Promise<string>;
+	/** The person's model preferences as they stand now, one a line. None when there is no such list. */
+	preferences?: () => Promise<string[]>;
+	/** Shown each handoff made while preferences exist, to log it and what a checker says. It must return at once; what it throws is dropped. */
+	checkPick?: (pick: { worker: string; conversation: string; title: string; brief: string; model: string; thinking?: string; picked: boolean; asked?: string; preferences: string[] }) => void;
 	/** Told after every change to the workers' records, so a page can show it. A cache: a restart reads the records. */
 	changed?: () => void;
 }
@@ -238,23 +248,34 @@ export function delegateTool(options: DelegateOptions): Extension {
 
 	const tellText = (text: string): string => `From the agent that handed you this job: ${text}\n(Take this into account and go on. End, as before, with your report: DONE, PARTIAL or FAILED first.)`;
 	const span = (ms: number): string => (ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.floor(ms / 60_000)} min`);
-	const line = (worker: Worker): string => `[${worker.id}] ${worker.status}${worker.status === "working" && worker.startedAt ? ` for ${span(now() - worker.startedAt)}` : worker.status === "waiting" ? " for a slot" : worker.status === "asking" ? " (needs the person's yes)" : ""} (${worker.place}): ${worker.title}`;
+	const line = (worker: Worker): string => `[${worker.id}] ${worker.status}${worker.status === "working" && worker.startedAt ? ` for ${span(now() - worker.startedAt)}` : worker.status === "waiting" ? " for a slot" : worker.status === "asking" ? " (needs the person's yes)" : ""} (${worker.place}${worker.model ? `, ${worker.model}${worker.picked && worker.thinking ? `, thinking ${worker.thinking}` : ""}` : ""}): ${worker.title}`;
+	const LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+	const nameOf = (model: { provider: string; id: string }): string => `${model.provider}/${model.id}`;
+	const preferences = async (): Promise<string[]> => (await options.preferences?.().catch(() => [])) ?? [];
 	const tool: ToolRegistration<any, any> = defineTool({
 		name: "delegate",
 		description:
 			"Hand a whole job to a worker: a second agent with your tools and working directory, in its own thread. start {title, brief}: returns at once; the worker's report reaches you in a later message, once, so do not wait or poll. " +
 			"The worker sees only the brief, not this conversation: write what the person asked, what you already know, what the worker owns, what to check, and what to report back. " +
 			"Delegate a job that is long, stands alone and ends in a short result (run and fix the checks, a build, a change with its tests, 'find out X'). Do it yourself when it is a few steps, needs this conversation, or the person is waiting on the answer. " +
-			"Do not split a job, with a worker that reads and you writing: delegate it whole or not at all. list: workers and their status. stop {id}: end one. A job past the limit waits its turn. " +
+			"Do not split a job, with a worker that reads and you writing: delegate it whole or not at all. " +
+			"start also takes model (provider/id) and thinking (off, minimal, low, medium, high, xhigh, max): with neither, the worker runs as you do. Choose them by the person's model preferences and by nothing else; pick a costlier model than your own only when a preference says so. " +
+			"models: the person's preferences as they are now and the models that can be used; read it before you hand off a job if you have not in this conversation. " +
+			"list: workers and their status. stop {id}: end one. A job past the limit waits its turn. " +
 			"status {id}: what one is doing now, its last steps and latest words; for when the person asks how it is going, not a way to wait. " +
 			"tell {id, message}: give a working worker a correction or a new fact; it reads it at its next step and still reports once.",
-		parameters: obj({ action: oneOf(["start", "list", "stop", "status", "tell"]), title: opt(str()), brief: opt(str()), id: opt(str()), message: opt(str()) }),
+		parameters: obj({ action: oneOf(["start", "list", "stop", "status", "tell", "models"]), title: opt(str()), brief: opt(str()), id: opt(str()), message: opt(str()), model: opt(str()), thinking: opt(str()) }),
 		execute: async (args, api, context: Context) => {
 			const book = async (): Promise<Book> => (await api.snapshot(Workers, context)) ?? { workers: [], seq: 0 };
 			if (args.action === "list") {
 				const workers = (await book()).workers;
 				const shown = [...workers.filter(live), ...workers.filter((worker) => !live(worker)).slice(-5).reverse()];
 				return { output: [{ type: "text", text: shown.length === 0 ? "No workers." : shown.map(line).join("\n") }] };
+			}
+			if (args.action === "models") {
+				const [wanted, known, mine] = [await preferences(), (await api.models.getAvailable()).map(nameOf), await api.agent(context)];
+				const own = mine.model ? `${mine.model.provider}/${mine.model.modelId}` : "";
+				return { output: [{ type: "text", text: `The person's model preferences:\n${wanted.length === 0 ? "(none yet: a worker runs as you do. When the person says which model suits which work, save it to memory in the models list.)" : wanted.map((entry) => `- ${entry}`).join("\n")}\n\nModels that can be used:\n${known.map((name) => `- ${name}${name === own ? " (yours)" : ""}`).join("\n") || "(none)"}\n\nYou run on ${own || "no model"}, thinking ${mine.thinkingLevel}. With no model and no thinking given, a worker does too.` }] };
 			}
 			if (args.action === "status") {
 				const worker = (await book()).workers.find((candidate) => candidate.id === args.id);
@@ -298,7 +319,26 @@ export function delegateTool(options: DelegateOptions): Extension {
 			if (brief.length < 40) throw new Error("brief is required, and a few words are not one. The worker sees nothing of this conversation: say what the person asked, what you know, what the worker owns, what to check, and what to report.");
 			if (brief.length > 20_000) throw new Error("That brief is too long (the most is 20,000 characters). Point the worker at files to read, do not paste them.");
 			const mine = await api.agent(context);
-			const agent: Input["agent"] = { ...(mine.model ? { model: { provider: mine.model.provider, modelId: mine.model.modelId } } : {}), thinking: mine.thinkingLevel, ...(mine.cwd ? { cwd: mine.cwd } : {}), ...(mine.instructions ? { instructions: mine.instructions } : {}) };
+			// The agent's pick, checked before anything is started: a worker on a model that cannot answer would only fail later.
+			const wantedModel = (args.model ?? "").trim();
+			const wantedThinking = (args.thinking ?? "").trim().toLowerCase();
+			if (wantedThinking !== "" && !LEVELS.includes(wantedThinking)) throw new Error(`thinking is one of: ${LEVELS.join(", ")}. Got: ${wantedThinking}. Nothing was handed off.`);
+			let chosen: { provider: string; modelId: string } | undefined;
+			if (wantedModel !== "") {
+				const known = await api.models.getAvailable();
+				// Written provider/id; an id alone is taken when exactly one provider offers it.
+				const exact = known.filter((model) => nameOf(model) === wantedModel);
+				const found = exact.length > 0 ? exact : known.filter((model) => model.id === wantedModel);
+				if (found.length !== 1) throw new Error(`The model ${JSON.stringify(wantedModel)} ${found.length > 1 ? "is offered by more than one provider: write it provider/id" : "is not available"}. Nothing was handed off. Available: ${known.map(nameOf).join(", ") || "none"}. Leave model out to use your own.`);
+				chosen = { provider: found[0]!.provider, modelId: found[0]!.id };
+			}
+			const own = mine.model ? { provider: mine.model.provider, modelId: mine.model.modelId } : undefined;
+			const runs = chosen ?? own;
+			const runsOn = runs ? `${runs.provider}/${runs.modelId}` : "";
+			const level = wantedThinking || mine.thinkingLevel;
+			const picked = (chosen !== undefined && runsOn !== (own ? `${own.provider}/${own.modelId}` : "")) || (wantedThinking !== "" && wantedThinking !== mine.thinkingLevel);
+			const wanted = await preferences();
+			const agent: Input["agent"] = { ...(runs ? { model: runs } : {}), thinking: level, ...(mine.cwd ? { cwd: mine.cwd } : {}), ...(mine.instructions ? { instructions: mine.instructions } : {}) };
 			const started = await api.commit(async (tx) => {
 				const doc = await tx.doc(Workers);
 				const waiting = doc.workers.filter((worker) => worker.place === place.name && worker.status === "waiting").length;
@@ -306,14 +346,22 @@ export function delegateTool(options: DelegateOptions): Extension {
 				if (waiting >= 10) return { id: "", ahead: waiting, refused: true };
 				const id = `w${++doc.seq}`;
 				const task = await tx.createTask(Job, { id, title, brief, from: api.conversationId as unknown as string | number, maxTurns: options.maxTurns, agent }, { ownership: { kind: "conversation" }, conversationId: api.conversationId, background: true });
-				doc.workers = [...doc.workers.map(plain), { id, title, place: place.name, status: "waiting", from: String(api.conversationId), task: task as unknown as string | number, createdAt: now() }];
+				doc.workers = [...doc.workers.map(plain), { id, title, place: place.name, status: "waiting", from: String(api.conversationId), task: task as unknown as string | number, createdAt: now(), ...(runsOn ? { model: runsOn } : {}), ...(level ? { thinking: level } : {}), ...(picked ? { picked: true } : {}) }];
 				return { id, ahead: waiting + Math.max(0, working - place.ceiling + 1), refused: false };
 			}, context);
 			if (started.refused) throw new Error(`Ten jobs are already waiting. Wait for some to end, or stop one.`);
 			// Enough to judge the choice afterwards: what was handed off and how large the brief was.
-			log(`worker ${started.id}: handed "${title}" (brief ${brief.length} characters${started.ahead > 0 ? `, waits behind ${started.ahead}` : ""})`);
+			log(`worker ${started.id}: handed "${title}" (brief ${brief.length} characters, on ${runsOn || "no model"}${level ? ` thinking ${level}` : ""}, ${picked ? "picked for the job" : `the conversation's own${wanted.length > 0 ? `; nothing picked though ${wanted.length} model ${wanted.length === 1 ? "preference exists" : "preferences exist"}` : ""}`}${started.ahead > 0 ? `, waits behind ${started.ahead}` : ""})`);
 			changed();
-			return { output: [{ type: "text", text: `Worker ${started.id} has the job${started.ahead > 0 ? `, and waits for a slot behind ${started.ahead} (this place runs ${place.ceiling} at once)` : ""}. Its report reaches you in a later message; go on with other work or answer the person now. Do not wait for it or check on it.` }] };
+			// The pick is shown to a checker in shadow, when the person has given preferences. Not awaited: the handoff is already made.
+			if (wanted.length > 0) {
+				try {
+					options.checkPick?.({ worker: started.id, conversation: String(api.conversationId), title, brief, model: runsOn, ...(level ? { thinking: level } : {}), picked, ...(own ? { asked: `${own.provider}/${own.modelId}` } : {}), preferences: wanted });
+				} catch {
+					// the check is a courtesy; the job is the product
+				}
+			}
+			return { output: [{ type: "text", text: `Worker ${started.id} has the job${picked ? `, on ${runsOn}${wantedThinking ? ` with thinking ${level}` : ""}` : ""}${started.ahead > 0 ? `, and waits for a slot behind ${started.ahead} (this place runs ${place.ceiling} at once)` : ""}. Its report reaches you in a later message; go on with other work or answer the person now. Do not wait for it or check on it.${!picked && wanted.length > 0 ? ` It runs on ${runsOn}, as you do: the person has model preferences, and \`delegate models\` shows them for the next job.` : ""}` }] };
 		},
 	});
 	return defineExtension({ name: "delegate", tasks: [Job], tools: [tool] });

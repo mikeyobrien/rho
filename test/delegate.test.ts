@@ -7,6 +7,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { context, openCore, type Core } from "../src/core.ts";
 import { localPlace, Workers, type Worker } from "../src/tools/delegate.ts";
+import { describePicks, readPicks, readPickCheck, readVerdict } from "../src/picks.ts";
 import { entryView } from "../src/view.ts";
 
 // The real tool in a real core. One scripted model answers every conversation: it tells a worker
@@ -44,22 +45,28 @@ const said = (asked: TranscriptContext, signal?: AbortSignal) => ({
 	signal,
 	lastText: (() => { const last = asked.messages.at(-1); return typeof last?.content === "string" ? last.content : ((last?.content ?? []) as { type: string; text?: string }[]).map((part) => (part.type === "text" ? (part.text ?? "") : "")).join(""); })(),
 });
-async function open(options: { config?: object; worker?: (seen: ReturnType<typeof said>) => Reply | Promise<Reply>; main?: (seen: ReturnType<typeof said>) => Reply; free?: () => number; reuse?: string } = {}) {
+async function open(options: { models?: { id: string; reasoning?: boolean }[]; checker?: (seen: ReturnType<typeof said>) => Reply | Promise<Reply>; config?: object; worker?: (seen: ReturnType<typeof said>) => Reply | Promise<Reply>; main?: (seen: ReturnType<typeof said>) => Reply; free?: () => number; reuse?: string } = {}) {
 	const parent = options.reuse ?? realpathSync(mkdtempSync(join(tmpdir(), "rho-delegate-")));
 	if (!options.reuse) {
 		dirs.push(parent);
 		for (const made of ["data", "work"]) mkdirSync(join(parent, made));
 	}
 	const [dir, work] = [join(parent, "data"), join(parent, "work")];
-	const faux = fauxProvider();
+	const faux = fauxProvider(options.models ? { models: options.models } : {});
 	const models = createModels();
 	models.setProvider(faux.provider);
 	const logged: string[] = [];
+	/** Which model answered whom, and at what thinking level it was asked. */
+	const served: { who: "worker" | "checker" | "main"; model: string; reasoning?: string; text: string }[] = [];
 	// The main agent's script is a queue the test fills; a worker's replies come from `options.worker`.
 	const queue: Reply[] = [];
-	const answer = async (asked: TranscriptContext, sent?: { signal?: AbortSignal }): Promise<Reply> => {
+	const answer = async (asked: TranscriptContext, sent?: { signal?: AbortSignal; reasoning?: string }, _state?: unknown, by?: { id: string }): Promise<Reply> => {
 		const seen = said(asked, sent?.signal);
-		if (seen.firstText.startsWith("You are a worker.")) {
+		const who = seen.firstText.startsWith("You are a worker.") ? "worker" : seen.firstText.startsWith("The person's model preferences:") ? "checker" : "main";
+		served.push({ who, model: by?.id ?? "", ...(sent?.reasoning ? { reasoning: sent.reasoning } : {}), text: seen.firstText });
+		// The pick check's model: asked outside any conversation.
+		if (who === "checker") return (options.checker ?? (() => fauxAssistantMessage("FITS\nNothing forbids it.")))(seen);
+		if (who === "worker") {
 			return (options.worker ?? (() => fauxAssistantMessage("DONE\nFixed the typo and read the file back.")))(seen);
 		}
 		return options.main?.(seen) ?? queue.shift() ?? fauxAssistantMessage("(nothing scripted)");
@@ -86,7 +93,7 @@ async function open(options: { config?: object; worker?: (seen: ReturnType<typeo
 	};
 	/** The tools a worker's conversation offers its model. */
 	const toolsOf = async (worker: Worker) => (await (await core.harness.conversation(worker.conversation as never, context))!.agent(context)).tools.map((tool) => tool.name);
-	return { core, faux, queue, parent, dir, work, logged, entries, use, workers, reports, until, toolsOf };
+	return { core, faux, queue, parent, dir, work, logged, served, entries, use, workers, reports, until, toolsOf };
 }
 
 test("a job is handed off at once; the worker does it in its own thread and reports once, and the main thread stays free", async () => {
@@ -138,7 +145,7 @@ test("a job is handed off at once; the worker does it in its own thread and repo
 	expect(offered).toEqual(mine.filter((name) => !["delegate", "background", "settings", "reminder"].includes(name)));
 	expect(offered).toContain("bash");
 	// And the same working directory: its relative path was the main agent's.
-	expect(await t.use({ action: "list" }, "Listed.")).toBe("[w1] done (local): Fix the greeting typo");
+	expect(await t.use({ action: "list" }, "Listed.")).toMatch(/^\[w1\] done \(local, faux\/[^)]+\): Fix the greeting typo$/);
 }, 40_000);
 
 test("a worker is set up as the conversation that asked is now: its working directory, thinking and model", async () => {
@@ -199,7 +206,7 @@ test("the cap follows the place: past it a job waits its turn in order, and a pl
 	await t.use({ action: "start", title: "fourth", brief: BRIEF("NAME=d") });
 	await Bun.sleep(200);
 	expect((await t.workers()).map((item) => item.status)).toEqual(["working", "working", "waiting", "waiting"]);
-	expect(await t.use({ action: "list" }, "Listed.")).toMatch(/^\[w1\] working for \d+ s \(local\): first\n\[w2\] working for \d+ s \(local\): second\n\[w3\] waiting for a slot \(local\): third\n\[w4\] waiting for a slot \(local\): fourth$/);
+	expect(await t.use({ action: "list" }, "Listed.")).toMatch(/^\[w1\] working for \d+ s \(local, [^)]+\): first\n\[w2\] working for \d+ s \(local, [^)]+\): second\n\[w3\] waiting for a slot \(local, [^)]+\): third\n\[w4\] waiting for a slot \(local, [^)]+\): fourth$/);
 	// A slot opens: the one that waited longest takes it, not the newest.
 	t.queue.push(fauxAssistantMessage("Noted."));
 	await pass(gates, "a");
@@ -281,7 +288,7 @@ test("the agent can look at a worker and tell it something while it works; it re
 	await t.until("the worker to be held after its first step", () => gates.has("after-read"));
 	// Status: where it stands, the step it took and what came of it. It says not to wait on it.
 	const status = await t.use({ action: "status", id: "w1" }, "Looked.");
-	expect(status).toMatch(/^\[w1\] working for \d+ s \(local\): Check the greeting\nIts last 1 of 1 steps:\n- read hello\.txt: /);
+	expect(status).toMatch(/^\[w1\] working for \d+ s \(local, [^)]+\): Check the greeting\nIts last 1 of 1 steps:\n- read hello\.txt: /);
 	expect(status).toEndWith("Its report will reach you by itself: do not check again to wait for it.");
 	// Tell: the worker reads it at its next step.
 	expect(await t.use({ action: "tell", id: "w1", message: "use British spelling" }, "Told.")).toBe("Worker w1 will read that at its next step. It still reports once, when it ends.");
@@ -299,7 +306,7 @@ test("the agent can look at a worker and tell it something while it works; it re
 	expect((await t.entries()).some((entry) => entry.role === "user" && entry.text.includes("British"))).toBe(false);
 	// An ended worker: status still answers, without the line about waiting; a message is refused in words.
 	const after = await t.use({ action: "status", id: "w1" }, "Looked.");
-	expect(after).toStartWith("[w1] done (local): Check the greeting\nIts last 2 of 2 steps:\n- read hello.txt: ");
+	expect(after).toMatch(/^\[w1\] done \(local, [^)]+\): Check the greeting\nIts last 2 of 2 steps:\n- read hello\.txt: /);
 	expect(after).toContain("\n- bash cat hello.txt: ");
 	expect(after).toContain("Its latest words: DONE\nRead the file, and kept British spelling as told.");
 	expect(after).not.toContain("do not check again");
@@ -316,7 +323,7 @@ test("a worker that waits for a slot cannot be told, and says why", async () => 
 	await t.use({ action: "start", title: "second", brief: BRIEF("NAME=b") });
 	await t.until("the first to start", async () => (await t.workers())[0]!.status === "working");
 	expect(await t.use({ action: "tell", id: "w2", message: "also check the tests" }, "No.")).toContain("Worker w2 has not started: it waits for a slot.");
-	expect(await t.use({ action: "status", id: "w2" }, "Looked.")).toStartWith("[w2] waiting for a slot (local): second");
+	expect(await t.use({ action: "status", id: "w2" }, "Looked.")).toMatch(/^\[w2\] waiting for a slot \(local, [^)]+\): second/);
 	expect((await t.workers())[1]!.told).toBeUndefined();
 }, 40_000);
 
@@ -344,3 +351,175 @@ test("a worker's records survive a clean restart, and a waiting job starts after
 	expect((await second.workers()).map((item) => [item.title, item.status])).toEqual([["running", "done"], ["waiting", "done"]]);
 	expect((await second.reports())[1]).toContain("[worker w2] waiting\nIt reports done.");
 }, 60_000);
+
+// --- a model per job -------------------------------------------------------------------------
+
+const TWO = [{ id: "big" }, { id: "small", reasoning: true }];
+test("the agent picks a model and thinking for a job: the worker runs on them, and the list, the record and the log say so; with no pick nothing changes", async () => {
+	const t = await open({ models: TWO, config: { delegates: { max: 4 } } });
+	const told = await t.use({ action: "start", title: "Run the checks", brief: BRIEF(), model: "faux/small", thinking: "low" });
+	expect(told).toStartWith("Worker w1 has the job, on faux/small with thinking low. Its report reaches you in a later message");
+	await t.until("the report", async () => (await t.reports()).length === 1);
+	const [first] = await t.workers();
+	expect(first).toMatchObject({ id: "w1", status: "done", model: "faux/small", thinking: "low", picked: true });
+	const [mine, its] = [await t.core.root.agent(context), await (await t.core.harness.conversation(first!.conversation as never, context))!.agent(context)];
+	expect(its.model).toMatchObject({ provider: "faux", modelId: "small" });
+	expect(its.thinkingLevel).toBe("low");
+	expect(mine.model).toMatchObject({ provider: "faux", modelId: "big" }); // the conversation that asked is as it was
+	expect(mine.thinkingLevel).toBe("medium");
+	// The request itself went to the picked model, at the picked level.
+	expect(t.served.filter((call) => call.who === "worker").map((call) => [call.model, call.reasoning])).toEqual([["small", "low"]]);
+	expect(t.logged.find((line) => line.startsWith("worker w1: handed"))).toBe(`worker w1: handed "Run the checks" (brief ${BRIEF().trim().length} characters, on faux/small thinking low, picked for the job)`);
+	expect(await t.use({ action: "list" }, "Listed.")).toBe("[w1] done (local, faux/small, thinking low): Run the checks");
+	expect(await t.use({ action: "status", id: "w1" }, "Looked.")).toStartWith("[w1] done (local, faux/small, thinking low): Run the checks");
+	// No pick: the asking conversation's model and thinking, as before.
+	t.queue.length = 0;
+	expect(await t.use({ action: "start", title: "As I am", brief: BRIEF() })).toStartWith("Worker w2 has the job. Its report reaches you in a later message");
+	await t.until("the second report", async () => (await t.reports()).length === 2);
+	const second = (await t.workers())[1]!;
+	expect(second).toMatchObject({ model: "faux/big", thinking: "medium" });
+	expect(second.picked).toBeUndefined();
+	const plain = await (await t.core.harness.conversation(second.conversation as never, context))!.agent(context);
+	expect([plain.model, plain.thinkingLevel]).toEqual([mine.model, "medium"]);
+	expect(t.logged.find((line) => line.startsWith("worker w2: handed"))).toEndWith("on faux/big thinking medium, the conversation's own)");
+	expect(t.served.filter((call) => call.who === "worker").at(-1)!.model).toBe("big");
+	// Thinking alone is a pick too; a model may be named by its id when one provider offers it; its own model is no pick.
+	t.queue.length = 0;
+	expect(await t.use({ action: "start", title: "Think hard", brief: BRIEF(), thinking: "HIGH" })).toStartWith("Worker w3 has the job, on faux/big with thinking high.");
+	expect(await t.use({ action: "start", title: "By id", brief: BRIEF(), model: "small" })).toStartWith("Worker w4 has the job, on faux/small.");
+	expect(await t.use({ action: "start", title: "My own", brief: BRIEF(), model: "faux/big" })).toStartWith("Worker w5 has the job. Its report");
+	await t.until("all reports", async () => (await t.reports()).length === 5);
+	expect((await t.workers()).slice(2).map((worker) => [worker.model, worker.thinking, worker.picked])).toEqual([["faux/big", "high", true], ["faux/small", "medium", true], ["faux/big", "medium", undefined]]);
+	expect(t.served.some((call) => call.who === "checker")).toBe(false); // no preferences: nobody is asked about a pick
+	expect(readPicks(t.dir)).toEqual([]);
+}, 40_000);
+
+test("a model that cannot be used and a thinking level that does not exist are refused in words, and nothing is handed off", async () => {
+	const t = await open({ models: TWO });
+	const unknown = await t.use({ action: "start", title: "Run the checks", brief: BRIEF(), model: "faux/huge" });
+	expect(unknown).toContain('The model "faux/huge" is not available. Nothing was handed off. Available: faux/big, faux/small. Leave model out to use your own.');
+	expect(await t.use({ action: "start", title: "Run the checks", brief: BRIEF(), model: "other/small" })).toContain('The model "other/small" is not available.');
+	const level = await t.use({ action: "start", title: "Run the checks", brief: BRIEF(), thinking: "extreme" });
+	expect(level).toContain("thinking is one of: off, minimal, low, medium, high, xhigh, max. Got: extreme. Nothing was handed off.");
+	expect((await t.entries()).filter((entry) => entry.role === "tool").map((entry) => entry.error)).toEqual([true, true, true]);
+	expect(await t.workers()).toEqual([]);
+	expect(t.logged.some((line) => line.includes("handed"))).toBe(false);
+	// Every level that exists is taken.
+	for (const thinking of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) expect(await t.use({ action: "start", title: `at ${thinking}`, brief: BRIEF(), thinking })).toStartWith("Worker w");
+	await t.until("all reports", async () => (await t.reports()).length === 7);
+	expect((await t.workers()).map((worker) => worker.thinking)).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+}, 40_000);
+
+test("the agent is shown the person's preferences as they are now, with the models that can be used", async () => {
+	const t = await open({ models: TWO });
+	expect(await t.use({ action: "models" }, "Read.")).toBe("The person's model preferences:\n(none yet: a worker runs as you do. When the person says which model suits which work, save it to memory in the models list.)\n\nModels that can be used:\n- faux/big (yours)\n- faux/small\n\nYou run on faux/big, thinking medium. With no model and no thinking given, a worker does too.");
+	// Saved in this conversation, after its memory section was shown: the tool reads the list itself.
+	t.queue.push(fauxAssistantMessage(fauxToolCall("memory", { changes: [{ file: "models", action: "add", text: "Use small for running checks" }] }), { stopReason: "toolUse" }), fauxAssistantMessage("Saved."));
+	await (await t.core.root.submit({ type: "input", content: "Use small for running checks." }, context)).wait(context);
+	expect(await t.use({ action: "models" }, "Read.")).toStartWith("The person's model preferences:\n- Use small for running checks\n\nModels that can be used:");
+	// A handoff with nothing picked says so to the agent and in the log.
+	const told = await t.use({ action: "start", title: "Run the checks", brief: BRIEF() });
+	expect(told).toEndWith("It runs on faux/big, as you do: the person has model preferences, and `delegate models` shows them for the next job.");
+	expect(t.logged.find((line) => line.startsWith("worker w1: handed"))).toEndWith("on faux/big thinking medium, the conversation's own; nothing picked though 1 model preference exists)");
+	await t.until("the report", async () => (await t.reports()).length === 1);
+	await t.core.picksIdle!();
+}, 40_000);
+
+test("the pick check only watches: it logs fits, does not fit and no answer, and a handoff is never delayed or failed by it", async () => {
+	const gates = new Map<string, () => void>();
+	const asked: string[] = [];
+	const t = await open({
+		models: TWO,
+		config: { delegates: { max: 6, check: { model: "faux/small", timeoutMs: 2_500 } } },
+		checker: async (seen) => {
+			asked.push(seen.firstText);
+			const kind = /KIND=(\w+)/.exec(seen.firstText)![1]!;
+			if (kind === "fits") return fauxAssistantMessage("FITS\nThe person wants small for checks.");
+			if (kind === "misfit" || kind === "unpicked") return fauxAssistantMessage("Does not fit. The person said small for checks, and this runs on big.");
+			if (kind === "mumbles") return fauxAssistantMessage("It depends on what you mean.");
+			if (kind === "errors") return fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded" });
+			await hold(gates, "checker", seen.signal).catch(() => undefined); // never answers
+			return fauxAssistantMessage("FITS\ntoo late");
+		},
+	});
+	// No preferences yet: the checker is not asked and nothing is logged.
+	await t.use({ action: "start", title: "Before any preference", brief: BRIEF("KIND=fits"), model: "faux/small" });
+	await t.until("the first report", async () => (await t.reports()).length === 1);
+	await t.core.picksIdle!();
+	expect([asked.length, existsSync(join(t.dir, "picks.jsonl"))]).toEqual([0, false]);
+	mkdirSync(join(t.dir, "memory"), { recursive: true });
+	writeFileSync(join(t.dir, "memory", "models.md"), "- Use small for running checks\n- Never big for chores\n");
+	t.queue.length = 0;
+	await t.use({ action: "start", title: "Run the checks", brief: BRIEF("KIND=fits"), model: "faux/small", thinking: "low" });
+	await t.use({ action: "start", title: "Run the checks again", brief: BRIEF("KIND=misfit"), thinking: "high" });
+	await t.use({ action: "start", title: "Nothing picked", brief: BRIEF("KIND=unpicked") });
+	await t.use({ action: "start", title: "A vague checker", brief: BRIEF("KIND=mumbles"), model: "faux/small" });
+	await t.use({ action: "start", title: "A failing checker", brief: BRIEF("KIND=errors"), model: "faux/small" });
+	// A checker that never answers: the tool has returned and the worker has reported while it still hangs.
+	const told = await t.use({ action: "start", title: "A silent checker", brief: BRIEF("KIND=silent"), model: "faux/small" });
+	expect(told).toStartWith("Worker w7 has the job, on faux/small.");
+	await t.until("every report", async () => (await t.reports()).length === 7);
+	expect((await t.workers()).map((worker) => worker.status)).toEqual(Array.from({ length: 7 }, () => "done"));
+	// The job is done and reported while its check is still unanswered and unlogged.
+	expect([gates.has("checker"), readPicks(t.dir).some((line) => line.worker === "w7")]).toEqual([true, false]);
+	await t.core.picksIdle!();
+	const lines = readPicks(t.dir);
+	expect(lines.map((line) => [line.worker, line.model, line.thinking, line.picked, line.fits, line.error])).toEqual([
+		["w2", "faux/small", "low", true, true, undefined],
+		["w3", "faux/big", "high", true, false, undefined],
+		["w4", "faux/big", "medium", false, false, undefined], // preferences exist and nothing was picked: logged too
+		["w5", "faux/small", "medium", true, undefined, "the answer was neither FITS nor DOES NOT FIT"],
+		["w6", "faux/small", "medium", true, undefined, "overloaded"],
+		["w7", "faux/small", "medium", true, undefined, "no answer in 2500 ms"],
+	]);
+	expect(lines[0]).toMatchObject({ mode: "shadow", checker: "faux/small", why: "The person wants small for checks.", asked: "faux/big", title: "Run the checks", preferences: ["Use small for running checks", "Never big for chores"], briefSize: BRIEF("KIND=fits").length });
+	expect(lines[1]!.why).toBe("The person said small for checks, and this runs on big.");
+	expect(JSON.stringify(lines)).not.toContain("greeting file"); // the brief itself is not kept
+	// What the checker was shown: the preferences, the job, the model, and nothing of the conversation.
+	expect(asked[0]).toContain("The person's model preferences:\n- Use small for running checks\n- Never big for chores\n\nThe job's title: Run the checks\n\nThe job's brief:\n");
+	expect(asked[0]).toContain("The worker runs on: faux/small, thinking low. The assistant chose this for the job.\n\nThe assistant's own model: faux/big");
+	expect(asked[2]).toContain("The worker runs on: faux/big, thinking medium. The assistant chose nothing: this is its own model.");
+	expect(t.served.filter((call) => call.who === "checker").every((call) => call.model === "small")).toBe(true);
+	expect(describePicks(lines, 2)).toBe("6 handoffs seen in shadow: nothing was blocked or changed. 5 chose a model or thinking; 1 ran as the conversation that asked.\nThe checker said fits for 1, does not fit for 2 (1 of those with nothing chosen), and gave no answer for 3.\nno answer (overloaded) · faux/small medium · A failing checker\nno answer (no answer in 2500 ms) · faux/small medium · A silent checker");
+	// A checker that fails costs one line of rho's log, however often it fails.
+	expect(t.logged.filter((line) => line.startsWith("picks: no answer from faux/small")).length).toBe(1);
+}, 60_000);
+
+test("the pick check can be turned off, and one that cannot be used logs the pick without a verdict and says so once", async () => {
+	const prefs = (t: { dir: string }) => (mkdirSync(join(t.dir, "memory"), { recursive: true }), writeFileSync(join(t.dir, "memory", "models.md"), "- Use small for running checks\n"));
+	// The default checker is Claude on the plan, which this scratch rho does not have.
+	const t = await open({ models: TWO });
+	prefs(t);
+	await t.use({ action: "start", title: "One", brief: BRIEF(), model: "faux/small" });
+	await t.use({ action: "start", title: "Two", brief: BRIEF(), model: "faux/small" });
+	await t.until("both reports", async () => (await t.reports()).length === 2);
+	await t.core.picksIdle!();
+	expect(readPicks(t.dir).map((line) => [line.worker, line.fits, line.checker, line.error])).toEqual([["w1", undefined, undefined, "the checker is not available"], ["w2", undefined, undefined, "the checker is not available"]]);
+	expect(t.logged.filter((line) => line.startsWith("picks: the checker claude-code/claude-haiku-5-5 cannot be used")).length).toBe(1);
+	expect(t.served.some((call) => call.who === "checker")).toBe(false);
+	// Off: no check, no log, and the job is handed off as ever.
+	const off = await open({ models: TWO, config: { delegates: { check: false } } });
+	prefs(off);
+	expect(off.core.picksIdle).toBeUndefined();
+	await off.use({ action: "start", title: "One", brief: BRIEF(), model: "faux/small" });
+	await off.until("the report", async () => (await off.reports()).length === 1);
+	expect(existsSync(join(off.dir, "picks.jsonl"))).toBe(false);
+	expect(off.served.some((call) => call.who === "checker")).toBe(false);
+}, 40_000);
+
+test("the pick check's setting and the checker's words", () => {
+	expect(readPickCheck(undefined)).toEqual({ model: "claude-code/claude-haiku-5-5", timeoutMs: 30_000 });
+	expect(readPickCheck(false)).toBeUndefined();
+	expect(readPickCheck("off")).toBeUndefined();
+	expect(readPickCheck("local/tiny")).toEqual({ model: "local/tiny", timeoutMs: 30_000 });
+	expect(readPickCheck({ model: "local/tiny", timeoutMs: 5_000 })).toEqual({ model: "local/tiny", timeoutMs: 5_000 });
+	const said: string[] = [];
+	expect(readPickCheck({ model: "tiny", timeoutMs: 5 }, (line) => said.push(line))).toEqual({ model: "claude-code/claude-haiku-5-5", timeoutMs: 30_000 });
+	expect(said).toEqual(["picks: delegates.check names no model (provider/model); claude-code/claude-haiku-5-5 is asked."]);
+	expect(readVerdict("FITS\nHaiku is what they asked for.")).toEqual({ fits: true, why: "Haiku is what they asked for." });
+	expect(readVerdict("**Does not fit.** They said never Opus.")).toEqual({ fits: false, why: "** They said never Opus." });
+	expect(readVerdict("DOESN'T FIT: too costly")).toEqual({ fits: false, why: "too costly" });
+	expect(readVerdict("It fits, I think")).toBeUndefined();
+	expect(readVerdict("")).toBeUndefined();
+	expect(describePicks([])).toStartWith("No picks yet.");
+});

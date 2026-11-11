@@ -210,7 +210,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			const views: WorkerView[] = [];
 			for (const worker of shown) {
 				const step = await stepOf(worker).catch(() => undefined);
-				views.push({ id: worker.id, title: worker.title, place: worker.place, status: worker.status, createdAt: worker.createdAt, ...(worker.startedAt ? { startedAt: worker.startedAt } : {}), ...(worker.endedAt ? { endedAt: worker.endedAt } : {}), ...(worker.conversation !== undefined ? { conversation: String(worker.conversation) } : {}), ...(step ? { step } : {}) });
+				views.push({ id: worker.id, title: worker.title, place: worker.place, status: worker.status, createdAt: worker.createdAt, ...(worker.startedAt ? { startedAt: worker.startedAt } : {}), ...(worker.endedAt ? { endedAt: worker.endedAt } : {}), ...(worker.conversation !== undefined ? { conversation: String(worker.conversation) } : {}), ...(worker.model ? { model: worker.model } : {}), ...(worker.picked ? { picked: true } : {}), ...(step ? { step } : {}) });
 			}
 			return { workers: views };
 		};
@@ -402,7 +402,7 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			checked.clear();
 			return { ...(await setupOf(models, model)), available: (await models.getAvailable()).length };
 		},
-		"GET /api/workers": async () => ({ items: (await core.workers.list()).map(({ id, title, place, status, from, createdAt, startedAt, endedAt }) => ({ id, title, place, status, from, createdAt, startedAt, endedAt })) }),
+		"GET /api/workers": async () => ({ items: (await core.workers.list()).map(({ id, title, place, status, from, createdAt, startedAt, endedAt, model }) => ({ id, title, place, status, from, createdAt, startedAt, endedAt, model })) }),
 		"POST /api/workers/stop": async (request) => {
 			const { id } = await bodyOf(request);
 			if (typeof id !== "string") throw new Refusal(400, "id is required.");

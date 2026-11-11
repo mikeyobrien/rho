@@ -527,7 +527,7 @@ export function start(env) {
 		const now = env.now?.() ?? Date.now();
 		const ended = worker.endedAt !== undefined;
 		const span = worker.startedAt === undefined ? "" : ` · ${clock(Math.max(0, (worker.endedAt ?? now) - worker.startedAt))}`;
-		return `${WORKER_WORDS[worker.status] ?? worker.status}${span} · ${worker.place}${!ended && worker.step ? ` · ${worker.step}` : ""}`;
+		return `${WORKER_WORDS[worker.status] ?? worker.status}${span} · ${worker.place}${worker.model ? ` · ${worker.model.slice(worker.model.indexOf("/") + 1)}` : ""}${!ended && worker.step ? ` · ${worker.step}` : ""}`;
 	}
 	function renderWorkers() {
 		const workers = state?.workers ?? [];

@@ -15,6 +15,7 @@ import { openDecider, readDecider } from "./decider.ts";
 import { entryView, textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { describeRelease } from "./gate.ts";
+import { openPicks, readPickCheck } from "./picks.ts";
 import { backgroundTool } from "./tools/background.ts";
 import { delegateTool, live as liveWorker, localPlace, Workers, type Worker } from "./tools/delegate.ts";
 import { commandCheck, guard, RELEASE, type Explain } from "./tools/guard.ts";
@@ -43,8 +44,8 @@ export interface RhoConfig {
 	decider?: unknown;
 	/** Notifications when rho needs a yes, a run fails or a report arrives. `false` turns them off. */
 	notifications?: boolean;
-	/** Workers the agent hands whole jobs to. `false` leaves the tool out. `max`: how many run at once here (default 2). `maxTurns`: a worker's step limit (default 60). */
-	delegates?: boolean | { max?: number; maxTurns?: number };
+	/** Workers the agent hands whole jobs to. `false` leaves the tool out. `max`: how many run at once here (default 2). `maxTurns`: a worker's step limit (default 60). `check`: the model asked, in shadow, whether a worker's model fits the person's preferences (default claude-code/claude-haiku-5-5 when it can be used); `false` turns that off. */
+	delegates?: boolean | { max?: number; maxTurns?: number; check?: unknown };
 	/** The `background` tool: a shell command run outside the agent's turn. `false` leaves it out. */
 	background?: boolean;
 	/** Check-ins (reminders rho runs unattended). `false` turns them off. */
@@ -120,6 +121,8 @@ export interface Core {
 	harness: Harness;
 	/** Resolves when the decider has logged every command it was shown; undefined when it is off. */
 	deciderIdle?: () => Promise<void>;
+	/** Resolves when every pick shown to the pick check has been logged; undefined when it is off. */
+	picksIdle?: () => Promise<void>;
 	/** The reminder book; undefined when check-ins are off. */
 	reminders?: { list(): Promise<Reminder[]>; add(spec: ReminderSpec): Promise<Reminder>; remove(id: string): Promise<Reminder | undefined>; stop(): Promise<boolean> };
 	/** The first conversation; it always exists. */
@@ -222,7 +225,10 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	if (config.background !== false) registry.install(tidy(backgroundTool({ check: (args, api, ctx) => commandCheck(options.dir)(args, api, ctx), noticeKind: NOTICE, stop: (task, ctx) => endTask(task as never, ctx), now, log })));
 	// A whole job handed to a worker: a second agent in its own conversation, which cannot delegate or start background commands.
 	const workers = typeof config.delegates === "object" && config.delegates !== null ? config.delegates : {};
-	if (config.delegates !== false) registry.install(tidy(delegateTool({ place: localPlace({ ...(Number.isInteger(workers.max) && workers.max! >= 1 ? { ceiling: workers.max! } : {}), ...(options.freeMemory ? { free: options.freeMemory } : {}) }), noticeKind: NOTICE, maxTurns: Number.isInteger(workers.maxTurns) && workers.maxTurns! >= 1 ? workers.maxTurns! : 60, withhold: ["background", "settings", "reminder"], stop: (task, ctx) => endTask(task as never, ctx), now, log, changed: () => workerListeners.forEach((listener) => listener()), peek: (worker) => peekWorker(worker), deliver: (worker, text) => deliverWorker(worker, text), ...(options.workerRetryMs ? { retryMs: options.workerRetryMs } : {}) })));
+	// Each handoff made while the person has model preferences is logged, with what a small model says of the pick. It watches; it blocks nothing.
+	const pickCheck = config.delegates === false || !memory?.preferences ? undefined : readPickCheck(workers.check, log);
+	const picks = pickCheck ? openPicks(pickCheck, options.dir, { models: options.models, now, log }) : undefined;
+	if (config.delegates !== false) registry.install(tidy(delegateTool({ ...(memory?.preferences ? { preferences: () => memory.preferences!() } : {}), ...(picks ? { checkPick: (pick) => picks.watch(pick) } : {}), place: localPlace({ ...(Number.isInteger(workers.max) && workers.max! >= 1 ? { ceiling: workers.max! } : {}), ...(options.freeMemory ? { free: options.freeMemory } : {}) }), noticeKind: NOTICE, maxTurns: Number.isInteger(workers.maxTurns) && workers.maxTurns! >= 1 ? workers.maxTurns! : 60, withhold: ["background", "settings", "reminder"], stop: (task, ctx) => endTask(task as never, ctx), now, log, changed: () => workerListeners.forEach((listener) => listener()), peek: (worker) => peekWorker(worker), deliver: (worker, text) => deliverWorker(worker, text), ...(options.workerRetryMs ? { retryMs: options.workerRetryMs } : {}) })));
 	// The person's standing instructions live beside rho's data, where the agent cannot rewrite them.
 	registry.install(projectExtension(home, { personal: join(options.dir, "AGENTS.md"), ...options.context }));
 	const harness = await Harness.open(
@@ -335,6 +341,7 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	return {
 		harness,
 		...(decider ? { deciderIdle: decider.idle } : {}),
+		...(picks ? { picksIdle: picks.idle } : {}),
 		reminders: reminders ? { list: reminders.list, add: reminders.add, remove: reminders.remove, stop: reminders.stop } : undefined,
 		root,
 		rootId,

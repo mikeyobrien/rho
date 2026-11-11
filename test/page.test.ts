@@ -684,7 +684,7 @@ test("a worker is listed with its step; its command that needs a yes shows a car
 	await page.send("publish it");
 	await gate.started;
 	// The row: the job, how it stands, how long, where, and the step it is on. The header counts it.
-	await until("the worker's row with its step", () => /^Publish the branch \| working · 0:\d\d · local · wait$/.test(rows(page)[0] ?? ""), 15_000);
+	await until("the worker's row with its step", () => /^Publish the branch \| working · 0:\d\d · local · faux-1 · wait$/.test(rows(page)[0] ?? ""), 15_000);
 	expect(page.$("workers").hidden).toBe(false);
 	await until("the main thread idle", () => idle(page));
 	expect(page.$("status").textContent).toEndWith(" · 1 worker");
@@ -712,7 +712,7 @@ test("a worker is listed with its step; its command that needs a yes shows a car
 	await page.$("show-workers").click();
 	expect(page.$("workers").hidden).toBe(false);
 	expect(page.$("show-workers").hidden).toBe(true);
-	expect(rows(page)[0]).toMatch(/^Publish the branch \| done · 0:\d\d · local$/);
+	expect(rows(page)[0]).toMatch(/^Publish the branch \| done · 0:\d\d · local · faux-1$/);
 	expect(workerRows(page)[0]!.all().some((node) => node.className === "worker-stop")).toBe(false);
 	await page.$("worker-summary").click();
 	expect(page.$("workers").hidden).toBe(true);
@@ -797,7 +797,7 @@ test("many workers cost one line: it counts them, opens to the live and the fail
 	expect(summary()).toStartWith("▾ 5 workers:");
 	expect(page.$("worker-summary").attrs["aria-expanded"]).toBe("true");
 	expect(rows(page).map((row) => row.split(" | ")[0]).sort()).toEqual(["Job fails", "Job held", "Job queued"]);
-	expect(rows(page).find((row) => row.startsWith("Job fails"))).toMatch(/^Job fails \| failed · 0:\d\d · local$/);
+	expect(rows(page).find((row) => row.startsWith("Job fails"))).toMatch(/^Job fails \| failed · 0:\d\d · local · faux-1$/);
 	const ended = () => (page.$("worker-list").children as El[]).flatMap((row) => row.all()).find((node) => node.className === "worker-ended")!;
 	expect(ended().textContent).toBe("▸ 2 ended");
 	expect(workerRows(page).filter((row) => row.all().some((node) => node.className === "worker-stop")).length).toBe(2); // only the live ones can be stopped

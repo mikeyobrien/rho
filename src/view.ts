@@ -26,6 +26,9 @@ export interface WorkerView {
 	title: string;
 	/** Where it runs. */
 	place: string;
+	/** The model it runs on, `provider/id`, and whether the agent chose it for the job. */
+	model?: string;
+	picked?: boolean;
 	status: "waiting" | "working" | "asking" | "done" | "partial" | "failed" | "stopped";
 	createdAt: number;
 	startedAt?: number;
