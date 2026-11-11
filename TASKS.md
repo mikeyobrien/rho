@@ -973,13 +973,35 @@ is used only through Claude Code.
         preferences; off, and a checker that cannot be used; the setting and the verdict
         parser. The page tests assert the model on the row. The whole check passed three
         times (253 tests).
-      - Not checked: any live model. In particular the default checker goes through the
-        Claude Code CLI as a one-message request with rho's own system prompt and no
-        session: that it answers, and that it is billed to the plan, has not been seen
-        (the AGENTS.md rule on Claude requests asks for that live check before it is relied
-        on). Whether a real agent reads `delegate models` unprompted and picks sensibly.
-        A thinking level a picked model does not support (it is passed on as given). A kill
-        while a check is in flight loses that line, by design. A real browser.
+      - Checked live by the main agent, once, on Haiku through the Claude plan, in a scratch
+        home (2026-11-12). Told "run writing jobs on Sonnet 4.6", the agent saved one line to
+        `models` and said so. Asked to hand off a two-line poem, it called `delegate` with
+        Sonnet without being told which model; the worker's own thread shows
+        `claude-sonnet-4-6`, and the row and the log say picked. A second job (`echo hello`)
+        ran on the conversation's Haiku. Both picks were logged with a verdict and nothing
+        was delayed.
+      - The checker was wrong in that run (it called the unpicked Haiku job a misfit), and
+        on 8 hand-made picks with known answers it got 6. Its prompt was rewritten as three
+        ordered rules, and it now gives its reason first and the verdict on the last line
+        (`readVerdict` reads either order). After that: 16 of 16, the same 8 cases twice,
+        about 4 s each. Eight cases over two preferences is a small test.
+      - Billing of the checker's requests: not looked at directly. They are one-message
+        requests through the Claude Code CLI with rho's own system prompt and no session.
+        All answered; rho ends any request Claude Code reports as charged to usage credits,
+        and none was ended. The billing fields themselves were not read.
+      - **Open: a worker wrote outside its directory, once.** In that live run the worker's
+        `poem.txt` landed in the directory rho had been started from (the work checkout),
+        not in the conversation's configured directory, and a later `git add -A` by the main
+        agent committed it (removed in the next commit). Not reproduced: a second run, whose
+        brief named the directory in full, wrote to the right place, and so did the main
+        conversation. The first brief did not name it. Suspected, not shown: the Claude Code
+        CLI is started in rho's own process directory and tells the model that is its
+        working directory, beside rho's `<project cwd>` section, and a model given no path
+        may follow the CLI's. If so it is not specific to workers. Until it is understood, a
+        brief should name its directory.
+      - Not checked: whether a real agent reads `delegate models` unprompted. A thinking
+        level a picked model does not support (it is passed on as given). A kill while a
+        check is in flight loses that line, by design. A real browser.
       - Not built: enforcing the check or ending doubt in a card; preferences with Honcho;
         a model per check-in or per new conversation; a `settings` entry for
         `delegates.check` (it is set in `config.json`).
