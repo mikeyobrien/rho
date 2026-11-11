@@ -14,6 +14,9 @@ See [MIGRATION.md](MIGRATION.md).
 - Photos in a message: picked or pasted in the page, up to four, scaled to what a model takes.
 - A `background` tool: a shell command that runs outside rho's turn and reports how it
   ended. One at a time; the same rules as `bash`.
+- A `delegate` tool: rho hands a whole job to a worker in its own thread and stays free.
+  The page lists workers with their status and a Stop; a worker's command that needs your
+  yes shows its card in your thread.
 - Tool cards: three or more finished steps in a row fold into one row that says what they
   did; a failure and a step outside the working directory stay out. A running step shows
   how long it has run.
@@ -30,7 +33,7 @@ See [MIGRATION.md](MIGRATION.md).
 - The `rho` command: `open`, `start`, `stop`, `status`, `key`, `logs`, `service`, `release`,
   `version`.
 - Tools: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`, `web_search`,
-  `fetch_content`, `memory`, `reminder`, `settings`, `background`.
+  `fetch_content`, `memory`, `reminder`, `settings`, `background`, `delegate`.
 - Guard rails: actions that cannot be undone wait for approval; a turn limit per run.
 - Memory through a provider contract, with a local file provider and a Honcho provider.
   Memory failing never stops an answer.

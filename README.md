@@ -17,7 +17,8 @@ Rho 1 is on the `main` branch; see [MIGRATION.md](MIGRATION.md) if you use it.
   reboot, rho continues the answer or the tool call it was in.
 - **Works on code.** Tools: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`,
   `web_search`, `fetch_content`, and `background` for a command that takes a while: rho
-  starts it, stays free to talk, and is told how it ended. Each conversation has its own working directory.
+  starts it, stays free to talk, and is told how it ended. With `delegate` it hands a whole
+  job to a worker, a second agent in its own thread, and reports what the worker says. Each conversation has its own working directory.
 - **Sees photos.** Add up to four photos to a message with the + button, or paste a
   screenshot. Large ones are made smaller before they are sent to the model.
 - **Asks before what cannot be undone.** `git push`, publishing a package, and merging or
@@ -166,6 +167,7 @@ Rho cannot open this file. It can propose a change to `model`, `thinking`, `cwd`
 | `memory` | `{"kind": "file"}` (default), `{"kind": "honcho", "url": "...", "workspace": "...", "user": "...", "agent": "..."}`, or `{"kind": "off"}`. Honcho also takes `"apiKey"`, which is then stored in this file as plain text. |
 | `decider` | `{"baseUrl": "http://127.0.0.1:8098", "model": "clef-flash"}`: a decision model (the System One API) that labels each shell command with a type and a confidence. It only watches: nothing is blocked. Read its log with `rho decisions`. Default: off. |
 | `notifications` | `false` turns notifications off. See Notifications above. |
+| `delegates` | `false` turns workers off. `{"max": 2, "maxTurns": 60}` sets how many run at once and a worker's step limit. |
 | `checkins` | `false` turns reminders off. `{"maxTurns": 20}` sets the limit of one check-in. |
 | `providers` | Servers that speak the OpenAI chat API, such as a local model: `[{"id": "local", "baseUrl": "http://127.0.0.1:8080/v1", "models": ["model-name"]}]`. Add `"apiKeyEnv": "NAME"` if the server needs a key. |
 | `claudePlan` | `true` adds Claude through your Claude Code login. See below. |

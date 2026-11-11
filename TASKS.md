@@ -21,7 +21,7 @@ An index of the rest of this file. The record under each item number is the sour
 section only says what is open and in what order. Item numbers are kept as they were, also
 the awkward ones (20a, 21a to 21d), because commits and other items name them.
 
-As of 2026-11-11, late: the installed rho runs `2885f2f`, with notifications on. Nothing is
+As of 2026-11-12: the installed rho runs `7cb3e48`, with notifications on. Nothing is
 pushed to GitHub.
 
 **Waiting on the owner** (nothing here can move without them):
@@ -110,7 +110,10 @@ how it ended, and nothing yet brings a hand-started rho back up. Added since:
 - From before: a rollback under the real service, a reboot of the phone, a check-in's sleep
   of hours under Android's battery limits, any provider with an API key.
 
-**Built overnight (2026-11-11 to 12), not in the installed rho yet:** 21e, tool cards that
+**Built 2026-11-12, not in the installed rho yet:** item 20, delegates (`de2c6a6`), less
+its live check; a queued message of one long line no longer widens the page.
+
+**Built overnight (2026-11-11 to 12), released 2026-11-12 as `7cb3e48`:** 21e, tool cards that
 fold and a running step that shows its time; 20a, the `background` tool; a gate that died
 is settled at the next start; the two logs are bounded; a photo's metadata is always taken
 off. The fix to the guard's inode memory is in the same batch.
@@ -741,7 +744,8 @@ is used only through Claude Code.
     - Not built: sharing a photo to rho from another app; a waiting message's photos cannot be
       taken back into the composer (Remove says so); photos in a check-in or a notice.
 20. Delegates (was "subagents"): the agent hands a job to a worker in its own conversation
-    and the main thread is free at once. **Not built.** Asked for by the owner 2026-11-11
+    and the main thread is free at once. **Built 2026-11-12, not released** (what was
+    built and checked is at the end of this item). Asked for by the owner 2026-11-11
     ("how do we get your work off the main thread"); they said yes to building it.
     Acceptance criteria, second version. The owner read the first ten and changed three
     things (2026-11-11): remove "one at a time" for a cap that follows where the worker
@@ -840,7 +844,51 @@ is used only through Claude Code.
     - To learn the rule from use, log per delegate: the brief's size, steps and time taken,
       how it ended, and whether the person stopped it. A decision model (item 21a) could be
       tried on that log later; there is nothing to train or test one on today.
-    - Out of scope: a model per job; remote hosts (item 20b), which add places to the cap.
+    - Out of scope: remote hosts (item 20b), which add places to the cap. A model per job was
+      out of scope and is now wanted: see "A model per job" below.
+    - **Built** 2026-11-12, commit `de2c6a6` (`src/tools/delegate.ts`,
+      `test/delegate.test.ts`, and parts of `src/core.ts`, `src/http.ts`, `src/view.ts`,
+      `web/app.js`), by criterion:
+      1, 2, 3, 10: `delegate start {title, brief}` returns at once (under a second in the
+      test); the worker's steps stay in its own conversation; one `rho.notice` from
+      `worker` says done, partial or failed and carries the worker's report, marked as its
+      claim. A report that does not begin DONE, PARTIAL or FAILED is taken as partial.
+      4: tested by killing a real second process mid-step (`test/core.test.ts`): the next
+      process resumes the same worker, its interrupted step is not run again, one report.
+      5: a step limit (`delegates.maxTurns`, default 60); at it the report says so.
+      6: a cap per place. One place exists, `local`: a ceiling (`delegates.max`, default 2)
+      and no second worker started while free memory is under 600 MB. Past the cap a job
+      waits in order and is told so; ten waiting is the most. Heavy against light jobs is
+      not told apart, and the ceiling of 2 is not measured.
+      7: the page lists this conversation's workers that are live or ended in the last day:
+      job line, status, time, place, current step, Stop; the header counts live ones; a row
+      opens the worker's thread, which is read only (every change to it is refused, 403).
+      `StateView` gains `workers`, `workerThread` and `approvals[].worker`.
+      8 and choice C: a worker's command that needs a yes shows its card in the thread that
+      handed off the job, under the worker's name, and notifies. Allow or Deny is told to
+      the worker, which goes on; the main agent is not sent the answer.
+      9: the worker gets the asking conversation's model, thinking, directory and
+      instructions as they were at the handoff, and the same guard. It is not given
+      `delegate`, `background`, `settings` or `reminder`.
+      11: the tool's description says when to delegate and when not; each handoff, end and
+      stop is a line in rho's log with the brief's size. No separate log file.
+    - Checked: 6 tests in a real core, 1 real-kill test, 2 page tests on the stand-in DOM;
+      the whole check passed three times in a row (242 tests).
+    - Not checked: a live model (the Haiku run the proof asks for is not done); a real
+      browser; a notification from a worker's card on the phone; a kill while a worker
+      waits for a yes; two workers editing the same files (nothing prevents it).
+    - Not built: the agent can list and stop its workers and nothing more. It cannot send
+      one a message while it works, give an ended one a follow-up, or read what one is
+      doing (the owner asked 2026-11-12).
+    - Found while building: rho could not close while a test's fake model ignored the
+      request's abort signal. The engine waits for task code to return; a real provider
+      honours the signal. The fake now does.
+    - A model per job (owner, 2026-11-12): wanted, replacing choice A. Agreed shape, **not
+      built**: a `MODELS.md` beside the person's `AGENTS.md` in rho's data, plain English on
+      which model suits which work; its text is put before the agent with `delegate`, which
+      gains an optional `model`; with no file or no pick the worker uses the conversation's
+      model. It is guidance, not a lock. A decider model is to be shown each pick in shadow
+      first (it only logs), and may enforce later, with doubt ending in a card.
     - Where it starts: a check-in already is a task-owned conversation with a turn limit and
       one report (`src/checkins.ts`).
 20a. Checks out of the agent's turn: the `background` tool. **Built** 2026-11-11, overnight,
