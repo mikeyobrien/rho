@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { checkins as checkinFeature, type Reminder, type ReminderSpec } from "./checkins.ts";
 import { projectExtension, type ContextOptions } from "./context.ts";
 import { openDecider, readDecider } from "./decider.ts";
+import { replyCounter } from "./replies.ts";
 import { entryView, textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { describeRelease } from "./gate.ts";
@@ -62,7 +63,10 @@ export const INSTRUCTIONS =
 	"Keep answers short unless asked for depth. If something needs information or a tool you do not have, say so. " +
 	"Spend the person's attention only where it changes the outcome. A report is a claim, not a fact: check the result " +
 	"before you say it is done, and say done, partial or failed. Reversible work goes on; an action that cannot be undone " +
-	"(a delete, a send, a push, a purchase) waits for the person's yes.";
+	"(a delete, a send, a push, a purchase) waits for the person's yes. " +
+	// Asked by the owner 2026-11-12: a reply that ends in questions spends their attention. `src/replies.ts` counts whether this holds.
+	"Do not end a reply with questions. When a choice is open and can be undone, take the careful option, say in one line which you took, and go on. " +
+	"Ask only when a wrong guess could not be cheaply undone: then ask one thing, with what you would do by default, and with only as much background as the person does not already have from the last few messages.";
 
 /** `<dataDir>/config.json`. A file that does not parse is a log line, never a stop. */
 export function readConfig(dir: string, log: (line: string) => void = () => {}): RhoConfig {
@@ -215,6 +219,8 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	let persons: (id: string) => Promise<boolean> = async () => false;
 	const memory = options.memory === undefined ? openMemory(config, { dir: options.dir, log }) : (options.memory ?? undefined);
 	if (memory) registry.install(tidy(memoryExtension(memory, { log, capture: (id) => persons(id) })));
+	// One line per reply in the person's own conversations: did it end by asking them something.
+	registry.install(replyCounter(options.dir, { counts: (id) => persons(id), log, ...(options.clock ? { now: options.clock.now } : {}) }));
 	log(`memory: ${memory?.label ?? "off"}`);
 	const now = options.clock?.now ?? Date.now;
 	const reminders = config.checkins === false ? undefined : checkinFeature({ now, log, noticeKind: NOTICE, maxTurns: typeof config.checkins === "object" ? config.checkins.maxTurns : undefined });
@@ -322,7 +328,13 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	// A run is bounded, in every conversation, also when the setting changed since it was made.
 	for (const item of await listed()) {
 		const conversation = await find(item.id);
-		if (conversation && (await conversation.agent(context)).maxTurns !== maxTurns) await conversation.configure({ maxTurns }, context);
+		if (!conversation) continue;
+		const agent = await conversation.agent(context);
+		if (agent.maxTurns !== maxTurns) await conversation.configure({ maxTurns }, context);
+		// A conversation keeps the instructions it was made with. They are rho's own text, with no way
+		// for the person to set them per conversation, so a conversation made by an older rho takes
+		// the current text at start: a rule added later holds in the thread the person already has.
+		if (agent.instructions !== INSTRUCTIONS) await conversation.configure({ instructions: INSTRUCTIONS }, context);
 	}
 	// A conversation whose model cannot be used any more (its key is gone, its provider is off)
 	// moves to the model of new conversations, when that one can be used.

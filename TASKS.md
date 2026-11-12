@@ -21,8 +21,13 @@ An index of the rest of this file. The record under each item number is the sour
 section only says what is open and in what order. Item numbers are kept as they were, also
 the awkward ones (20a, 21a to 21d), because commits and other items name them.
 
-As of 2026-11-12: the installed rho runs `7cb3e48`, with notifications on. Nothing is
-pushed to GitHub.
+As of 2026-11-12: the installed rho runs `960d60a`, with notifications on. The branch is
+on GitHub since that day as `rho2` (`v2` cannot be a branch name there: a branch
+`v2/standalone-install` exists), first sent at `2e549c7` on the owner's yes, straight from
+the phone and not by the bundle route `RELEASE.md` describes. The repository is public.
+Before it was sent the history was searched for key-shaped strings, private files, and the
+owner's machine, network and account names: none found but `columba` as an example host in
+three test lines. Each later send is its own yes. No tag, no pull request, no npm.
 
 **Waiting on the owner** (nothing here can move without them):
 
@@ -673,7 +678,43 @@ is used only through Claude Code.
     "<your peer name>", "agent": <a peer name for rho>}`) and starts writing to that workspace.
     Not built: an external-module provider (dobo has one); migrating rho 1's `brain.jsonl`.
 15. Skills: `SKILL.md` directories listed in a prompt section and loaded with `read`.
-16. A question tool: the model asks the person a structured question and waits.
+16. Questions that spend the person's attention sparingly. Was "a question tool: the model
+    asks the person a structured question and waits"; the owner rejected that shape on
+    2026-11-12 (no batches of questions, no lettered menus; attention is the scarce thing;
+    a rate limit in code, because several workers can send far too many at once; the main
+    thread filters what workers ask). Worker w5 researched and designed it; its report is
+    in the conversation, and its table of sources was cut off by the report's length limit,
+    so how well the research is sourced is not known here.
+    - The design, in brief: one durable ledger of open items of kind question or change.
+      A budget in code over every source: 2 put to the person per sitting, 5 per day, 12
+      open (taken as starting numbers). A worker's question goes to the main agent with a
+      default and returns at once, so the worker goes on. The main agent may answer only
+      with a basis in the person's words, memory, a goal or an earlier answer, and each
+      such answer is listed ("Decided without you"). Irreversible things, money, anything
+      sent out and changes of scope are passed on. Approvals stay one yes each, grouped,
+      never "Allow all". Context by recency: bare under 15 minutes, one line of why the
+      same day, four lines when cold. Answer by a tap on the default, a reply, or not at
+      all. A change to review is a card of typed data (why, up to five rows, risk, what
+      was not checked; counts and test results filled in by code), with a link out to the
+      person's forge for the diff and their comments coming back as work. No diff viewer.
+    - **Step 1 built 2026-11-12** (`src/replies.ts`, `test/replies.test.ts`):
+      - Rho's instructions say: do not end a reply with questions; where a choice is open
+        and can be undone, take the careful option and say which; ask only when a wrong
+        guess could not be cheaply undone, one thing, with a default, and with only the
+        background the person lacks.
+      - A conversation made by an older rho takes the current instructions at start.
+        Before this a conversation kept the text it was made with for good.
+      - A counter: after each reply in one of the person's own conversations, one line in
+        `replies.jsonl` (time, conversation, length, questions in the reply, questions in
+        its closing paragraph; none of its words). Code, commands and quotations are not
+        counted. `rho replies [last]` reads it. It only counts.
+      - Checked: 3 tests, one in a real core with a worker whose own questions are not
+        counted. Not checked: any live model, so whether the instruction changes what a
+        model does is not known; the before-and-after run the design asks for is not done.
+        The count is by question marks, so a question without one is missed and a
+        rhetorical one is counted.
+    - Not built: the ledger, the budget, a worker's `ask`, the cards, the forge link,
+      comments coming back, grouped approvals, the measures.
 17. Notices through `termux-notification`: needs you, failed, a report. Not on done.
     **Built** 2026-11-11, Android first (`src/notify.ts`, `test/notify.test.ts`); **not yet
     seen on a phone**: the Termux:API app is not installed on the owner's.
