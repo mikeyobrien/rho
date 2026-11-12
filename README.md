@@ -20,7 +20,9 @@ Rho 1 is on the `main` branch; see [MIGRATION.md](MIGRATION.md) if you use it.
   starts it, stays free to talk, and is told how it ended. With `delegate` it hands a whole
   job to a worker, a second agent in its own thread, and reports what the worker says. Tell rho
   which model suits which work ("use Haiku for running checks") and it picks a worker's model by that;
-  the worker's row shows the model. Each conversation has its own working directory.
+  the worker's row shows the model. A worker never asks you: its question goes to rho with the
+  default it goes on with, and rho answers it only from what you said or what is recorded, or
+  leaves the default. Each report lists what was decided without you. Each conversation has its own working directory.
 - **Sees photos.** Add up to four photos to a message with the + button, or paste a
   screenshot. Large ones are made smaller before they are sent to the model.
 - **Asks before what cannot be undone.** `git push`, publishing a package, and merging or

@@ -715,8 +715,48 @@ is used only through Claude Code.
         model does is not known; the before-and-after run the design asks for is not done.
         The count is by question marks, so a question without one is missed and a
         rhetorical one is counted.
-    - Not built: the ledger, the budget, a worker's `ask`, the cards, the forge link,
-      comments coming back, grouped approvals, the measures.
+    - **Step 2 built 2026-11-12** (`src/ledger.ts`, the `ask` tool and `answer`/`questions`
+      in `src/tools/delegate.ts`), with no budget or limit on what reaches the person, as the
+      owner decided:
+      - A durable ledger (`rho.ledger`): items `q1`, `q2`, ... of kind question (room for
+        "change", not built): the worker, the person's conversation, the question (one line,
+        300 characters), the default (300), an optional why, a status (open, answered,
+        defaulted) and an answer (by coordinator or person, text, basis, when). Ended items
+        past 100 are dropped.
+      - `ask {question, default, why?}`, offered only in a worker's thread (a deferred tool that
+        a worker's conversation loads). A missing default is refused in words. It returns at
+        once; at most 3 open per worker, refused in words past that. The same open question
+        asked again is the same item. The item and its notice are one commit, the notice under
+        request id `worker-ask:<id>`. The brief now says: prefer deciding, ask only when a wrong
+        guess is costly to undo, and always go on with the default.
+      - The question reaches the asking conversation as one notice from `worker-ask`, which
+        starts a run (followUp). `attention()` never makes it a notification. The page draws
+        it as one quiet line with the job's title, not the id.
+      - `delegate answer {id, answer, basis}`: basis is required; `by: "person"` marks an answer
+        that is the person's reply (the agent sets it; the basis should quote them), otherwise
+        it is "coordinator". Delivered as `tell` is while the worker works; a worker waiting
+        for a yes reads it when it goes on. An answer after the worker ended or while it
+        reports is recorded, the item stays defaulted, and the tool says the default was what
+        was done. `delegate questions` lists the open items of this conversation.
+      - When a worker ends (also when stopped), its open items become defaulted in the commit
+        that ends it. Its report's text lists each item, and its card carries a bounded
+        `decided` list (20, checked field by field), drawn as one foldable line "Decided
+        without you · N" with textContent only.
+      - Workers are named by their title for the person (report card, approval card, thread
+        banner, Stop labels); ids stay in tool results, logs and the API.
+      - Checked: one core test that walks ask (refusals, three open), the quiet notice,
+        `questions`, `answer` with and without a basis, by the person, a late answer, and the
+        report's list; one kill test in a real second process (killed after `ask`, during the
+        worker's next step: the question shows once and the report lists it as defaulted); the
+        notification rule; the card's checking; the page's quiet line and fold. Full check
+        passed three times (268 tests), once after each commit of this step.
+      - Not checked: any live model, so whether workers ask sparingly and whether the agent
+        answers only with a basis is not known. The basis is required but not verified: code
+        cannot tell a real basis from an invented one. The person cannot see open questions
+        anywhere but the thread. A stopped worker's defaulted items are listed nowhere for the
+        person (it sends no report).
+    - Not built: the budget, cards that put a question to the person, change items and cards,
+      the forge link, comments coming back, grouped approvals, the daily bundle, the measures.
 17. Notices through `termux-notification`: needs you, failed, a report. Not on done.
     **Built** 2026-11-11, Android first (`src/notify.ts`, `test/notify.test.ts`); **not yet
     seen on a phone**: the Termux:API app is not installed on the owner's.

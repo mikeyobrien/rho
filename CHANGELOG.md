@@ -29,6 +29,11 @@ See [MIGRATION.md](MIGRATION.md).
   the worker's row, in the worker list and in rho's log. A pick check asks a small model
   whether each choice fits your preferences and only logs the answer (`rho picks`);
   `delegates.check` names its model or turns it off.
+- A worker never asks you. Its `ask` sends a question to rho with the default it goes on with,
+  and does not wait; rho answers it with `delegate answer` only on a stated basis (your words,
+  memory, a goal, an earlier answer), or leaves the default. The question is a quiet line in
+  the thread and never a notification. A worker's report card lists what was decided without
+  you, folded into one line. Workers are named by their job in the page, not by an id.
 - Tool cards: three or more finished steps in a row fold into one row that says what they
   did; a failure and a step outside the working directory stay out. A running step shows
   how long it has run.
