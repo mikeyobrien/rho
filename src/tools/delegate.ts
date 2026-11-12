@@ -238,7 +238,7 @@ export function delegateTool(options: DelegateOptions): Extension {
 					}
 					const ended = book.workers.filter((worker) => !live(worker));
 					if (ended.length > KEPT) book.workers = book.workers.filter((worker) => live(worker) || ended.slice(-KEPT).includes(worker)).map(plain);
-					if (handle) await handle.submit(tx, { type: "input", content: words, requestId: `worker-report:${task.input.id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "worker", card: { kind: "report", title: task.input.title, verdict: outcome, who: `worker ${task.input.id}`, body: text.slice(0, 6_000), ...(decided.length > 0 ? { decided } : {}) } } } });
+					if (handle) await handle.submit(tx, { type: "input", content: words, requestId: `worker-report:${task.input.id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "worker", card: { kind: "report", title: task.input.title, verdict: outcome, who: "worker", body: text.slice(0, 6_000), ...(decided.length > 0 ? { decided } : {}) } } } });
 					return { status: "terminal", outcome: { status: "completed", result: null } };
 				}, ctx);
 				log(`worker ${task.input.id}: ${outcome}`);
@@ -283,7 +283,8 @@ export function delegateTool(options: DelegateOptions): Extension {
 			"A worker's question comes to you, not to the person, as a message with an item id (q1, q2, ...) and the default the worker already goes on with; it does not wait. " +
 			"answer {id, answer, basis}: answer it only from what the person said or what is recorded (memory, a goal, an earlier answer), and name that in basis. With no such basis, do not answer: the default stands. " +
 			"Put a question to the person only when a wrong guess could not be cheaply undone, as one question with the worker's default; then record their reply with answer, by \"person\", and a basis that quotes them. " +
-			"questions: the open items. A worker's report lists what was decided without the person.",
+			"questions: the open items. A worker's report lists what was decided without the person. " +
+			"When you speak to the person, name a worker by its job in plain words (its title), never by its id: ids are for tool calls only.",
 		parameters: obj({ action: oneOf(["start", "list", "stop", "status", "tell", "models", "answer", "questions"]), title: opt(str()), brief: opt(str()), id: opt(str()), message: opt(str()), model: opt(str()), thinking: opt(str()), answer: opt(str()), basis: opt(str()), by: opt(oneOf(["coordinator", "person"])) }),
 		execute: async (args, api, context: Context) => {
 			const book = async (): Promise<Book> => (await api.snapshot(Workers, context)) ?? { workers: [], seq: 0 };

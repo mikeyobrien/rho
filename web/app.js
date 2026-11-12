@@ -275,7 +275,8 @@ export function start(env) {
 		const lines = (card.body ?? "").split("\n").map((line) => line.trim()).filter((line) => line !== "" && !/^\W*(done|partial|failed)\W*$/i.test(line));
 		const brief = card.summary ?? (lines[0] ?? "").replace(/^[#*\s]+|[*\s]+$/g, "");
 		const second = make("div", { className: "report-line" });
-		second.append(make("span", { className: "report-summary", textContent: brief }), make("span", { className: "report-who", textContent: card.who }));
+		// The title names the job; an id ("worker w6", on a card stored before) means nothing to the person.
+		second.append(make("span", { className: "report-summary", textContent: brief }), make("span", { className: "report-who", textContent: card.who.replace(/^worker w\d+$/, "worker") }));
 		head.append(top, second);
 		node.append(head);
 		if (card.body || card.decided?.length) {
@@ -461,7 +462,7 @@ export function start(env) {
 			const details = make("ul", { className: "approval-details" });
 			details.append(...(ask.details ?? []).map((line) => make("li", { textContent: line })));
 			// A worker's request says whose it is: the agent in this thread did not ask for it.
-			card.append(...(ask.worker ? [note(`Worker ${ask.worker}`, "note approval-who")] : []), note(`Needs your yes: ${ask.what}`, "note approval-what"), make("pre", { textContent: ask.command }), ...(ask.details?.length ? [details] : []), buttons);
+			card.append(...(ask.worker ? [note(`${ask.worker.replace(/^w\d+: /, "")} · a worker`, "note approval-who")] : []), note(`Needs your yes: ${ask.what}`, "note approval-what"), make("pre", { textContent: ask.command }), ...(ask.details?.length ? [details] : []), buttons);
 			live.push(card);
 		}
 		if (state?.running) {
@@ -580,8 +581,8 @@ export function start(env) {
 			`worker ${worker.status}${worker.endedAt !== undefined ? " ended" : ""}`,
 			worker.title,
 			workerLine(worker),
-			worker.conversation === undefined ? undefined : { go: () => switchTo(worker.conversation, false), label: `Open the thread of worker ${worker.id}: ${worker.title}` },
-			worker.endedAt === undefined ? { path: "workers/stop", body: { id: worker.id }, label: `Stop worker ${worker.id}` } : undefined,
+			worker.conversation === undefined ? undefined : { go: () => switchTo(worker.conversation, false), label: `Open the worker's thread: ${worker.title}` },
+			worker.endedAt === undefined ? { path: "workers/stop", body: { id: worker.id }, label: `Stop the worker: ${worker.title}` } : undefined,
 		);
 	/** The card, or nothing when nothing runs. Drawn after everything else in the thread. */
 	function runningCard() {
@@ -613,7 +614,7 @@ export function start(env) {
 		if (thread) {
 			const back = make("button", { type: "button", className: "worker-back", textContent: "Back" });
 			back.addEventListener("click", () => switchTo(thread.from, thread.from === ""));
-			el.workerThread.replaceChildren(document.createTextNode(`Worker ${thread.id}: ${thread.title}. Its thread is read only.`), back);
+			el.workerThread.replaceChildren(document.createTextNode(`${thread.title}: a worker's thread, read only.`), back);
 		}
 		el.footer.hidden = Boolean(thread);
 		// The times count on between the daemon's snapshots.
@@ -938,7 +939,7 @@ export function start(env) {
 		head.append(
 			make("p", { className: "details-name", textContent: "rho" }),
 			make("p", { className: "details-status", textContent: el.status.textContent }),
-			...(thread ? [make("p", { className: "details-line", textContent: `Worker ${thread.id}: ${thread.title}. Its thread is read only.` })] : []),
+			...(thread ? [make("p", { className: "details-line", textContent: `${thread.title}: a worker's thread, read only.` })] : []),
 			...(info.commit ? [make("p", { className: "details-line details-commit", textContent: `Commit ${info.commit.slice(0, 7)}` })] : []),
 			...(state?.cwd ? [make("p", { className: "details-line details-cwd", textContent: state.cwd })] : []),
 		);
@@ -971,7 +972,7 @@ export function start(env) {
 			// The list the daemon answers with writes "none" as null; the state leaves it out.
 			const worker = Object.fromEntries(Object.entries(found).filter(([, value]) => value !== null));
 			const stop = make("button", { type: "button", className: "row-action", textContent: "Stop" });
-			stop.setAttribute("aria-label", `Stop worker ${worker.id}: ${worker.title}`);
+			stop.setAttribute("aria-label", `Stop the worker: ${worker.title}`);
 			stop.addEventListener("click", async () => {
 				stop.disabled = true;
 				try {
@@ -1005,7 +1006,7 @@ export function start(env) {
 		const reports = [];
 		for (const entry of entries) {
 			if (entry.role === "user") for (let n = 0; n < (entry.images ?? 0); n++) photos.push({ id: entry.id, n });
-			if (entry.role === "notice" && entry.card?.kind === "report") reports.push({ id: entry.id, verdict: entry.card.verdict, title: entry.card.title, who: entry.card.who });
+			if (entry.role === "notice" && entry.card?.kind === "report") reports.push({ id: entry.id, verdict: entry.card.verdict, title: entry.card.title, who: entry.card.who.replace(/^worker w\d+$/, "worker") });
 			if (entry.role !== "tool" || entry.error || (entry.name !== "edit" && entry.name !== "write")) continue;
 			const given = calls.get(entry.callId)?.args?.path;
 			if (typeof given !== "string" || given === "") continue;

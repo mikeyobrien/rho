@@ -514,7 +514,7 @@ test("artifacts on the details page: photos sent, files changed and reports, fro
 	const rowsNow = detailRows(page);
 	expect(rowsNow[0]).toBe("hello.txt | 2 changes · last +1 −1 | ");
 	expect(rowsNow[1]).toMatch(/^notes\/new\.md \| 1 change · last .+ \| $/);
-	expect(rowsNow[2]).toBe("Publish the branch | partial · worker w9 | ");
+	expect(rowsNow[2]).toBe("Publish the branch | partial · worker | "); // a card stored with an id shows none
 	expect(inside(body, "row-line report-row partial").length).toBe(1);
 	// A file's row closes the page and brings its last change into view: out of its fold, opened, and the thread no longer follows the end.
 	await inside(body, "row")[0]!.click();
@@ -901,7 +901,8 @@ test("a worker is a row of the Running card at the tail of the thread; its reque
 	gate.release();
 	const card = () => (page.$("live").children as El[]).find((node) => node.className === "approval");
 	await until("the worker's card", () => card() !== undefined, 15_000);
-	expect(card()!.textContent).toContain("Worker w1: Publish the branch");
+	expect(card()!.textContent).toContain("Publish the branch · a worker");
+	expect(card()!.textContent).not.toContain("w1");
 	expect(card()!.textContent).toContain("Needs your yes: git push");
 	expect(card()!.all().find((node) => node.tag === "pre")!.textContent).toBe(PUSH);
 	await until("the row to say it asks", () => (runningRows(page)[0] ?? "").includes("needs your yes"));
@@ -918,7 +919,7 @@ test("a worker is a row of the Running card at the tail of the thread; its reque
 	expect(reports(page).length).toBe(1);
 	const report = reports(page)[0]!;
 	expect(report.className).toBe("report done");
-	expect(reportWords(report)).toEqual(["done", "Publish the branch", "I ran the push as a dry run after the person allowed it.", "worker w1"]);
+	expect(reportWords(report)).toEqual(["done", "Publish the branch", "I ran the push as a dry run after the person allowed it.", "worker"]);
 	expect(report.open).toBe(false);
 	expect(part(report, "report-body")!.textContent).toContain("Checked: the command exited 0.");
 	expect(page.messages().some((line) => line.startsWith("notice-entry|"))).toBe(false); // not also as a block of text
@@ -957,7 +958,7 @@ test("a worker's No is told to it; its thread opens from its row, to read; Stop 
 	// Its thread opens from the row: read only, with a way back, and nothing can be sent into it.
 	await part(runningRowEls(page)[0]!, "running-title")!.fire("click");
 	await until("the worker's thread", () => page.$("worker-thread").hidden === false && page.messages().some((line) => line.startsWith("msg user|You are a worker.")));
-	expect(page.$("worker-thread").textContent).toContain("Worker w1: Publish the branch. Its thread is read only.");
+	expect(page.$("worker-thread").textContent).toContain("Publish the branch: a worker's thread, read only.");
 	expect(page.$("composer").hidden).toBe(true);
 	expect(runningCard(page)).toBeUndefined(); // a worker's own thread lists no workers
 	const token = JSON.parse(page.stored.get("token")!);
@@ -973,7 +974,7 @@ test("a worker's No is told to it; its thread opens from its row, to read; Stop 
 	// The details page opens its thread too, and closes itself; the row there has a Stop while it works.
 	await section(page, "Workers");
 	expect(detailRows(page)[0]).toMatch(/^Publish the branch \| working · \d:\d\d · local · faux-1( · wait)? · started \d\d:\d\d \| $/);
-	expect(inside(page.$("details-body"), "row-action").map((button) => [button.textContent, button.attrs["aria-label"]])).toEqual([["Stop", "Stop worker w1: Publish the branch"]]);
+	expect(inside(page.$("details-body"), "row-action").map((button) => [button.textContent, button.attrs["aria-label"]])).toEqual([["Stop", "Stop the worker: Publish the branch"]]);
 	await inside(page.$("details-body"), "row")[0]!.click();
 	await until("the worker's thread, from the details page", () => page.$("details").hidden && page.history.depth === 0 && page.$("worker-thread").hidden === false && page.messages().some((line) => line.startsWith("msg user|You are a worker.")));
 	await part(page.$("worker-thread"), "worker-back")!.fire("click");
@@ -1013,9 +1014,9 @@ test("five workers: the card holds only the ones still at it; each that ended le
 	expect(runningRowEls(page).filter((row) => part(row, "running-stop") !== undefined).length).toBe(2);
 	await until("three report cards", () => reports(page).length === 3 && idle(page), 20_000);
 	expect(reports(page).map((card) => `${card.className}: ${reportWords(card).join(" / ")}`).sort()).toEqual([
-		"report done: done / Job done-a / Nothing to send. / worker w1",
-		"report done: done / Job done-b / Nothing to send. / worker w2",
-		"report failed: failed / Job fails / The remote does not exist. / worker w3",
+		"report done: done / Job done-a / Nothing to send. / worker",
+		"report done: done / Job done-b / Nothing to send. / worker",
+		"report failed: failed / Job fails / The remote does not exist. / worker",
 	]);
 	expect(page.$("status").textContent).toEndWith(" · 2 running");
 	expect(part(runningCard(page)!, "running-head")!.textContent).toBe("Running"); // the ended ones are on the details page
@@ -1030,7 +1031,7 @@ test("five workers: the card holds only the ones still at it; each that ended le
 	const listed = () => detailRows(page).map((line) => line.split(" | ").slice(0, 2).join(" | ").replace(/ · \d:\d\d · local · faux-1.*$/, ""));
 	expect(listed()).toEqual(["Job queued | working", "Job held | working", "Job fails | failed", "Job done-b | done", "Job done-a | done"]);
 	expect(inside(page.$("details-body"), "row-line worker failed").length).toBe(1);
-	expect(inside(page.$("details-body"), "row-action").map((button) => button.attrs["aria-label"])).toEqual(["Stop worker w5: Job queued", "Stop worker w4: Job held"]);
+	expect(inside(page.$("details-body"), "row-action").map((button) => button.attrs["aria-label"])).toEqual(["Stop the worker: Job queued", "Stop the worker: Job held"]);
 	// The list the page asked the daemon for names this conversation as the one each came from.
 	const known = (await (await fetch(`http://127.0.0.1:${server.port}/api/workers`, { headers: { authorization: `Bearer ${JSON.parse(page.stored.get("token")!)}` } })).json()) as { items: { from: string; conversation?: string }[] };
 	expect(known.items.map((item) => [item.from, typeof item.conversation])).toEqual(Array.from({ length: 5 }, () => [String(core.root.id), "string"]));
