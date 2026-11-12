@@ -1160,10 +1160,31 @@ test("a background command is a row too: its command, its time, a Stop; and how 
 	expect(runningCard(page)).toBeUndefined();
 }, 60_000);
 
+test("a worker's question is one quiet line; its report card folds what was decided without the person into one line", async () => {
+	faux.setResponses([fauxAssistantMessage("Noted."), fauxAssistantMessage("Read it.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await core.root.submit({ type: "input", content: "[a worker asks] Fix the greeting: Which spelling?\nIt goes on with: American\n(Item q1, from worker w1.)", requestId: "ask-1", whenBusy: "followUp", entry: { kind: "rho.notice", data: { from: "worker-ask", item: "q1" } } }, context);
+	await until("the quiet line", () => page.messages().some((line) => line.startsWith("notice-entry quiet|")) && idle(page), 15_000);
+	expect(page.messages().find((line) => line.startsWith("notice-entry quiet|"))).toBe("notice-entry quiet|A worker asks rho · Fix the greeting: Which spelling?");
+	const decided = [{ question: "Which spelling?", done: "<b>British</b>", by: "coordinator", basis: "the person said so" }, { question: "Keep it?", done: "keep it", by: "default", basis: "No answer came." }];
+	await core.root.submit({ type: "input", content: "[worker w1] reports.", requestId: "ask-report-1", whenBusy: "followUp", entry: { kind: "rho.notice", data: { from: "worker", card: { kind: "report", title: "Fix the greeting", verdict: "done", who: "worker w1", body: "DONE\nFixed.", decided } } } }, context);
+	await until("the report card", () => reports(page).length === 1 && idle(page), 15_000);
+	const fold = part(reports(page)[0]!, "report-decided")!;
+	expect((fold.children[0] as El).textContent).toBe("Decided without you · 2");
+	expect(fold.all().filter((node) => node.className === "decided-done").map((node) => node.textContent)).toEqual(["→ <b>British</b>", "→ keep it"]); // as text, never markup
+	expect(fold.all().filter((node) => node.className === "decided-basis").map((node) => node.textContent)).toEqual(["answered by rho · the person said so", "the worker's default · No answer came."]);
+}, 40_000);
+
 test("a notice is drawn as a card only when what was stored is a card, field by field", () => {
 	const good = { kind: "report", title: "Fix it", verdict: "partial", who: "worker w4", body: "PARTIAL\nHalf." };
 	expect(noticeCard({ from: "worker", card: good })).toEqual(good as never);
 	expect(noticeCard({ from: "worker", card: { ...good, summary: "One line", extra: "<script>" } })).toEqual({ ...good, summary: "One line" } as never); // unknown fields are dropped
 	for (const bad of [undefined, {}, { card: "report" }, { card: { ...good, kind: "html" } }, { card: { ...good, verdict: "great" } }, { card: { ...good, title: 7 } }, { card: { kind: "report", verdict: "done" } }]) expect(noticeCard(bad)).toBeUndefined();
 	expect(noticeCard({ card: { ...good, body: "x".repeat(9_000) } })!.body!.length).toBe(6_000);
+	// What was decided without the person: kept entry by entry, a bad entry dropped, at most 20.
+	const decided = { question: "Which file?", done: "hello.txt", by: "default", basis: "No answer came." };
+	expect(noticeCard({ card: { ...good, decided: [decided, { ...decided, by: "boss" }, { question: 1 }, null, { ...decided, extra: "<b>" }] } })!.decided).toEqual([decided, decided] as never);
+	expect(noticeCard({ card: { ...good, decided: Array.from({ length: 30 }, () => decided) } })!.decided!.length).toBe(20);
+	expect(noticeCard({ card: { ...good, decided: "no" } })!.decided).toBeUndefined();
 });

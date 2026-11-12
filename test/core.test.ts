@@ -176,6 +176,31 @@ test("killed while a worker is mid-job: the next process goes on with the same w
 	expect(lines(dir, "model.log").length).toBe(5);
 }, 120_000);
 
+test("killed after a worker asked: the next process neither loses the question nor shows it twice, and the report lists it as defaulted", async () => {
+	const brief = "The person asked for the slow effect to be recorded. Call the effect tool with the label given, then report what you did and how you checked it.";
+	const dir = scratch([
+		{ tool: "delegate", args: { action: "start", title: "Record the effect", brief } },
+		{ text: "Handed off." },
+		{ tool: "ask", args: { question: "Which label?", default: "worker-step" }, worker: true },
+		{ tool: "effect", args: { label: "worker-step" }, worker: true },
+		{ text: "DONE\nRecorded worker-step, the default.", worker: true },
+		{ text: "Noted the question; leaving it on its default." },
+		{ text: "The worker reports done." },
+	]);
+	const first = start(dir, ["req-ask-1", "Hand this off."], { STAY_UP: "1", TOOL_MS: "20000" });
+	expect((await first.until("tool-started", 30_000)).label).toBe("worker-step"); // the question was asked before this step
+	await first.kill();
+	const second = start(dir, undefined, { WAIT_FOR_KIND: "rho.notice", WAIT_FOR_COUNT: "2", TEXT_MAX: "2000" });
+	const idle = await second.until("idle", 40_000);
+	expect(await second.exited).toBe(0);
+	const notices = idle.entries.filter((entry: any) => entry.kind === "rho.notice").map((entry: any) => entry.text);
+	expect(notices.length).toBe(2);
+	expect(notices.filter((text: string) => text.startsWith("[a worker asks] Record the effect: Which label?")).length).toBe(1);
+	expect(notices.find((text: string) => text.startsWith("[worker w1]"))).toContain("Decided without the person (1):\n- Which label? → worker-step (the worker's default; basis: No answer came.)");
+	expect(lines(dir, "model.log").filter((line) => line.includes('"ask"')).length).toBe(1); // asked once
+	expect(lines(dir, "effects.log")).toEqual(["worker-step"]);
+}, 120_000);
+
 test("killed while a background command runs: the next process reports it once, as cut off, and does not run it again", async () => {
 	// The command leaves a mark each time it really starts, then sleeps long enough to be killed in.
 	// The mark is outside the host's data directory: a command that names rho's own data is refused by the guard.

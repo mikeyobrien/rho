@@ -18,14 +18,22 @@ export interface ToolCallView {
  * restart redraws it from the stored entry and nothing a model wrote runs.
  *  - report: how a piece of side work ended. The verdict and one line show; the body opens on a tap.
  */
-export type NoticeCard = { kind: "report"; title: string; verdict: "done" | "partial" | "failed"; /** Whose report: "worker w2", "background command". */ who: string; /** One line; when absent the page takes the body's first words. */ summary?: string; /** The rest, shown when the card is opened. */ body?: string };
+export type NoticeCard = { kind: "report"; title: string; verdict: "done" | "partial" | "failed"; /** Whose report: "worker w2", "background command". */ who: string; /** One line; when absent the page takes the body's first words. */ summary?: string; /** The rest, shown when the card is opened. */ body?: string; /** A worker's questions settled without the person: what was done, by whom, on what basis. */ decided?: DecidedView[] };
+export type DecidedView = { question: string; done: string; by: "coordinator" | "person" | "default"; basis: string };
+const BY = new Set(["coordinator", "person", "default"]);
+const decidedList = (value: unknown): DecidedView[] =>
+	(Array.isArray(value) ? value : []).slice(0, 20).flatMap((entry: Record<string, unknown> | null) =>
+		typeof entry === "object" && entry !== null && typeof entry.question === "string" && typeof entry.done === "string" && typeof entry.basis === "string" && typeof entry.by === "string" && BY.has(entry.by)
+			? [{ question: entry.question.slice(0, 300), done: entry.done.slice(0, 300), by: entry.by as DecidedView["by"], basis: entry.basis.slice(0, 300) }]
+			: [],
+	);
 const VERDICTS = new Set(["done", "partial", "failed"]);
 /** The card a stored notice carries, checked field by field: what was stored is not trusted to be a card. */
 export function noticeCard(data: unknown): NoticeCard | undefined {
 	const card = (data as { card?: Record<string, unknown> } | undefined)?.card;
 	if (typeof card !== "object" || card === null || card.kind !== "report") return undefined;
 	if (typeof card.title !== "string" || typeof card.who !== "string" || typeof card.verdict !== "string" || !VERDICTS.has(card.verdict)) return undefined;
-	return { kind: "report", title: card.title.slice(0, 300), verdict: card.verdict as NoticeCard["verdict"], who: card.who.slice(0, 60), ...(typeof card.summary === "string" ? { summary: card.summary.slice(0, 400) } : {}), ...(typeof card.body === "string" ? { body: card.body.slice(0, 6_000) } : {}) };
+	return { kind: "report", title: card.title.slice(0, 300), verdict: card.verdict as NoticeCard["verdict"], who: card.who.slice(0, 60), ...(typeof card.summary === "string" ? { summary: card.summary.slice(0, 400) } : {}), ...(typeof card.body === "string" ? { body: card.body.slice(0, 6_000) } : {}), ...(decidedList(card.decided).length > 0 ? { decided: decidedList(card.decided) } : {}) };
 }
 export type EntryView =
 	| { id: number; role: "user"; text: string; /** How many photos came with it. The pictures are not in the view: a client asks for each (`GET /api/image`). */ images?: number }

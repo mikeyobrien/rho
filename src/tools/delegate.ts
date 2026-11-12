@@ -21,6 +21,7 @@ import type { Context } from "@earendil-works/chord/context";
 import { configure, defineDoc, defineExtension, defineTask, defineTool, type ConversationId, type Extension, type TaskId, type ToolRegistration } from "@earendil-works/pi-durable";
 import { obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import { Approvals } from "./guard.ts";
+import { ANSWER_MAX, BASIS_MAX, decidedOf, decidedText, DEFAULT_MAX, Ledger, MAX_OPEN, oneLine, plainItem, QUESTION_MAX, trim, WHY_MAX, type LedgerItem } from "../ledger.ts";
 
 // Types, not interfaces: they are stored as JSON.
 export type WorkerStatus = "waiting" | "working" | "asking" | "done" | "partial" | "failed" | "stopped";
@@ -32,6 +33,8 @@ export type Worker = {
 	status: WorkerStatus;
 	/** The conversation that asked, and the worker's own once it has one. */
 	from: string;
+	/** The asking conversation's id as the engine has it (`from` is its string). Absent on a record older than `ask`. */
+	fromRef?: string | number;
 	conversation?: string | number;
 	task: string | number;
 	createdAt: number;
@@ -85,7 +88,8 @@ type Input = { id: string; title: string; brief: string; from: string | number; 
 
 const BRIEF_HEAD =
 	"You are a worker. Another agent handed you this job and is not watching; the person is not here either. Do the whole job yourself: read, change, run and check as it needs. " +
-	"You cannot ask questions, so where the brief is silent choose the careful option and say what you chose. " +
+	"Where the brief is silent, prefer deciding: choose the careful option and say what you chose. " +
+	"Use the ask tool only when a wrong guess would be costly to undo. It does not wait: it sends your question, with what you will do if nobody answers, to the agent that handed you this job, and you go on at once with that default. An answer, if one comes, arrives as a message; take it into account then. " +
 	"The one exception: a command that cannot be undone is shown to the person for their yes. When a tool tells you a command waits for that, stop and say in one line what waits; you will be told their answer and go on from there. " +
 	"End with a report for the agent that asked. Its first line is exactly one of: DONE, PARTIAL or FAILED. Then say what you did, what you checked and how, and what is left or uncertain. A report is a claim, not a fact: do not write DONE for what you did not check.";
 
@@ -121,6 +125,14 @@ export function delegateTool(options: DelegateOptions): Extension {
 	const changed = () => { try { options.changed?.(); } catch { /* a listener's failure is not the job's */ } };
 	const textOf = (content: unknown): string => (typeof content === "string" ? content : Array.isArray(content) ? content.map((part: { type?: string; text?: string }) => (part.type === "text" ? (part.text ?? "") : "")).join("") : "");
 
+	/** A worker has ended: each of its open items stands on its default. Returns all of its items, as plain copies. */
+	const settle = (ledger: { items: LedgerItem[]; seq: number }, worker: string): LedgerItem[] => {
+		for (const item of ledger.items) if (item.worker === worker && item.status === "open") Object.assign(item, { status: "defaulted", endedAt: now() });
+		const mine = ledger.items.filter((item) => item.worker === worker).map(plainItem);
+		trim(ledger);
+		return mine;
+	};
+
 	const Job = defineTask<Input, State, null>({
 		name: "rho.worker",
 		version: 1,
@@ -142,7 +154,7 @@ export function delegateTool(options: DelegateOptions): Extension {
 					const made = await tx.createConversation({ ownership: { kind: "task", taskId: task.id } });
 					// By name, as they are installed: the core wraps every tool, so the objects made here are not the installed ones.
 					const withheld = new Set(["delegate", ...(options.withhold ?? [])]);
-					await configure(tx, made.id, { ...(asker.model ? { model: asker.model } : {}), ...(asker.thinking ? { thinkingLevel: asker.thinking as never } : {}), ...(asker.cwd ? { cwd: asker.cwd } : {}), ...(asker.instructions ? { instructions: asker.instructions } : {}), maxTurns: task.input.maxTurns, tools: { remove: runtime.registry.tools().map((entry) => entry.tool).filter((installed) => withheld.has(installed.name)) } });
+					await configure(tx, made.id, { ...(asker.model ? { model: asker.model } : {}), ...(asker.thinking ? { thinkingLevel: asker.thinking as never } : {}), ...(asker.cwd ? { cwd: asker.cwd } : {}), ...(asker.instructions ? { instructions: asker.instructions } : {}), maxTurns: task.input.maxTurns, tools: { remove: runtime.registry.tools().map((entry) => entry.tool).filter((installed) => withheld.has(installed.name)) }, modelTools: { add: runtime.registry.tools().map((entry) => entry.tool).filter((installed) => installed.name === "ask") } });
 					mine.status = "working";
 					mine.startedAt = now();
 					mine.conversation = made.id as unknown as string | number;
@@ -213,8 +225,11 @@ export function delegateTool(options: DelegateOptions): Extension {
 			report: async (task, runtime, ctx) => {
 				const { outcome, text } = task.state.checkpoint as Extract<State, { phase: "report" }>;
 				const handle = await runtime.conversation(task.input.from as unknown as ConversationId, ctx);
-				const words = `[worker ${task.input.id}] ${task.input.title}\n${outcome === "done" ? "It reports done." : outcome === "partial" ? "It reports partial." : "It reports failed."} Its report follows; it is the worker's claim, not checked.\n\n${text.slice(0, 6_000)}`;
+				const head = `[worker ${task.input.id}] ${task.input.title}\n${outcome === "done" ? "It reports done." : outcome === "partial" ? "It reports partial." : "It reports failed."} Its report follows; it is the worker's claim, not checked.\n\n${text.slice(0, 6_000)}`;
 				await runtime.commit(async (tx) => {
+					// Its questions nobody answered stand on their defaults, in the commit that ends it.
+					const decided = decidedOf(settle(await tx.doc(Ledger), task.input.id));
+					const words = decided.length === 0 ? head : `${head}\n\n${decidedText(decided)}`;
 					const book = await tx.doc(Workers);
 					const mine = book.workers.find((worker) => worker.id === task.input.id);
 					if (mine) {
@@ -223,7 +238,7 @@ export function delegateTool(options: DelegateOptions): Extension {
 					}
 					const ended = book.workers.filter((worker) => !live(worker));
 					if (ended.length > KEPT) book.workers = book.workers.filter((worker) => live(worker) || ended.slice(-KEPT).includes(worker)).map(plain);
-					if (handle) await handle.submit(tx, { type: "input", content: words, requestId: `worker-report:${task.input.id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "worker", card: { kind: "report", title: task.input.title, verdict: outcome, who: `worker ${task.input.id}`, body: text.slice(0, 6_000) } } } });
+					if (handle) await handle.submit(tx, { type: "input", content: words, requestId: `worker-report:${task.input.id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "worker", card: { kind: "report", title: task.input.title, verdict: outcome, who: `worker ${task.input.id}`, body: text.slice(0, 6_000), ...(decided.length > 0 ? { decided } : {}) } } } });
 					return { status: "terminal", outcome: { status: "completed", result: null } };
 				}, ctx);
 				log(`worker ${task.input.id}: ${outcome}`);
@@ -240,6 +255,7 @@ export function delegateTool(options: DelegateOptions): Extension {
 					// A card of its that still waits has nothing left to allow.
 					if (mine.conversation !== undefined) (await tx.doc(Approvals, mine.conversation as unknown as ConversationId)).pending = [];
 				}
+				settle(await tx.doc(Ledger), task.input.id);
 				return { status: "terminal", outcome: { status: "aborted" } };
 			}, ctx);
 			changed();
@@ -263,8 +279,12 @@ export function delegateTool(options: DelegateOptions): Extension {
 			"models: the person's preferences as they are now and the models that can be used; read it before you hand off a job if you have not in this conversation. " +
 			"list: workers and their status. stop {id}: end one. A job past the limit waits its turn. " +
 			"status {id}: what one is doing now, its last steps and latest words; for when the person asks how it is going, not a way to wait. " +
-			"tell {id, message}: give a working worker a correction or a new fact; it reads it at its next step and still reports once.",
-		parameters: obj({ action: oneOf(["start", "list", "stop", "status", "tell", "models"]), title: opt(str()), brief: opt(str()), id: opt(str()), message: opt(str()), model: opt(str()), thinking: opt(str()) }),
+			"tell {id, message}: give a working worker a correction or a new fact; it reads it at its next step and still reports once. " +
+			"A worker's question comes to you, not to the person, as a message with an item id (q1, q2, ...) and the default the worker already goes on with; it does not wait. " +
+			"answer {id, answer, basis}: answer it only from what the person said or what is recorded (memory, a goal, an earlier answer), and name that in basis. With no such basis, do not answer: the default stands. " +
+			"Put a question to the person only when a wrong guess could not be cheaply undone, as one question with the worker's default; then record their reply with answer, by \"person\", and a basis that quotes them. " +
+			"questions: the open items. A worker's report lists what was decided without the person.",
+		parameters: obj({ action: oneOf(["start", "list", "stop", "status", "tell", "models", "answer", "questions"]), title: opt(str()), brief: opt(str()), id: opt(str()), message: opt(str()), model: opt(str()), thinking: opt(str()), answer: opt(str()), basis: opt(str()), by: opt(oneOf(["coordinator", "person"])) }),
 		execute: async (args, api, context: Context) => {
 			const book = async (): Promise<Book> => (await api.snapshot(Workers, context)) ?? { workers: [], seq: 0 };
 			if (args.action === "list") {
@@ -304,6 +324,45 @@ export function delegateTool(options: DelegateOptions): Extension {
 				await options.deliver?.((await book()).workers.find((candidate) => candidate.id === args.id)!, tellText(message)).catch(() => undefined);
 				log(`worker ${args.id}: told (${message.length} characters)`);
 				return { output: [{ type: "text", text: `Worker ${args.id} will read that at its next step. It still reports once, when it ends.` }] };
+			}
+			if (args.action === "questions") {
+				const open = ((await api.snapshot(Ledger, context)) ?? { items: [] as LedgerItem[] }).items.filter((item) => item.status === "open" && item.conversation === String(api.conversationId));
+				return { output: [{ type: "text", text: open.length === 0 ? "No open questions." : open.map((item) => `[${item.id}] worker ${item.worker} asks: ${item.question}\n  goes on with: ${item.default}${item.why ? `\n  why: ${item.why}` : ""}`).join("\n") }] };
+			}
+			if (args.action === "answer") {
+				const answer = (args.answer ?? "").trim();
+				const basis = (args.basis ?? "").trim();
+				const by = args.by === "person" ? "person" : "coordinator";
+				if (answer === "") throw new Error("answer is required: what the worker should do instead of its default. To leave its default, do not answer.");
+				if (basis === "") throw new Error("basis is required: what the answer rests on, in words (what the person said, a memory entry, a goal, an earlier answer). Without one, do not answer: the worker's default stands.");
+				if (answer.length > ANSWER_MAX) throw new Error(`That answer is too long (the most is ${ANSWER_MAX} characters).`);
+				if (basis.length > BASIS_MAX) throw new Error(`That basis is too long (the most is ${BASIS_MAX} characters): name it, do not paste it.`);
+				// The answer and the message to the worker are one commit: recorded and sent, or neither.
+				const outcome = await api.commit(async (tx) => {
+					const ledger = await tx.doc(Ledger);
+					const item = ledger.items.find((candidate) => candidate.id === args.id);
+					if (!item) return { said: "none" as const };
+					if (item.answer) return { said: "answered" as const };
+					const record = { by, text: answer, basis, at: now() } as const;
+					const worker = (await tx.doc(Workers)).workers.find((candidate) => candidate.id === item.worker);
+					// Ended, or ending: the answer is kept, and the default is what was done.
+					if (item.status !== "open" || !worker || !busy(worker) || worker.reporting) {
+						Object.assign(item, { answer: { ...record }, ...(item.status === "open" ? { status: "defaulted", endedAt: now() } : {}) });
+						return { said: "late" as const, worker: item.worker, default: item.default };
+					}
+					Object.assign(item, { answer: { ...record }, status: "answered", endedAt: now() });
+					// By the road `tell` takes: the worker's own task sends it under a request id of its own.
+					worker.told = [...(worker.told ?? []), `Your question ${item.id} ("${item.question}") was answered: ${answer}\nBasis: ${basis}. Where this differs from your default (${item.default}), follow it; undo what the default did if that is needed and say so in your report.`];
+					trim(ledger);
+					return { said: "told" as const, worker: item.worker, status: worker.status };
+				}, context);
+				if (outcome.said === "none") throw new Error(`No question ${JSON.stringify(args.id ?? "")}. \`delegate questions\` lists the open ones.`);
+				if (outcome.said === "answered") throw new Error(`Question ${args.id} was already answered; an answer is given once.`);
+				if (outcome.said === "late") return { output: [{ type: "text", text: `Recorded, but worker ${outcome.worker} had already ended or was finishing, and went on with its default: ${outcome.default}. If that was wrong, hand off a new job that says what to change.` }] };
+				// A worker waiting for the person's yes reads it when it goes on; its task sends it then.
+				if (outcome.status === "working") await options.deliver?.((await book()).workers.find((candidate) => candidate.id === outcome.worker)!, tellText(((await book()).workers.find((candidate) => candidate.id === outcome.worker)?.told ?? []).at(-1) ?? "")).catch(() => undefined);
+				log(`ledger ${args.id}: answered by ${by}`);
+				return { output: [{ type: "text", text: `Worker ${outcome.worker} will read the answer to ${args.id} at its next step. It still reports once, when it ends.` }] };
 			}
 			if (args.action === "stop") {
 				const worker = (await book()).workers.find((candidate) => candidate.id === args.id);
@@ -346,7 +405,7 @@ export function delegateTool(options: DelegateOptions): Extension {
 				if (waiting >= 10) return { id: "", ahead: waiting, refused: true };
 				const id = `w${++doc.seq}`;
 				const task = await tx.createTask(Job, { id, title, brief, from: api.conversationId as unknown as string | number, maxTurns: options.maxTurns, agent }, { ownership: { kind: "conversation" }, conversationId: api.conversationId, background: true });
-				doc.workers = [...doc.workers.map(plain), { id, title, place: place.name, status: "waiting", from: String(api.conversationId), task: task as unknown as string | number, createdAt: now(), ...(runsOn ? { model: runsOn } : {}), ...(level ? { thinking: level } : {}), ...(picked ? { picked: true } : {}) }];
+				doc.workers = [...doc.workers.map(plain), { id, title, place: place.name, status: "waiting", from: String(api.conversationId), fromRef: api.conversationId as unknown as string | number, task: task as unknown as string | number, createdAt: now(), ...(runsOn ? { model: runsOn } : {}), ...(level ? { thinking: level } : {}), ...(picked ? { picked: true } : {}) }];
 				return { id, ahead: waiting + Math.max(0, working - place.ceiling + 1), refused: false };
 			}, context);
 			if (started.refused) throw new Error(`Ten jobs are already waiting. Wait for some to end, or stop one.`);
@@ -364,5 +423,48 @@ export function delegateTool(options: DelegateOptions): Extension {
 			return { output: [{ type: "text", text: `Worker ${started.id} has the job${picked ? `, on ${runsOn}${wantedThinking ? ` with thinking ${level}` : ""}` : ""}${started.ahead > 0 ? `, and waits for a slot behind ${started.ahead} (this place runs ${place.ceiling} at once)` : ""}. Its report reaches you in a later message; go on with other work or answer the person now. Do not wait for it or check on it.${!picked && wanted.length > 0 ? ` It runs on ${runsOn}, as you do: the person has model preferences, and \`delegate models\` shows them for the next job.` : ""}` }] };
 		},
 	});
-	return defineExtension({ name: "delegate", tasks: [Job], tools: [tool] });
+	// Offered only in a worker's thread: it is deferred, and a worker's conversation is set up to load it.
+	const ask: ToolRegistration<any, any> = defineTool({
+		name: "ask",
+		deferred: true,
+		// Asked twice (a rerun after a kill, or the model again), the same open question is the same item: no second notice.
+		replay: "safe",
+		description:
+			"Send a question to the agent that handed you this job, with what you will do if nobody answers. It does not wait: go on at once with your default. An answer, if one comes, arrives as a message. " +
+			`Use it only when a wrong guess would be costly to undo; otherwise decide and say what you chose in your report. At most ${MAX_OPEN} open at once.`,
+		// `default` is checked in code, so its absence is refused in words and not by the schema.
+		parameters: obj({ question: str(), default: opt(str()), why: opt(str()) }),
+		execute: async (args, api, context: Context) => {
+			const question = oneLine(args.question ?? "", QUESTION_MAX);
+			const fallback = oneLine(args.default ?? "", DEFAULT_MAX);
+			const why = oneLine(args.why ?? "", WHY_MAX);
+			if (question === "") throw new Error("question is required: the one thing you need to know, in one line.");
+			if (fallback === "") throw new Error("default is required: say what you will do if nobody answers. Nothing was sent.");
+			const here = String(api.conversationId);
+			const worker = ((await api.snapshot(Workers, context)) ?? { workers: [] as Worker[] }).workers.find((candidate) => candidate.conversation !== undefined && String(candidate.conversation) === here);
+			if (!worker || !live(worker)) throw new Error("ask is for a worker at work; this conversation is not one. Decide, and say what you chose.");
+			const handle = await api.conversation((worker.fromRef ?? (/^\d+$/.test(worker.from) ? Number(worker.from) : worker.from)) as unknown as ConversationId, context);
+			if (!handle) throw new Error("The conversation that handed you this job cannot be reached. Go on with your default and say so in your report.");
+			// The item and the message that carries it are one commit: a kill leaves both or neither.
+			const made = await api.commit(async (tx) => {
+				const ledger = await tx.doc(Ledger);
+				const same = ledger.items.find((item) => item.worker === worker.id && item.status === "open" && item.question === question);
+				if (same) return same.id;
+				if (ledger.items.filter((item) => item.worker === worker.id && item.status === "open").length >= MAX_OPEN) return undefined;
+				const id = `q${++ledger.seq}`;
+				const item: LedgerItem = { id, kind: "question", worker: worker.id, conversation: worker.from, question, default: fallback, ...(why ? { why } : {}), askedAt: now(), status: "open" };
+				ledger.items = [...ledger.items.map(plainItem), item];
+				trim(ledger);
+				// First line for the person (the job, not the id); the rest for the model that answers.
+				const words = `[a worker asks] ${worker.title}: ${question}\nIt goes on with: ${fallback}${why ? `\nWhy it asks: ${why}` : ""}\n(Item ${id}, from worker ${worker.id}. It does not wait. Answer with delegate answer {id: "${id}", answer, basis} only from what the person said or what is recorded, naming it; otherwise leave it and the default stands.)`;
+				await handle.submit(tx, { type: "input", content: words, requestId: `worker-ask:${id}`, whenBusy: "followUp", entry: { kind: options.noticeKind, data: { from: "worker-ask", item: id } } });
+				return id;
+			}, context);
+			if (!made) throw new Error(`You already have ${MAX_OPEN} questions open. Nothing was sent: decide this one yourself, take the careful option, and say what you chose in your report.`);
+			log(`ledger ${made}: worker ${worker.id} asks (${question.length} characters)`);
+			changed();
+			return { output: [{ type: "text", text: `Sent as ${made}. Do not wait: go on now with your default (${fallback}). An answer, if one comes, arrives as a message.` }] };
+		},
+	});
+	return defineExtension({ name: "delegate", tasks: [Job], tools: [tool, ask] });
 }

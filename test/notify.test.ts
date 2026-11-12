@@ -47,6 +47,8 @@ test("what is worth attention: a waiting request, a failure that was not a stop,
 		{ key: "notice:c1:5", title: "rho release", text: "Rho now runs abc1234." },
 		{ key: "notice:c1:6", title: "rho", text: "plain" },
 	]);
+	// A worker's question is for the agent: it never notifies the person.
+	expect(attention(state({ entries: [report(8, "[a worker asks] Fix it: Which file?\nIt goes on with: hello.txt", "worker-ask")] })).notices).toEqual([]);
 });
 
 test("a request rings once while nobody looks, not while the page is open, and its notification goes when it is answered", async () => {

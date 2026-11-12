@@ -46,7 +46,8 @@ export function attention(state: StateView): { approvals: Note[]; failure?: Note
 	// A run the person stopped is not news to them.
 	const failed = state.failure && state.failure.reason !== "aborted" ? state.failure : undefined;
 	const failure = failed && { key: `failure:${at}:${failed.reason}:${state.entries.at(-1)?.id ?? 0}`, title: "rho: the run failed", text: oneLine(`${failed.text}${failed.detail ? ` ${failed.detail}` : ""}`, 240) };
-	const notices = state.entries.flatMap((entry) => (entry.role === "notice" ? [{ key: `notice:${at}:${entry.id}`, title: TITLES[entry.from] ?? "rho", text: oneLine(entry.text.replace(/^\[[a-z -]+\]\s*/, ""), 300) }] : []));
+	// A worker's question is for the agent, not the person: it never rings.
+	const notices = state.entries.flatMap((entry) => (entry.role === "notice" && entry.from !== "worker-ask" ? [{ key: `notice:${at}:${entry.id}`, title: TITLES[entry.from] ?? "rho", text: oneLine(entry.text.replace(/^\[[a-z -]+\]\s*/, ""), 300) }] : []));
 	return { approvals, ...(failure ? { failure } : {}), notices };
 }
 

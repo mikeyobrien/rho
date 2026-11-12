@@ -7,6 +7,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import type { TranscriptContext } from "@earendil-works/pi-ai";
 import { context, openCore, type Core } from "../src/core.ts";
 import { localPlace, Workers, type Worker } from "../src/tools/delegate.ts";
+import { Ledger } from "../src/ledger.ts";
 import { describePicks, readPicks, readPickCheck, readVerdict } from "../src/picks.ts";
 import { entryView } from "../src/view.ts";
 
@@ -142,7 +143,9 @@ test("a job is handed off at once; the worker does it in its own thread and repo
 	expect(mine).toContain("delegate");
 	expect(mine).toContain("background");
 	// Without the tools that start more work or change rho itself.
-	expect(offered).toEqual(mine.filter((name) => !["delegate", "background", "settings", "reminder"].includes(name)));
+	// And with `ask`, which only a worker is offered.
+	expect(mine).not.toContain("ask");
+	expect(offered).toEqual([...mine.filter((name) => !["delegate", "background", "settings", "reminder"].includes(name)), "ask"]);
 	expect(offered).toContain("bash");
 	// And the same working directory: its relative path was the main agent's.
 	expect(await t.use({ action: "list" }, "Listed.")).toMatch(/^\[w1\] done \(local, faux\/[^)]+\): Fix the greeting typo$/);
@@ -315,6 +318,75 @@ test("the agent can look at a worker and tell it something while it works; it re
 	expect(await t.use({ action: "tell", id: "w7", message: "hello" }, "No.")).toContain('No worker "w7".');
 	expect(await t.use({ action: "status", id: "w7" }, "No.")).toContain('No worker "w7".');
 }, 60_000);
+
+test("a worker asks the agent, not the person, and goes on; the agent answers only with a basis; what was left stands on its default and the report lists it", async () => {
+	const gates = new Map<string, () => void>();
+	const asks = [
+		{ question: "Which spelling?" },
+		{ question: "Which spelling?", default: "American, as the file has it", why: "the brief does not say" },
+		{ question: "Keep the old file?", default: "keep it" },
+		{ question: "Also fix the README?", default: "leave it" },
+		{ question: "Tell the person?", default: "no" },
+	];
+	const t = await open({
+		worker: async (seen) => {
+			if (seen.results < asks.length) return fauxAssistantMessage(fauxToolCall("ask", asks[seen.results]! as never), { stopReason: "toolUse" });
+			if (seen.results === asks.length && !seen.all.includes("was answered")) {
+				await hold(gates, "asked", seen.signal).catch(() => undefined); // the answer, a steer, ends the wait
+				return fauxAssistantMessage(fauxToolCall("read", { path: "hello.txt" }), { stopReason: "toolUse" });
+			}
+			if (!gates.has("end")) await hold(gates, "end", seen.signal).catch(() => undefined);
+			return fauxAssistantMessage(seen.all.includes("British") ? "DONE\nUsed British spelling, as answered." : "DONE\nKept American spelling.");
+		},
+		// Each worker question starts a run of the agent; it notes it. Everything else is the test's queue.
+		main: (seen) => (seen.lastText.startsWith("[a worker asks]") ? fauxAssistantMessage("Noted.") : undefined) as never,
+	});
+	writeFileSync(join(t.work, "hello.txt"), "hello color\n");
+	await t.use({ action: "start", title: "Check the greeting", brief: BRIEF() });
+	await t.until("the worker to have asked", () => gates.has("asked"));
+	await t.core.harness.waitForIdle(context);
+	const worker = (await t.workers())[0]!;
+	expect(await t.toolsOf(worker)).toContain("ask");
+	expect((await t.core.root.agent(context)).tools.map((tool) => tool.name)).not.toContain("ask"); // only a worker is offered it
+	// In the worker's thread: refused without a default, refused past three open, and never waited.
+	const thread = await t.core.harness.conversation(worker.conversation as never, context);
+	const results = (await thread!.entries({ order: "ascending" }, 80, undefined, context)).items.flatMap((entry) => entryView(entry) ?? []).filter((view) => view.role === "tool");
+	expect(results.map((view) => view.name)).toEqual(["ask", "ask", "ask", "ask", "ask"]);
+	expect(results[0]!.text).toContain("say what you will do if nobody answers");
+	expect(results[1]!.text).toBe("Sent as q1. Do not wait: go on now with your default (American, as the file has it). An answer, if one comes, arrives as a message.");
+	expect(results[4]!.text).toContain("You already have 3 questions open. Nothing was sent");
+	// In the asking thread: one quiet notice each, from "worker-ask", naming the job, the question, the default and the id.
+	const quiet = (await t.entries()).filter((entry) => entry.role === "notice" && entry.from === "worker-ask");
+	expect(quiet.length).toBe(3);
+	expect(quiet[0]!.text).toStartWith("[a worker asks] Check the greeting: Which spelling?\nIt goes on with: American, as the file has it\nWhy it asks: the brief does not say\n(Item q1, from worker w1.");
+	expect(await t.use({ action: "questions" }, "Listed.")).toBe("[q1] worker w1 asks: Which spelling?\n  goes on with: American, as the file has it\n  why: the brief does not say\n[q2] worker w1 asks: Keep the old file?\n  goes on with: keep it\n[q3] worker w1 asks: Also fix the README?\n  goes on with: leave it");
+	// An answer needs a basis, in words.
+	expect(await t.use({ action: "answer", id: "q1", answer: "British" }, "No.")).toContain("basis is required");
+	expect(await t.use({ action: "answer", id: "q9", answer: "British", basis: "x" }, "No.")).toContain('No question "q9"');
+	expect(await t.use({ action: "answer", id: "q1", answer: "British", basis: "the person wrote 'we use British spelling' on 2026-11-10" }, "Answered.")).toBe("Worker w1 will read the answer to q1 at its next step. It still reports once, when it ends.");
+	expect(await t.use({ action: "answer", id: "q1", answer: "American", basis: "x" }, "No.")).toContain("already answered");
+	expect(await t.use({ action: "answer", id: "q3", answer: "Leave it", basis: "the person said: 'only the greeting'", by: "person" }, "Answered.")).toContain("Worker w1 will read");
+	gates.get("asked")!(); // its next step, which reads the answers
+	await t.until("the worker to have read the answer", () => gates.has("end"));
+	t.queue.push(fauxAssistantMessage("The worker used British spelling."));
+	gates.get("end")!();
+	await t.until("the report", async () => (await t.reports()).length === 1);
+	await t.core.harness.waitForIdle(context);
+	// The open one stood on its default; the report says what was decided without the person, for the model and as a card.
+	const report = (await t.entries()).find((entry) => entry.role === "notice" && entry.from === "worker")!;
+	expect(report.role === "notice" && report.text).toContain("Used British spelling, as answered.\n\nDecided without the person (3):\n- Which spelling? → British (answered by the coordinator; basis: the person wrote 'we use British spelling' on 2026-11-10)\n- Keep the old file? → keep it (the worker's default; basis: No answer came.)\n- Also fix the README? → Leave it (answered by the person; basis: the person said: 'only the greeting')");
+	expect(report.role === "notice" && report.card?.decided).toEqual([
+		{ question: "Which spelling?", done: "British", by: "coordinator", basis: "the person wrote 'we use British spelling' on 2026-11-10" },
+		{ question: "Keep the old file?", done: "keep it", by: "default", basis: "No answer came." },
+		{ question: "Also fix the README?", done: "Leave it", by: "person", basis: "the person said: 'only the greeting'" },
+	]);
+	expect(await t.use({ action: "questions" }, "Listed.")).toBe("No open questions.");
+	// Answered after the worker ended: recorded, and the tool says the default was what was done.
+	expect(await t.use({ action: "answer", id: "q2", answer: "Delete it", basis: "the person said so" }, "Late.")).toContain("had already ended or was finishing, and went on with its default: keep it.");
+	const items = ((await t.core.harness.snapshot(Ledger, context)) ?? { items: [] }).items;
+	expect(items.map((item) => [item.id, item.status, item.answer?.by])).toEqual([["q1", "answered", "coordinator"], ["q2", "defaulted", "coordinator"], ["q3", "answered", "person"]]);
+	expect((await t.reports()).length).toBe(1);
+}, 90_000);
 
 test("a worker that waits for a slot cannot be told, and says why", async () => {
 	const gates = new Map<string, () => void>();

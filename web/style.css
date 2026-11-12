@@ -145,6 +145,11 @@ th, td { padding: 4px 10px; border: 1px solid var(--line); text-align: left; ver
 .report-summary { flex: 1; color: var(--dim); }
 .report-who { flex: none; color: var(--dim); font-size: 12px; }
 .report-body { padding: 4px 12px 10px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.report-decided summary { min-height: 32px; padding: 4px 0; color: var(--dim); font-size: 13px; }
+.decided-row { display: grid; gap: 1px; padding: 4px 0; font-size: 13px; }
+.decided-done { color: var(--dim); }
+.decided-basis { color: var(--dim); font-size: 12px; }
+.notice-entry.quiet { border: none; padding: 2px 12px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .release p { margin: 0; }
 .notice { padding: 10px 12px; border-top: 1px solid var(--line); color: var(--warn); }
 .notice p { margin: 0; }

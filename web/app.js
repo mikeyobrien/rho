@@ -278,9 +278,25 @@ export function start(env) {
 		second.append(make("span", { className: "report-summary", textContent: brief }), make("span", { className: "report-who", textContent: card.who }));
 		head.append(top, second);
 		node.append(head);
-		if (card.body) {
+		if (card.body || card.decided?.length) {
 			const body = make("div", { className: "report-body" });
-			renderMarkdown(body, card.body, document);
+			if (card.decided?.length) {
+				// What the worker's questions came to, without the person: one line that opens.
+				const fold = make("details", { className: "report-decided" });
+				fold.append(make("summary", { textContent: `Decided without you · ${card.decided.length}` }));
+				const BY_WORDS = { coordinator: "answered by rho", person: "your answer", default: "the worker's default" };
+				for (const entry of card.decided) {
+					const row = make("div", { className: "decided-row" });
+					row.append(make("div", { className: "decided-question", textContent: entry.question }), make("div", { className: "decided-done", textContent: `→ ${entry.done}` }), make("div", { className: "decided-basis", textContent: `${BY_WORDS[entry.by] ?? entry.by} · ${entry.basis}` }));
+					fold.append(row);
+				}
+				body.append(fold);
+			}
+			if (card.body) {
+				const words = make("div", {});
+				renderMarkdown(words, card.body, document);
+				body.append(words);
+			}
 			node.append(body);
 		}
 		return node;
@@ -396,7 +412,7 @@ export function start(env) {
 		if (existing) return existing;
 		let node;
 		if (entry.role === "divider") node = make("div", { className: "divider", textContent: entry.text });
-		else if (entry.role === "notice") node = entry.card?.kind === "report" ? reportCard(entry.card) : make("div", { className: "notice-entry", textContent: entry.text });
+		else if (entry.role === "notice") node = entry.card?.kind === "report" ? reportCard(entry.card) : entry.from === "worker-ask" ? make("div", { className: "notice-entry quiet", textContent: (entry.text.split("\n")[0] ?? "").replace(/^\[a worker asks\]\s*/, "A worker asks rho · ") }) : make("div", { className: "notice-entry", textContent: entry.text });
 		else if (entry.role === "user") node = bubble("msg user", entry.text, Array.from({ length: entry.images ?? 0 }, (_, n) => sentPhoto(entry, n)));
 		else if (entry.role === "tool") node = toolCard(entry.name, calls.get(entry.callId), entry.summary, entry.text, entry.error, entry.diff);
 		else {

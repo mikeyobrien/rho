@@ -56,7 +56,7 @@ if (requestId && text) {
 // entry before looking for idle, or "idle" is seen before the report's own run has begun.
 const awaited = process.env.WAIT_FOR_KIND;
 for (let waited = 0; awaited && waited < 20_000; waited += 50) {
-	if ((await core.root.entries({ order: "descending" }, 40, undefined, context)).items.some((entry) => entry.kind === awaited)) break;
+	if ((await core.root.entries({ order: "descending" }, 40, undefined, context)).items.filter((entry) => entry.kind === awaited).length >= Number(process.env.WAIT_FOR_COUNT ?? 1)) break;
 	await Bun.sleep(50);
 }
 await core.harness.waitForIdle(context);
@@ -68,7 +68,7 @@ const entries = page.items.map((entry) => {
 	const message = entry.model?.[0] as { role?: string; content?: unknown; stopReason?: string; isError?: boolean } | undefined;
 	const content = message?.content;
 	const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((part: { type: string; text?: string; name?: string }) => part.text ?? `[${part.type}${part.name ? ` ${part.name}` : ""}]`).join("") : "";
-	return { kind: entry.kind, text: text.slice(0, 120), stop: message?.stopReason, isError: message?.isError };
+	return { kind: entry.kind, text: text.slice(0, Number(process.env.TEXT_MAX ?? 120)), stop: message?.stopReason, isError: message?.isError };
 });
 say({ event: "idle", entries, answers: entries.filter((entry) => AssistantEntry.kind === entry.kind).length });
 await core.close();
