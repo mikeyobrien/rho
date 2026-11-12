@@ -699,22 +699,23 @@ is used only through Claude Code.
       all. A change to review is a card of typed data (why, up to five rows, risk, what
       was not checked; counts and test results filled in by code), with a link out to the
       person's forge for the diff and their comments coming back as work. No diff viewer.
-    - **Step 1 built 2026-11-12** (`src/replies.ts`, `test/replies.test.ts`):
+    - **Step 1 built 2026-11-12** (`INSTRUCTIONS` in `src/core.ts`, `test/instructions.test.ts`):
       - Rho's instructions say: do not end a reply with questions; where a choice is open
         and can be undone, take the careful option and say which; ask only when a wrong
         guess could not be cheaply undone, one thing, with a default, and with only the
         background the person lacks.
       - A conversation made by an older rho takes the current instructions at start.
         Before this a conversation kept the text it was made with for good.
-      - A counter: after each reply in one of the person's own conversations, one line in
-        `replies.jsonl` (time, conversation, length, questions in the reply, questions in
-        its closing paragraph; none of its words). Code, commands and quotations are not
-        counted. `rho replies [last]` reads it. It only counts.
-      - Checked: 3 tests, one in a real core with a worker whose own questions are not
-        counted. Not checked: any live model, so whether the instruction changes what a
-        model does is not known; the before-and-after run the design asks for is not done.
-        The count is by question marks, so a question without one is missed and a
-        rhetorical one is counted.
+      - A counter of replies that ended by asking was built with it and **taken out the
+        same day at the owner's word ("reply counter seems tacky")**: `src/replies.ts`, its
+        log `replies.jsonl` and the `rho replies` command are gone. While it ran in the
+        installed rho it counted 7 replies, none ending by asking. A `replies.jsonl` it
+        left in the data directory is not read by anything and is the owner's to delete.
+        Whether the instruction holds is now judged by the owner reading the replies, not
+        by a count.
+      - Checked: 2 tests (what the instructions hold; an older conversation takes them).
+        Not checked: any live model run made to see whether the instruction changes what a
+        model does.
     - **Step 2 built 2026-11-12** (`src/ledger.ts`, the `ask` tool and `answer`/`questions`
       in `src/tools/delegate.ts`), with no budget or limit on what reaches the person, as the
       owner decided:
@@ -760,9 +761,9 @@ is used only through Claude Code.
         told at its next step and wrote the file where the answer said; the report card's
         list held the one item, by coordinator, with the basis. No approval card and no
         notification. 38 s in all. The worker had been told to ask: whether workers ask
-        sparingly unprompted is still not known. The reply counter showed 0 of 2 replies
-        ending in a question in the first run, which is two replies on Haiku and no test of
-        the instruction.
+        sparingly unprompted is still not known. (The reply counter, since removed, showed 0 of 2 replies
+        ending in a question in the first run: two replies on Haiku, no test of the
+        instruction.)
       - Not checked: the basis is required but not verified: code
         cannot tell a real basis from an invented one. The person cannot see open questions
         anywhere but the thread. A stopped worker's defaulted items are listed nowhere for the
@@ -1735,7 +1736,7 @@ is used only through Claude Code.
       multi-line tool output cut, sent as plain text, the pill gone on a cleared selection
       and on opening details; a report's title in the line; none in a worker's thread);
       `test/http.test.ts` (no mode on the wire, take back, a notice not listed, Stop);
-      `test/replies.test.ts` (the new instruction is in INSTRUCTIONS).
+      `test/instructions.test.ts` (the new instruction is in INSTRUCTIONS).
     - Not checked: a real browser. The pill and Android's own Copy/Share bar have not been
       seen together; whether a tap on the pill keeps the selection on Android Chrome (the
       page prevents the press's default and also keeps the last selection it saw) and the

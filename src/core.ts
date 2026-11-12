@@ -12,7 +12,6 @@ import { homedir } from "node:os";
 import { checkins as checkinFeature, type Reminder, type ReminderSpec } from "./checkins.ts";
 import { projectExtension, type ContextOptions } from "./context.ts";
 import { openDecider, readDecider } from "./decider.ts";
-import { replyCounter } from "./replies.ts";
 import { entryView, textOf } from "./view.ts";
 import { memoryExtension, NOTICE, openMemory, type MemoryProvider } from "./memory/provider.ts";
 import { describeRelease } from "./gate.ts";
@@ -64,7 +63,7 @@ export const INSTRUCTIONS =
 	"Spend the person's attention only where it changes the outcome. A report is a claim, not a fact: check the result " +
 	"before you say it is done, and say done, partial or failed. Reversible work goes on; an action that cannot be undone " +
 	"(a delete, a send, a push, a purchase) waits for the person's yes. " +
-	// Asked by the owner 2026-11-12: a reply that ends in questions spends their attention. `src/replies.ts` counts whether this holds.
+	// Asked by the owner 2026-11-12: a reply that ends in questions spends their attention.
 	"Do not end a reply with questions. When a choice is open and can be undone, take the careful option, say in one line which you took, and go on. " +
 	"Ask only when a wrong guess could not be cheaply undone: then ask one thing, with what you would do by default, and with only as much background as the person does not already have from the last few messages. " +
 	// Asked by the owner 2026-11-12: a message sent while rho works is just a message, with no mode to choose.
@@ -222,8 +221,6 @@ export async function openCore(options: CoreOptions): Promise<Core> {
 	let persons: (id: string) => Promise<boolean> = async () => false;
 	const memory = options.memory === undefined ? openMemory(config, { dir: options.dir, log }) : (options.memory ?? undefined);
 	if (memory) registry.install(tidy(memoryExtension(memory, { log, capture: (id) => persons(id) })));
-	// One line per reply in the person's own conversations: did it end by asking them something.
-	registry.install(replyCounter(options.dir, { counts: (id) => persons(id), log, ...(options.clock ? { now: options.clock.now } : {}) }));
 	log(`memory: ${memory?.label ?? "off"}`);
 	const now = options.clock?.now ?? Date.now;
 	const reminders = config.checkins === false ? undefined : checkinFeature({ now, log, noticeKind: NOTICE, maxTurns: typeof config.checkins === "object" ? config.checkins.maxTurns : undefined });
