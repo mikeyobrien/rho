@@ -4,6 +4,11 @@ Rho is a personal agent that stays running on its owner's machine, remembers, an
 This branch (`v2`) is a from-scratch rewrite on pi-durable, in TypeScript on Bun. `main` is
 rho 1 and shares no history with it.
 
+`UX.md` is the one list of how rho feels to use: the owner's principles, what is live, what
+is next and in what order, what waits on the owner, what is being explored and what was
+dropped. Read it before any change a person would see; update it in the commit that changes
+a fact in it.
+
 `TASKS.md` is the work list and the record of what was verified and what was not. Read its
 bootstrap section before choosing work; update it in the commit that changes the facts.
 
