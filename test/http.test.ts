@@ -176,17 +176,20 @@ test("a tool round shows the call, its running output, and its result", async ()
 	expect(done.at(-1)!.tools).toEqual([]);
 });
 
-test("while a run works: a message queues and can be taken back, a steer joins the run, stop ends it", async () => {
+test("while a run works: a message waits unread and can be taken back, one joins the run, a notice is not listed, stop ends it", async () => {
 	faux.setResponses([fauxAssistantMessage(fauxToolCall("wait", { why: "hold" }), { stopReason: "toolUse" })]);
 	await submit("start", "req-busy-1");
 	await gate.started;
-	const queued = (await (await submit("and then this", "req-busy-2")).json()) as { submissionId: string };
-	const withQueue = await follow((state) => state.queued.length === 1);
-	expect(withQueue.at(-1)!.queued).toEqual([{ id: queued.submissionId, mode: "followUp", text: "and then this" }]);
-	expect(await (await call("/api/unqueue", { id: queued.submissionId })).json()).toEqual({ ok: true, result: "aborted" });
+	const waiting = (await (await submit("and then this", "req-busy-2", "steer")).json()) as { submissionId: string };
+	const listed = await follow((state) => state.queued.length === 1);
+	expect(listed.at(-1)!.queued).toEqual([{ id: waiting.submissionId, text: "and then this" }]); // no mode on the wire
+	expect(await (await call("/api/unqueue", { id: waiting.submissionId })).json()).toEqual({ ok: true, result: "aborted" });
 	await follow((state) => state.queued.length === 0);
+	// A notice waits too, but it is not the person's message: it is not listed for taking back.
+	expect((await call("/api/submit", { text: "A worker reports.", requestId: "req-busy-notice", from: "worker" })).status).toBe(200);
 	await submit("use pnpm", "req-busy-3", "steer");
-	expect((await follow((state) => state.queued.length === 1)).at(-1)!.queued[0]!.mode).toBe("steer");
+	const both = (await follow((state) => state.queued.length === 1)).at(-1)!;
+	expect(both.queued.map((item) => item.text)).toEqual(["use pnpm"]);
 	expect((await call("/api/stop", {})).status).toBe(200);
 	const stopped = await follow((state) => !state.running);
 	expect(stopped.at(-1)!.failure).toMatchObject({ reason: "aborted", text: "Stopped." });

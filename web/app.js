@@ -27,7 +27,7 @@ export function start(env) {
 	const make = (tag, props) => Object.assign(document.createElement(tag), props);
 	const el = {
 		status: $("status"), thread: $("thread"), entries: $("entries"), live: $("live"), empty: $("empty"), earlier: $("earlier"), latest: $("latest"),
-		notice: $("notice"), noticeText: $("notice-text"), queue: $("queue"), composer: $("composer"), input: $("input"), send: $("send"),
+		notice: $("notice"), noticeText: $("notice-text"), composer: $("composer"), input: $("input"), send: $("send"),
 		menuButton: $("menu-button"), title: $("title"), details: $("details"), detailsBack: $("details-back"), detailsTitle: $("details-title"), detailsBody: $("details-body"), detailsNotice: $("details-notice"),
 		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
 		workers: $("workers"), workerThread: $("worker-thread"), footer: $("composer"),
@@ -65,6 +65,7 @@ export function start(env) {
 		if (store.get("draft", "") === "") store.set("draft", lostPhotos.map((item) => item.text).filter(Boolean).join("\n\n"));
 	}
 	let chosen = []; // [{ type, data }] photos picked for the next message; in memory only
+	const held = new Map(); // submission id -> { photos, seen } of a message this page sent, while rho has not read it
 	let reading = 0; // photos still being read from the device
 	const known = new Map(); // entry id -> entry, including older pages
 	let moreEarlier = false;
@@ -196,7 +197,9 @@ export function start(env) {
 				const item = outbox[0];
 				try {
 					// A kept message goes to the conversation it was written in, whichever is open now.
-					await api("submit", { text: item.text, requestId: item.requestId, whenBusy: item.mode ?? "steer", ...(item.images ? { images: item.images.map((photo) => ({ data: photo.data })) } : {}) }, item.c ?? "");
+					// While rho works, a message is read at its next step: there is no other way to send one.
+					const { submissionId } = await api("submit", { text: item.text, requestId: item.requestId, whenBusy: "steer", ...(item.images ? { images: item.images.map((photo) => ({ data: photo.data })) } : {}) }, item.c ?? "");
+					if (item.images && submissionId) held.set(submissionId, { photos: item.images, seen: false });
 				} catch (error) {
 					if (error.status === undefined) return; // not reached: it stays "Not sent yet" and goes again later
 					// The daemon refused it: give the words and the photos back instead of losing them.
@@ -216,10 +219,9 @@ export function start(env) {
 		}
 	}
 
-	// A message sent while rho works joins the work in hand at its next step ("steer"); the
-	// person can make it wait for the answer instead ("followUp"). Idle, both start a run.
-	function submit(text, mode = "steer", images = []) {
-		outbox = [...outbox, { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`, text, mode, c: conversation, ...(images.length > 0 ? { images } : {}) }];
+	// A message is just a message: idle it starts a run, and while rho works it is read at the next step.
+	function submit(text, images = []) {
+		outbox = [...outbox, { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`, text, c: conversation, ...(images.length > 0 ? { images } : {}) }];
 		keepOutbox();
 		stick = true;
 		render();
@@ -439,10 +441,6 @@ export function start(env) {
 		el.earlier.hidden = !moreEarlier;
 
 		const live = [];
-		for (const item of outbox.filter((kept) => (kept.c ?? "") === conversation)) {
-			live.push(bubble("msg user unsent", item.text, (item.images ?? []).map((photo, n) => picture(n, sourceOf(photo)))));
-			live.push(note(connection === "live" ? "Sending" : "Not sent yet", "note unsent-note"));
-		}
 		for (const ask of state?.approvals ?? []) {
 			const card = make("div", { className: "approval" });
 			const answer = (allow) => async () => {
@@ -476,50 +474,62 @@ export function start(env) {
 			const text = state.failure.detail ? `${state.failure.text} ${state.failure.detail}` : state.failure.text;
 			live.push(note(text, state.failure.reason === "aborted" ? "note" : "note failure"));
 		}
+		// The person's messages rho has not read yet, then those not sent yet: at the tail, in order.
+		const waiting = state?.queued ?? [];
+		// Kept until the daemon has listed it and then stopped: a snapshot can be older than the send.
+		for (const [id, kept] of held) {
+			if (waiting.some((item) => item.id === id)) kept.seen = true;
+			else if (kept.seen) held.delete(id);
+		}
+		for (const item of waiting) live.push(...unreadNodes(item));
+		for (const item of outbox.filter((kept) => (kept.c ?? "") === conversation)) {
+			live.push(bubble("msg user unsent", item.text, (item.images ?? []).map((photo, n) => picture(n, sourceOf(photo)))));
+			live.push(note(connection === "live" ? "Sending" : "Not sent yet", "note unsent-note"));
+		}
 		const running = runningCard();
 		if (running) live.push(running);
 		tickRunning();
 		el.live.replaceChildren(...live);
 		el.empty.hidden = entries.length > 0 || live.length > 0 || state === undefined;
 
-		el.queue.replaceChildren(
-			...(state?.queued ?? []).map((item) => {
-				const row = make("li", {});
-				const steer = item.mode === "steer";
-				row.append(make("span", { className: "chip", textContent: steer ? "Steer · next step" : "Queued · after the answer" }));
-				const words = [item.images ? count(item.images) : "", item.text].filter(Boolean).join(" · ");
-				row.append(make("span", { className: "queued-text", textContent: words }));
-				const flip = make("button", { type: "button", textContent: steer ? "Wait for the answer" : "Steer now" });
-				flip.addEventListener("click", async () => {
-					try {
-						const { result } = await api("unqueue", { id: item.id });
-						if (result === "aborted") submit(item.text, steer ? "followUp" : "steer"); // already taken by rho: nothing to move
-					} catch (error) {
-						flash(error.message);
-					}
-				});
-				const remove = make("button", { type: "button", textContent: "Remove" });
-				remove.setAttribute("aria-label", `Remove waiting message: ${words.slice(0, 60)}`);
-				remove.addEventListener("click", async () => {
-					try {
-						const { result } = await api("unqueue", { id: item.id });
-						if (result !== "aborted") return;
-						if (el.input.value.trim() === "") setDraft(item.text); // give the words back
-						if (item.images) flash(`Removed. Its ${count(item.images)} would need adding again.`);
-					} catch (error) {
-						flash(error.message);
-					}
-				});
-				// The page no longer holds a waiting message's photos, so it cannot take it back and send it another way.
-				row.append(...(item.images ? [remove] : [remove, flip]));
-				return row;
-			}),
-		);
-
 		renderStatus();
 		renderSend();
 		if (stick) el.thread.scrollTop = el.thread.scrollHeight;
 		el.latest.hidden = stick;
+	}
+
+	/**
+	 * A message of the person's that rho has not read yet: their bubble, with a faint line under
+	 * it and one quiet control to take it back. When rho reads it, it is the message in the thread.
+	 */
+	function unreadNodes(item) {
+		const photos = held.get(item.id)?.photos;
+		const pictures = photos ? photos.map((photo, n) => picture(n, sourceOf(photo))) : [];
+		// Photos this page does not hold (sent from another page, or before a reload) are counted in words.
+		const text = !photos && item.images ? [count(item.images), item.text].filter(Boolean).join(" · ") : item.text;
+		const line = make("div", { className: "unread-line" });
+		line.append(make("span", { className: "unread-mark", textContent: "Not read yet" }));
+		if (!state?.workerThread) {
+			const back = make("button", { type: "button", className: "take-back", textContent: "Take back" });
+			back.setAttribute("aria-label", `Take back: ${(item.text || count(item.images ?? 0)).slice(0, 60)}`);
+			back.addEventListener("click", async () => {
+				back.disabled = true;
+				try {
+					const { result } = await api("unqueue", { id: item.id });
+					if (result !== "aborted") return; // rho has just read it: it stays in the thread
+					if (el.input.value.trim() === "") setDraft(item.text); // its words go back in the box
+					if (photos && chosen.length === 0) {
+						chosen = photos;
+						renderChosen();
+					} else if (item.images) flash(`Taken back. Its ${count(item.images)} would need adding again.`);
+				} catch (error) {
+					back.disabled = false;
+					flash(error.message);
+				}
+			});
+			line.append(back);
+		}
+		return [bubble("msg user unread", text, pictures), line];
 	}
 
 	// --- a release of new code into rho ------------------------------------------------------------
@@ -657,9 +667,8 @@ export function start(env) {
 
 	function renderStatus() {
 		const words = { connecting: "Connecting", offline: "Can't reach rho", unpaired: "Not paired" };
-		const queued = state?.queued?.length ?? 0;
 		let text = words[connection];
-		if (connection === "live") text = state?.running ? (queued > 0 ? `Working · ${queued} waiting` : "Working") : (state?.model ?? "Ready");
+		if (connection === "live") text = state?.running ? "Working" : (state?.model ?? "Ready");
 		// Workers still at it are counted beside it, whatever this thread itself is doing.
 		const busy = liveWorkers().length + (state?.background ? 1 : 0);
 		if (connection === "live" && busy > 0) text += ` · ${busy} running`;
@@ -683,7 +692,7 @@ export function start(env) {
 		const hasWords = el.input.value.trim() !== "" || chosen.length > 0 || reading > 0;
 		const stop = Boolean(state?.running) && !hasWords;
 		el.send.textContent = stop ? "Stop" : "Send";
-		el.send.setAttribute("aria-label", stop ? "Stop" : state?.running ? "Send to the work in hand" : "Send");
+		el.send.setAttribute("aria-label", stop ? "Stop" : "Send");
 		el.send.classList.toggle("stop", stop);
 		el.send.disabled = reading > 0 || (!stop && !hasWords); // a photo still being read would be left behind
 	}
@@ -751,7 +760,6 @@ export function start(env) {
 	});
 
 	// --- composer --------------------------------------------------------------------------------
-	let nextMode = "steer";
 	function grow() {
 		el.input.style.height = "auto";
 		el.input.style.height = `${el.input.scrollHeight + 2}px`;
@@ -771,7 +779,6 @@ export function start(env) {
 		// On a touch keyboard Enter is a new line and the button sends. An IME's Enter never sends.
 		if (event.key !== "Enter" || event.shiftKey || env.touch || event.isComposing || event.keyCode === 229) return;
 		event.preventDefault();
-		if (event.altKey) nextMode = "followUp"; // Alt+Enter: wait for the answer
 		el.composer.requestSubmit();
 	});
 	el.composer.addEventListener("submit", async (event) => {
@@ -791,8 +798,7 @@ export function start(env) {
 		chosen = [];
 		renderChosen();
 		setDraft("");
-		submit(text, nextMode, images);
-		nextMode = "steer";
+		submit(text, images);
 	});
 
 	// --- thread ----------------------------------------------------------------------------------

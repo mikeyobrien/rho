@@ -73,6 +73,7 @@ test("a conversation made by an older rho takes the current instructions at the 
 	const first = await open();
 	expect((await first.core.root.agent(context)).instructions).toBe(INSTRUCTIONS);
 	expect(INSTRUCTIONS).toContain("Do not end a reply with questions.");
+	expect(INSTRUCTIONS).toContain("Never ask them whether to do it now or later.");
 	const other = await first.core.create();
 	await first.core.root.configure({ instructions: "You are rho, as an older release said it." }, context);
 	await first.core.close();

@@ -236,7 +236,7 @@ test("a command that cannot be undone shows a card with Allow and Deny, and Deny
 	expect(page.messages()).toContain("msg user|No. Do not run: `git push origin main`");
 });
 
-test("while a run works: words queue and can be taken back; an empty box is Stop", async () => {
+test("while a run works: a message is an unread bubble in the thread that can be taken back; an empty box is Stop", async () => {
 	faux.setResponses([fauxAssistantMessage(fauxToolCall("wait", { why: "hold" }), { stopReason: "toolUse" })]);
 	const page = await open();
 	await until("live", () => idle(page));
@@ -245,20 +245,17 @@ test("while a run works: words queue and can be taken back; an empty box is Stop
 	await until("Stop", () => page.$("send").textContent === "Stop");
 	await page.type("Also mention foghorns.");
 	expect(page.$("send").textContent).toBe("Send");
-	expect(page.$("send").attrs["aria-label"]).toBe("Send to the work in hand");
+	expect(page.$("send").attrs["aria-label"]).toBe("Send");
 	await page.$("composer").requestSubmit();
-	const row = () => page.$("queue").children[0] as El | undefined;
-	const button = (label: string) => row()!.all().find((node) => node.tag === "button" && node.textContent === label)!;
-	// A message sent while rho works joins the work at its next step, and says so.
-	await until("the queued row", () => row()?.textContent.includes("Steer · next step"));
-	expect(page.$("status").textContent).toBe("Working · 1 waiting");
-	// The person can make it wait for the answer instead.
-	await button("Wait for the answer").fire("click");
-	await until("the row to wait", () => row()?.textContent.includes("Queued · after the answer"));
-	expect(page.$("queue").children.length).toBe(1);
-	await button("Remove").fire("click");
-	await until("the queue to empty", () => page.$("queue").children.length === 0);
-	expect(page.$("input").value).toBe("Also mention foghorns."); // a removed message's words go back in the box
+	// It is the person's bubble at the tail of the thread, marked as not read yet, and nothing else.
+	await until("the unread bubble", () => page.messages().includes("msg user unread|Also mention foghorns."));
+	const line = inside(page.$("live"), "unread-line")[0]!;
+	expect(line.textContent).toBe("Not read yetTake back");
+	expect(page.$("status").textContent).toBe("Working");
+	expect(page.messages().some((text) => /steer|queue|follow-up|after the answer/i.test(text))).toBe(false);
+	await inside(line, "take-back")[0]!.click();
+	await until("the bubble to go", () => !page.messages().some((text) => text.includes("Also mention foghorns.")));
+	expect(page.$("input").value).toBe("Also mention foghorns."); // a message taken back goes back in the box
 	await page.type("");
 	await page.$("composer").requestSubmit(); // Stop
 	await until("the stop", () => page.messages().includes("note|Stopped."));
@@ -649,26 +646,24 @@ test("with the daemon unreachable a photo is kept in the page and sent once; a r
 	expect(reloaded.messages().filter((line) => line.includes("And this?")).length).toBe(1); // still the one that was sent
 }, 25_000);
 
-test("a waiting message with a photo says so, and can be removed but not moved", async () => {
-	faux.setResponses([fauxAssistantMessage(fauxToolCall("wait", { why: "test" }), { stopReason: "toolUse" }), fauxAssistantMessage("Done."), fauxAssistantMessage("Next.")]);
+test("a message with a photo sent while rho works shows its photo unread, and is read at the next step as an ordinary message", async () => {
+	faux.setResponses([fauxAssistantMessage(fauxToolCall("wait", { why: "test" }), { stopReason: "toolUse" }), fauxAssistantMessage("Done.")]);
 	const page = await open();
 	await until("live", () => idle(page));
 	await page.send("wait please");
 	await gate.started;
 	await pick(page, file());
 	await page.type("and look");
-	await page.$("input").fire("keydown", { key: "Enter", altKey: true }); // touch: no send; set the mode by hand below
 	await page.$("composer").requestSubmit();
-	await until("the waiting message", () => page.$("queue").children.length === 1);
-	const row = page.$("queue").children[0] as El;
-	expect(row.all().find((node) => node.className === "queued-text")!.textContent).toBe("1 photo · and look");
-	expect(row.all().filter((node) => node.tag === "button").map((node) => node.textContent)).toEqual(["Remove"]);
-	await row.all().find((node) => node.tag === "button")!.fire("click");
-	await until("the queue to empty", () => page.$("queue").children.length === 0);
-	expect(page.$("input").value).toBe("and look");
-	expect(page.$("status").textContent).toBe("Removed. Its 1 photo would need adding again.");
+	const unread = () => inside(page.$("live"), "msg user unread")[0];
+	await until("the unread bubble with its photo", () => unread()?.all().some((node) => node.tag === "img" && String((node as any).src).startsWith("data:image/")));
+	expect(unread()!.textContent).toBe("and look");
 	gate.release();
-	await until("the answer", () => page.messages().includes("msg assistant|Done."));
+	// Read at the next step: the message in the thread, with nothing to say so.
+	await until("the answer", () => page.messages().includes("msg assistant|Done.") && idle(page));
+	expect(page.messages()).toContain("msg user|and look");
+	expect(page.messages().some((text) => text.startsWith("msg user unread") || text.startsWith("unread-line"))).toBe(false);
+	expect(page.messages().indexOf("msg user|and look")).toBeLessThan(page.messages().indexOf("msg assistant|Done."));
 });
 
 test("a photo is made smaller in the browser before it is sent; if that fails it goes as it is", async () => {

@@ -105,7 +105,11 @@ export interface StateView {
 	/** Tools of the current round, with the output they have produced so far. */
 	tools: { id: string; name: string; status: "pending" | "running" | "done"; output: string }[];
 	retry?: { at: number; attempt: number; error: string };
-	queued: { id: string; mode: "steer" | "followUp"; text: string; images?: number }[];
+	/**
+	 * The person's messages rho has not read yet, oldest first. A notice waiting to be read (a
+	 * worker's report, a reminder) is not listed: it is not the person's to take back.
+	 */
+	queued: { id: string; text: string; images?: number }[];
 	failure?: { reason: string; text: string; detail?: string };
 	model?: string;
 	thinking?: string;
@@ -197,7 +201,7 @@ interface Live {
 	tools?: { callId: string; name: string; status: "pending" | "running" | "done"; output?: string }[];
 	runFailure?: { reason: string; detail?: string };
 }
-interface Inbox { items?: ({ id: unknown; mode: "steer" | "followUp"; content: { content?: Content } | Content } | { id: unknown; mode: "write" })[] }
+interface Inbox { items?: ({ id: unknown; mode: "steer" | "followUp"; content: { content?: Content } | Content; entry?: unknown } | { id: unknown; mode: "write" })[] }
 interface AgentDoc { model?: { provider: string; modelId: string }; thinkingLevel?: string; cwd?: string }
 
 export function stateView(view: ConversationView, approvals: StateView["approvals"] = []): StateView {
@@ -215,10 +219,10 @@ export function stateView(view: ConversationView, approvals: StateView["approval
 		tools: (live.tools ?? []).map((tool) => ({ id: tool.callId, name: tool.name, status: tool.status, output: tool.output ?? "" })),
 		...(retry ? { retry: { at: retry.at, attempt: live.generation!.attempt, error: retry.error.slice(0, 300) } } : {}),
 		queued: (inbox.items ?? []).flatMap((item) => {
-			if (item.mode === "write") return [];
+			if (item.mode === "write" || item.entry !== undefined) return []; // an entry of its own: a notice, not the person's words
 			const content = item.content as { content?: Content } | Content;
 			const said = typeof content === "object" && content !== null && !Array.isArray(content) && "content" in content ? content.content : (content as Content);
-			return [{ id: String(item.id), mode: item.mode, text: textOf(said), ...photos(said) }];
+			return [{ id: String(item.id), text: textOf(said), ...photos(said) }];
 		}),
 		...(failure && failure.reason !== "reset" && failure.reason !== "nothing_to_answer" ? { failure: { reason: failure.reason, text: FAILURES[failure.reason] ?? "The run ended without an answer.", ...(failure.detail ? { detail: failure.detail.slice(0, 300) } : {}) } } : {}),
 		approvals,
