@@ -86,7 +86,7 @@ async function follow(done: (state: StateView, all: StateView[]) => boolean, ms 
 const idleWith = (count: number) => (state: StateView) => !state.running && state.entries.length >= count;
 
 test("every API call needs the token; the files that hold secrets are private", async () => {
-	for (const path of ["/api/health", "/api/events", "/api/models", "/api/reminders", "/api/memory", "/api/workers", "/api/earlier?before=5"]) expect((await call(path, undefined, {})).status).toBe(401);
+	for (const path of ["/api/health", "/api/events", "/api/models", "/api/reminders", "/api/memory", "/api/workers", "/api/artifacts", "/api/span?from=1&before=5", "/api/earlier?before=5"]) expect((await call(path, undefined, {})).status).toBe(401);
 	expect((await call("/api/submit", { text: "hi", requestId: "12345678" }, {})).status).toBe(401);
 	expect((await call("/api/health", undefined, { authorization: "Bearer wrong" })).status).toBe(401);
 	expect((await call("/api/health")).status).toBe(200);
@@ -111,6 +111,36 @@ test("another origin, or another host name, is refused even with the token", asy
 	expect((await call("/not-api")).status).toBe(404);
 	expect((await call("/api/nope")).status).toBe(404);
 });
+
+test("artifacts are listed over the whole conversation; a span gives the entries back to one of them", async () => {
+	expect(await (await call("/api/artifacts")).json()).toEqual({ photos: [], files: [], reports: [] });
+	// Twelve writes, two of them to the same file, and one that fails: more than one snapshot's window of entries.
+	const paths = [...Array.from({ length: 11 }, (_, n) => `f${n}.txt`), "f3.txt"];
+	faux.setResponses([
+		...paths.map((path) => fauxAssistantMessage(fauxToolCall("write", { path, content: "x\n" }), { stopReason: "toolUse" })),
+		fauxAssistantMessage(fauxToolCall("edit", { path: "nope.txt", edits: [{ oldText: "a", newText: "b" }] }), { stopReason: "toolUse" }),
+		fauxAssistantMessage("Written."),
+	]);
+	expect((await submit("write them", "req-artifacts-1")).status).toBe(200);
+	await follow((state) => !state.running && state.entries.at(-1)?.role === "assistant" && state.entries.at(-1)?.text === "Written.");
+	const found = (await (await call("/api/artifacts")).json()) as { photos: unknown[]; files: { path: string; count: number; id: number; last: string }[]; reports: unknown[]; cut?: true };
+	// Newest change first; the file written twice is one row counted twice; the edit that failed is not there.
+	expect(found.files.map((file) => `${file.path} ${file.count}`)).toEqual(["f3.txt 2", "f10.txt 1", "f9.txt 1", "f8.txt 1", "f7.txt 1", "f6.txt 1", "f5.txt 1", "f4.txt 1", "f2.txt 1", "f1.txt 1", "f0.txt 1"]);
+	expect(found.cut).toBeUndefined();
+	expect(found.files.every((file) => Number.isSafeInteger(file.id) && file.last !== "")).toBe(true);
+	// A span: from the oldest file's entry up to an entry a client already holds, in order, with whether more lies before it.
+	const oldest = found.files.at(-1)!.id;
+	const newest = found.files[0]!.id;
+	const span = (await (await call(`/api/span?from=${oldest}&before=${newest}`)).json()) as { entries: { id: number; role: string }[]; more: boolean };
+	expect(span.entries[0]!.id).toBe(oldest);
+	expect(span.entries.every((entry, n) => n === 0 || entry.id > span.entries[n - 1]!.id)).toBe(true);
+	expect(span.entries.every((entry) => entry.id < newest)).toBe(true);
+	expect(span.more).toBe(true); // the person's message and the first call come before the first result
+	for (const bad of ["from=0&before=5", "from=5&before=5", "from=x&before=9", "before=9"]) expect((await call(`/api/span?${bad}`)).status).toBe(400);
+	// Another conversation has none of these.
+	const other = (await (await call("/api/conversations", {})).json()) as { id: string };
+	expect(await (await call(`/api/artifacts?c=${other.id}`)).json()).toEqual({ photos: [], files: [], reports: [] });
+}, 40_000);
 
 test("a question is answered: the stream shows the question, then the answer, as whole snapshots", async () => {
 	faux.setResponses([fauxAssistantMessage("Tokyo.")]);

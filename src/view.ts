@@ -42,6 +42,40 @@ export type EntryView =
 	| { id: number; role: "notice"; text: string; /** Who sent it: "gate", "check-in". */ from: string; /** How to draw it, when its sender said: a card, not a block of text. */ card?: NoticeCard }
 	| { id: number; role: "divider"; text: string };
 
+/**
+ * What a conversation produced or received, over all of it: the photos the person sent, the
+ * files an edit or a write changed, and the reports of side work. Each names the entry it is
+ * in, so a client can go there. Rho keeps no store of these: this is read from the entries.
+ */
+export interface Artifacts {
+	photos: { id: number; n: number }[];
+	files: { path: string; count: number; /** The entry of its newest change. */ id: number; /** That change in a few words. */ last: string }[];
+	reports: { id: number; verdict: NoticeCard["verdict"]; title: string; who: string }[];
+	/** Set when the conversation is longer than what was read: the oldest part is not counted. */
+	cut?: true;
+}
+/** The artifacts in a run of entry views, oldest first. Newest first in each list. Pure. */
+export function artifactsOf(entries: readonly EntryView[], cwd?: string): Omit<Artifacts, "cut"> {
+	const calls = new Map<string, ToolCallView>();
+	for (const entry of entries) if (entry.role === "assistant") for (const call of entry.calls) calls.set(call.id, call);
+	const photos: Artifacts["photos"] = [];
+	const reports: Artifacts["reports"] = [];
+	const files = new Map<string, Artifacts["files"][number]>(); // insertion order: oldest newest-change first
+	for (const entry of entries) {
+		if (entry.role === "user") for (let n = 0; n < (entry.images ?? 0); n++) photos.push({ id: entry.id, n });
+		if (entry.role === "notice" && entry.card?.kind === "report") reports.push({ id: entry.id, verdict: entry.card.verdict, title: entry.card.title, who: entry.card.who.replace(/^worker w\d+$/, "worker") });
+		// A call that failed changed nothing.
+		if (entry.role !== "tool" || entry.error || (entry.name !== "edit" && entry.name !== "write")) continue;
+		const given = calls.get(entry.callId)?.args.path;
+		if (typeof given !== "string" || given === "") continue;
+		// The same file, named from the working directory or in full, is one row.
+		const path = cwd && given.startsWith(`${cwd}/`) ? given.slice(cwd.length + 1) : given;
+		const count = (files.get(path)?.count ?? 0) + 1;
+		files.delete(path);
+		files.set(path, { path, count, id: entry.id, last: entry.summary });
+	}
+	return { photos: photos.reverse(), files: [...files.values()].reverse(), reports: reports.reverse() };
+}
 /** A worker as a client is shown it. The job line is the agent's words; `step` names a tool and what it acts on. */
 export interface WorkerView {
 	id: string;

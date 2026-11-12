@@ -19,7 +19,7 @@ import type { WorkerView } from "./view.ts";
 import { releaseView } from "./gate.ts";
 import { MAX_PHOTO_BYTES, PhotoRefused, takePhotos } from "./photos.ts";
 import { setupOf } from "./providers.ts";
-import { entryView, stateView, type StateView } from "./view.ts";
+import { entryView, stateView, type StateView, artifactsOf, type Artifacts, type EntryView } from "./view.ts";
 
 export interface ServerOptions {
 	core: Core;
@@ -65,6 +65,9 @@ async function pageFile(pathname: string): Promise<Response | undefined> {
 	if (!(await blob.exists())) return undefined;
 	return new Response(blob, { headers: { ...PAGE_HEADERS, "content-type": TYPES[extname(file)]! } });
 }
+/** How far back the artifact list reads, and how many entries one jump may load. */
+const MAX_ARTIFACT_ENTRIES = 20_000;
+const MAX_SPAN = 600;
 const THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 class Refusal extends Error {
 	constructor(readonly status: number, message: string) {
@@ -452,6 +455,39 @@ export async function serve(options: ServerOptions): Promise<Server> {
 			const photo = message?.role === "user" && Array.isArray(message.content) ? message.content.filter((part) => part.type === "image")[n] : undefined;
 			if (!photo) throw new Refusal(404, "No such photo.");
 			return { mimeType: photo.mimeType, data: photo.data };
+		},
+		// Everything the conversation produced or received, over all of it and not only what a
+		// client has loaded. Read from the entries at each call: there is no store to keep in step.
+		"GET /api/artifacts": async (_request, url) => {
+			const { conversation } = await viewOf(url);
+			const views: EntryView[] = [];
+			let before: number | undefined;
+			let cut = false;
+			// Newest first, a page at a time, to a bound: a thread of many thousands of entries is read in part and says so.
+			for (let read = 0; ; ) {
+				const page = await conversation.entries({ ...(before === undefined ? {} : { maxEntryId: (before - 1) as never }), order: "descending" }, 500, undefined, context);
+				for (const entry of page.items) {
+					const view = entryView(entry);
+					if (view) views.push(view);
+				}
+				read += page.items.length;
+				if (page.items.length < 500) break;
+				if (read >= MAX_ARTIFACT_ENTRIES) {
+					cut = true;
+					break;
+				}
+				before = Number(page.items.at(-1)!.id);
+			}
+			return { ...artifactsOf(views.reverse(), (await conversation.agent(context)).cwd), ...(cut ? { cut: true as const } : {}) } satisfies Artifacts;
+		},
+		// The entries from one entry to the oldest a client holds, so it can go to an artifact that is further back than it has loaded.
+		"GET /api/span": async (_request, url) => {
+			const [from, before] = [Number(url.searchParams.get("from")), Number(url.searchParams.get("before"))];
+			if (!Number.isSafeInteger(from) || from < 1 || !Number.isSafeInteger(before) || before <= from) throw new Refusal(400, "from and before are required: the entry to reach, and the id of the oldest entry you have.");
+			const page = await (await viewOf(url)).conversation.entries({ minEntryId: from as never, maxEntryId: (before - 1) as never, order: "descending" }, MAX_SPAN, undefined, context);
+			if (page.items.length === MAX_SPAN && Number(page.items.at(-1)!.id) > from) throw new Refusal(413, "That is too far back to show in one go. Use Show earlier messages in the thread.");
+			const earlier = await (await viewOf(url)).conversation.entries({ maxEntryId: (from - 1) as never, order: "descending" }, 1, undefined, context);
+			return { entries: page.items.flatMap((entry) => entryView(entry) ?? []).reverse(), more: earlier.items.length > 0 };
 		},
 		"GET /api/health": async () => ({ ok: true, pid: process.pid, startedAt, ...(options.commit ? { commit: options.commit } : {}) }),
 	};

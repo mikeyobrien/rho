@@ -473,7 +473,7 @@ test("a photo is picked, shown before it is sent, and reaches the model; the thr
 	expect([...page.stored.values()].join("")).not.toContain(PNG);
 });
 
-test("artifacts on the details page: photos sent, files changed and reports, from the entries the page holds; a row jumps to its place in the thread", async () => {
+test("artifacts on the details page: photos sent, files changed and reports, as the daemon lists them; a row jumps to its place in the thread", async () => {
 	writeFileSync(join(work, "hello.txt"), "one\nhello wrold\nthree\n");
 	faux.setResponses([
 		fauxAssistantMessage(fauxToolCall("edit", { path: "hello.txt", edits: [{ oldText: "wrold", newText: "world" }] }), { stopReason: "toolUse" }),
@@ -500,7 +500,7 @@ test("artifacts on the details page: photos sent, files changed and reports, fro
 	await core.root.submit({ type: "input", content: "Worker w9 reports.", requestId: "artifact-report-1", whenBusy: "followUp", entry: { kind: "rho.notice", data: { from: "worker", card: { kind: "report", title: "Publish the branch", verdict: "partial", who: "worker w9", body: "PARTIAL\nNot pushed." } } } }, context);
 	await until("the report's answer", () => page.messages().at(-1) === "msg assistant|Noted." && idle(page));
 	await page.$("menu-button").click();
-	expect(detailRows(page)[1]).toBe("Artifacts | Photos, files changed, reports | 4");
+	await until("the daemon's list", () => detailRows(page)[1] === "Artifacts | Photos, files changed, reports | 4"); // asked of the daemon when the page opens
 	await section(page, "Artifacts");
 	const body = page.$("details-body");
 	expect(inside(body, "quiet-line")[0]!.textContent).toBe("This covers every message of the conversation.");
@@ -536,7 +536,7 @@ test("artifacts on the details page: photos sent, files changed and reports, fro
 	expect(El.scrolled!.className).toBe("msg user");
 });
 
-test("artifacts cover the messages loaded so far, say so, and Load earlier brings in the rest", async () => {
+test("artifacts cover the whole conversation without loading the thread, and a tap on an old one brings in the way there", async () => {
 	// One long run before any page is open: thirty files written, more entries than a first snapshot holds.
 	const names = Array.from({ length: 30 }, (_, n) => `file-${String(n).padStart(2, "0")}.txt`);
 	faux.setResponses([...names.map((name) => fauxAssistantMessage(fauxToolCall("write", { path: name, content: "x\n" }), { stopReason: "toolUse" })), fauxAssistantMessage("All written.")]);
@@ -546,22 +546,30 @@ test("artifacts cover the messages loaded so far, say so, and Load earlier bring
 	await Bun.sleep(300); // the answer is stored: a page opened now is given a window, not the whole run
 	const page = await open();
 	await until("the answer", () => page.messages().at(-1) === "msg assistant|All written." && idle(page), 20_000);
-	expect(page.$("earlier").hidden).toBe(false);
+	expect(page.$("earlier").hidden).toBe(false); // the thread itself holds only its newest part
+	// What the thread holds is counted in tool results it knows of: a run of them folds into one row on screen.
+	const held = () => (page.$("entries").children as El[]).flatMap((node) => [node, ...node.all()]).filter((node) => node.className === "tool" || node.className === "tool error").length;
+	const loaded = held();
+	expect(loaded).toBeLessThan(30);
+	await page.$("menu-button").click();
+	// The count on the main page is the whole conversation's, though the thread has loaded a part of it.
+	await until("the count", () => detailRows(page)[1] === "Artifacts | Photos, files changed, reports | 30");
 	await section(page, "Artifacts");
 	const body = page.$("details-body");
 	const files = () => detailRows(page).map((line) => line.split(" | ")[0]);
-	const before = files().length;
-	expect(before).toBeGreaterThan(0);
-	expect(before).toBeLessThan(30);
-	expect(files()[0]).toBe("file-29.txt"); // newest first
-	expect(inside(body, "quiet-line")[0]!.textContent).toBe("This covers the messages loaded so far. Earlier ones are not counted yet.");
-	expect(inside(body, "section-label")[1]!.textContent).toBe(`Files changed · ${before}`);
-	await body.find("artifacts-earlier")!.click();
-	await until("all thirty", () => files().length === 30);
-	expect(files()).toEqual([...names].reverse());
+	expect(files()).toEqual([...names].reverse()); // all thirty, newest first
 	expect(inside(body, "quiet-line")[0]!.textContent).toBe("This covers every message of the conversation.");
-	expect(body.find("artifacts-earlier")).toBeUndefined();
-	expect(page.$("details").hidden).toBe(false); // loading more does not leave the page
+	expect(inside(body, "section-label")[1]!.textContent).toBe("Files changed · 30");
+	expect(body.find("artifacts-earlier")).toBeUndefined(); // there is nothing to load
+	expect(held()).toBe(loaded); // and listing them loaded nothing into the thread
+	// The oldest file's card is further back than the thread holds: a tap brings in the way there and goes to it.
+	El.scrolled = undefined;
+	await inside(body, "row").at(-1)!.click();
+	await until("the page to close on the oldest card", () => page.$("details").hidden === true && (El.scrolled as El | undefined)?.className.startsWith("tool") === true);
+	expect(El.scrolled!.textContent).toContain("file-00.txt");
+	expect(El.scrolled!.open).toBe(true);
+	expect(held()).toBe(30); // the whole way back to it was brought in
+	expect(page.$("earlier").hidden).toBe(false); // the person's message and the first call are still further back
 }, 40_000);
 
 test("photos: one can be removed, pasted ones are added, and what cannot be sent is said at once", async () => {

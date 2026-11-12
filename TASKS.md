@@ -750,8 +750,20 @@ is used only through Claude Code.
         worker's next step: the question shows once and the report lists it as defaulted); the
         notification rule; the card's checking; the page's quiet line and fold. Full check
         passed three times (268 tests), once after each commit of this step.
-      - Not checked: any live model, so whether workers ask sparingly and whether the agent
-        answers only with a basis is not known. The basis is required but not verified: code
+      - Checked live by the main agent on Haiku through the Claude plan, in a scratch home,
+        after it was put in (2026-11-12), two runs. In the first the agent put the person's
+        rule in the brief though told not to, so the worker had nothing to ask: no question,
+        the file in the right place. In the second the brief was given word for word with a
+        gap, and the answer was in the scratch home's memory: the worker called `ask` with
+        its default and went on; the question reached the main thread as one quiet notice;
+        the agent called `answer` with a basis that quoted the memory entry; the worker was
+        told at its next step and wrote the file where the answer said; the report card's
+        list held the one item, by coordinator, with the basis. No approval card and no
+        notification. 38 s in all. The worker had been told to ask: whether workers ask
+        sparingly unprompted is still not known. The reply counter showed 0 of 2 replies
+        ending in a question in the first run, which is two replies on Haiku and no test of
+        the instruction.
+      - Not checked: the basis is required but not verified: code
         cannot tell a real basis from an invented one. The person cannot see open questions
         anywhere but the thread. A stopped worker's defaulted items are listed nowhere for the
         person (it sends no report).
@@ -1646,8 +1658,18 @@ is used only through Claude Code.
         shared with the thread), files an `edit` or `write` changed (newest first, with a
         count; a failed call is not a change; a path under the working directory and the
         same path in full are one row), and notices that carry a report card. A row jumps
-        to its place: out of its fold, opened, marked for two seconds. The page says
-        whether it covers the whole conversation and offers "Load earlier".
+        to its place: out of its fold, opened, marked for two seconds.
+        Changed 2026-11-12, after the owner saw it ("artifacts shouldn't need to load
+        earlier"): the list is the daemon's, over the whole conversation
+        (`GET /api/artifacts`, read from the entries at each call, to a bound of 20,000
+        entries, past which it says the oldest part is not counted). The page asks for it
+        when the details open and again when the thread has grown. A tap on an artifact
+        further back than the thread holds asks for the entries from there to here
+        (`GET /api/span`, at most 600) and then goes to it. "Load earlier" is gone from
+        the page. `artifactsOf` in `src/view.ts` is the one place that decides what an
+        artifact is. Checked by one HTTP test and two page tests; not in a real browser,
+        and not on a long real conversation, so how long the read takes there is not
+        known.
       - Preferences and memory: the three lists, read only.
       - Reminders: text, cadence, next time; Remove takes two taps because it cannot be
         taken back.

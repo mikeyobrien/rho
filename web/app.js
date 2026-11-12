@@ -822,13 +822,25 @@ export function start(env) {
 	}
 	/** Leave the details page and bring one entry of the thread into view, opened: out of its fold, and marked for a moment. */
 	let jumpTimer;
-	function jumpTo(id) {
+	async function jumpTo(id) {
+		const oldest = Math.min(...known.keys());
+		if (!known.has(id) && id < oldest) {
+			// Further back than this page holds: the daemon gives the stretch from there to here.
+			try {
+				const page = await api(`span?from=${id}&before=${oldest}`);
+				for (const entry of page.entries) known.set(entry.id, entry);
+				moreEarlier = page.more;
+			} catch (error) {
+				return flash(error.message); // too far back for one go: said, and the page stays open
+			}
+		}
 		closeDetails();
+		stick = false; // the reader is taken to this place: the next snapshot must not take them to the end
+		render();
 		const node = rendered.get(id);
 		if (!node) return;
 		for (const fold of folded.values()) if (fold.key.split(",").includes(String(id))) fold.node.open = true;
 		if (node.tagName === "DETAILS") node.open = true; // a tool card or a report: shown opened
-		stick = false; // the reader is taken to this place: the next snapshot must not take them to the end
 		el.latest.hidden = false;
 		node.scrollIntoView?.({ block: "center" });
 		node.classList.toggle("jumped", true);
@@ -848,6 +860,7 @@ export function start(env) {
 		moreEarlier = false;
 		stick = true;
 		info = { commit: info.commit, models: info.models }; // the rest was the other conversation's
+		artifactsAt = undefined;
 		closeDetails();
 		render();
 		void stream();
@@ -927,7 +940,7 @@ export function start(env) {
 	const MEMORY_LISTS = [["user", "About you"], ["notes", "Rho's notes"], ["models", "Model preferences"]];
 	const SECTIONS = [
 		{ id: "workers", title: "Workers", sub: () => (liveWorkers().length > 0 ? `${liveWorkers().length} running` : "Jobs rho handed off"), value: () => allWorkers().length, data: () => [state?.conversation, allWorkers()], draw: drawWorkers },
-		{ id: "artifacts", title: "Artifacts", sub: "Photos, files changed, reports", value: () => { const found = artifacts(); return found.photos.length + found.files.length + found.reports.length; }, data: () => [conversation, artifacts(), moreEarlier], draw: drawArtifacts },
+		{ id: "artifacts", title: "Artifacts", sub: "Photos, files changed, reports", value: () => { const found = artifacts(); return info.artifacts ? found.photos.length + found.files.length + found.reports.length : ""; }, data: () => [conversation, info.artifacts], draw: drawArtifacts },
 		{ id: "memory", title: "Preferences and memory", sub: "What rho knows about you", value: () => (info.memory ? (info.memory.lists ? MEMORY_LISTS.reduce((sum, [name]) => sum + (info.memory.lists[name]?.length ?? 0), 0) : info.memory.provider === "off" ? "off" : "elsewhere") : ""), data: () => [info.memory], draw: drawMemory },
 		{ id: "reminders", title: "Reminders", sub: "What rho checks on its own", value: () => info.reminders?.length ?? "", data: () => [info.reminders], draw: drawReminders },
 		{ id: "settings", title: "Settings", sub: "Model, thinking, context", value: () => shortModel(), data: () => [state?.cwd, Boolean(state?.workerThread)], draw: drawSettings },
@@ -993,42 +1006,25 @@ export function start(env) {
 		return [...(items.length > 0 ? [rows(items)] : [quiet("No workers yet in this conversation.")]), quiet("A worker is a job rho handed off, in its own thread. Tap one to read its thread. How each ended is a report card in this thread.")];
 	}
 	/**
-	 * What the conversation produced or received, read from the entries this page holds: the photos
-	 * the person sent, the files an edit or a write changed (a call that failed changed nothing),
-	 * and the reports of side work. Rho keeps no list of these; this is what the thread shows.
+	 * What the conversation produced or received, over all of it: the photos the person sent, the
+	 * files an edit or a write changed, and the reports of side work. The daemon reads them from
+	 * the whole thread (`GET /api/artifacts`), so the list does not depend on how much of the
+	 * thread this page has loaded. It is asked for when the page opens and again when the thread
+	 * grows; until the first answer there is nothing to show.
 	 */
-	function artifacts() {
-		const entries = [...known.values()].sort((a, b) => a.id - b.id);
-		const calls = new Map();
-		for (const entry of entries) for (const call of entry.calls ?? []) calls.set(call.id, call);
-		const photos = [];
-		const files = new Map(); // path -> { path, count, id, last }: insertion order is oldest change first
-		const reports = [];
-		for (const entry of entries) {
-			if (entry.role === "user") for (let n = 0; n < (entry.images ?? 0); n++) photos.push({ id: entry.id, n });
-			if (entry.role === "notice" && entry.card?.kind === "report") reports.push({ id: entry.id, verdict: entry.card.verdict, title: entry.card.title, who: entry.card.who.replace(/^worker w\d+$/, "worker") });
-			if (entry.role !== "tool" || entry.error || (entry.name !== "edit" && entry.name !== "write")) continue;
-			const given = calls.get(entry.callId)?.args?.path;
-			if (typeof given !== "string" || given === "") continue;
-			// The same file, named from the working directory or in full, is one row.
-			const path = state?.cwd && given.startsWith(`${state.cwd}/`) ? given.slice(state.cwd.length + 1) : given;
-			const count = (files.get(path)?.count ?? 0) + 1;
-			files.delete(path);
-			files.set(path, { path, count, id: entry.id, last: entry.summary });
-		}
-		return { photos: photos.reverse(), files: [...files.values()].reverse(), reports: reports.reverse() };
+	const NO_ARTIFACTS = { photos: [], files: [], reports: [] };
+	const artifacts = () => info.artifacts ?? NO_ARTIFACTS;
+	let artifactsAt; // the newest entry the list was read at
+	function refreshArtifacts() {
+		const newest = state?.entries.at(-1)?.id;
+		if (trail.length === 0 || state?.running || newest === artifactsAt) return;
+		artifactsAt = newest;
+		void loadInfo(["artifacts"]);
 	}
 	function drawArtifacts() {
+		if (!info.artifacts) return [quiet("Loading")];
 		const found = artifacts();
-		const out = [quiet(moreEarlier ? "This covers the messages loaded so far. Earlier ones are not counted yet." : "This covers every message of the conversation.")];
-		if (moreEarlier) {
-			const more = make("button", { type: "button", id: "artifacts-earlier", textContent: "Load earlier" });
-			more.addEventListener("click", async () => {
-				more.disabled = true;
-				await loadEarlier();
-			});
-			out.push(more);
-		}
+		const out = [quiet(found.cut ? "This conversation is very long: its oldest messages are not counted here." : "This covers every message of the conversation.")];
 		out.push(heading(`Photos · ${found.photos.length}`));
 		if (found.photos.length === 0) out.push(quiet("No photos sent."));
 		else {
@@ -1143,6 +1139,7 @@ export function start(env) {
 	const mainData = () => [el.status.textContent, state?.cwd, state?.workerThread, info.commit, SECTIONS.map((section) => [section.value(), subOf(section)])];
 	const subOf = (section) => (typeof section.sub === "function" ? section.sub() : section.sub);
 	function drawDetails(moved = false) {
+		refreshArtifacts(); // the thread grew while the page was open: the list is read again
 		const view = trail.at(-1);
 		el.details.hidden = view === undefined;
 		// What is under the page is out of reach while it is open: not tabbed into, not read out.
@@ -1165,7 +1162,7 @@ export function start(env) {
 		if (moved) el.detailsBack.focus?.();
 	}
 	/** Ask the daemon for what the state does not carry. Each answer is drawn as it comes; one that fails leaves its list as it was. */
-	const SOURCES = [["commit", "health", (data) => data.commit ?? ""], ["conversations", "conversations", (data) => data.items], ["models", "models", (data) => data.items], ["workers", "workers", (data) => data.items], ["reminders", "reminders", (data) => data.items], ["memory", "memory", (data) => data]];
+	const SOURCES = [["commit", "health", (data) => data.commit ?? ""], ["conversations", "conversations", (data) => data.items], ["models", "models", (data) => data.items], ["workers", "workers", (data) => data.items], ["reminders", "reminders", (data) => data.items], ["memory", "memory", (data) => data], ["artifacts", "artifacts", (data) => data]];
 	let loading = 0;
 	const busy = () => el.detailsBody.setAttribute("aria-busy", loading > 0 ? "true" : "false");
 	async function loadInfo(names = SOURCES.map(([name]) => name)) {
@@ -1193,6 +1190,7 @@ export function start(env) {
 	function openDetails() {
 		if (trail.length > 0) return;
 		showView("main");
+		artifactsAt = state?.entries.at(-1)?.id; // this load reads the list as the thread stands now
 		void loadInfo();
 	}
 	/** One level back: to the list of sections, or to the thread. */
