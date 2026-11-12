@@ -12,6 +12,9 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { AssistantEntry, defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { context, openCore } from "../../src/core.ts";
+import { RemoteEnv } from "../../src/remote/env.ts";
+import { jobBashTool } from "../../src/remote/jobs.ts";
+import { localRun } from "../../src/remote/run.ts";
 
 const [dir = "", scriptPath = "", requestId, text] = process.argv.slice(2);
 const say = (event: object) => process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -46,7 +49,12 @@ const effect = defineTool({
 	},
 });
 const model = faux.getModel();
-const core = await openCore({ dir, models, config: { model: `${model.provider}/${model.id}` }, extensions: [defineExtension({ name: "effects", tools: [effect] })], log: (line) => say({ event: "log", line }) });
+// REMOTE_JOBS=<root>: tools act through RemoteEnv over a local sh, and `remote_bash` runs its
+// commands as jobs under <root> (src/remote/jobs.ts).
+const jobsRoot = process.env.REMOTE_JOBS;
+const remote = jobsRoot ? { env: (cwd: string) => new RemoteEnv({ run: localRun(), cwd }) } : {};
+const tools = jobsRoot ? [effect, jobBashTool({ root: jobsRoot, name: "remote_bash", pollMs: 100 })] : [effect];
+const core = await openCore({ dir, models, ...remote, config: { model: `${model.provider}/${model.id}` }, extensions: [defineExtension({ name: "effects", tools })], log: (line) => say({ event: "log", line }) });
 say({ event: "open", pid: process.pid });
 if (requestId && text) {
 	const submission = await core.root.submit({ type: "input", content: text, requestId }, context);
