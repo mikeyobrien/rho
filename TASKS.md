@@ -1709,6 +1709,41 @@ is used only through Claude Code.
       control, and the README said otherwise until now); adding a reminder in the page;
       a search of the lists; usage and cost (item 18) as a row.
 
+28. A chief of staff, not a queue (2026-11-12). Asked by the owner: "I want it to be just like
+    talking to a human chief of staff. I don't have to think about queue or steering there",
+    and "the highlight to reply on anything". DONE, checked on the stand-in DOM only.
+    - Built: a message sent while rho works is just a message. The page always sends it to
+      be read at rho's next step (`whenBusy: "steer"`); there is no mode, no Alt+Enter, no
+      strip above the box, no chip or flip. It is the person's bubble at the tail of the
+      thread with a faint "Not read yet" and a quiet "Take back", which returns its words to
+      the box (as Remove did) and, when this page sent its photos, the photos too; otherwise
+      it says they need adding again. When rho reads it, it is the message in the thread,
+      with nothing to say so. `StateView.queued` lost `mode` and no longer lists a waiting
+      notice (an input with its own entry), which is not the person's to take back.
+      `POST /api/submit` keeps `whenBusy` for other callers; `/api/unqueue` stays. rho's
+      instructions say to hear a remark mid-task as a chief of staff would, change course or
+      finish or set down, say which in one line, and never ask now or later.
+    - Built: highlight to reply. Text selected in the thread (an answer, the person's own
+      message, a tool card's output, a report) shows a small Reply pill just above the box;
+      a tap puts it in the box at the cursor as `> ` lines, cut at 600 characters with an
+      ellipsis, then a line `> — from your answer` / `from my message` / `from the output of
+      bash` / `from a worker's report: <title>`, a blank line and the cursor. Plain text: no
+      new wire field and no ids. Not shown in a worker's thread or under the details page.
+    - Checked: `test/page.test.ts` (an unread bubble taken back into the box, the status
+      line is only "Working", Stop on an empty box; a photo sent while working shows unread
+      and becomes the ordinary message; a quote from an answer at the cursor, a long
+      multi-line tool output cut, sent as plain text, the pill gone on a cleared selection
+      and on opening details; a report's title in the line; none in a worker's thread);
+      `test/http.test.ts` (no mode on the wire, take back, a notice not listed, Stop);
+      `test/replies.test.ts` (the new instruction is in INSTRUCTIONS).
+    - Not checked: a real browser. The pill and Android's own Copy/Share bar have not been
+      seen together; whether a tap on the pill keeps the selection on Android Chrome (the
+      page prevents the press's default and also keeps the last selection it saw) and the
+      pill's place over the thread's foot are untried. How a live model handles a remark
+      mid-task under the new instruction has not been tried.
+    - Not built: a quote shown as a quote in the person's bubble (it is plain text with
+      `>`); replying to a selection in a worker's read-only thread.
+
 ## Taken from dobo and mov-agent
 
 Asked by the owner 2026-11-10: include the best of pi-dobo (`~/Projects/pi-dobo` on the Linux machine,
@@ -1718,10 +1753,11 @@ secrets and notices; mov-agent's README, ingress gate and the head of VERIFICATI
 dobo's source and all of mov-agent's `index.js` were not read.
 
 Built now:
-- A message sent while rho works is a **steer**: it joins the work at its next step and the
-  model decides what it means. The person can make it wait ("Wait for the answer") or bring it
-  forward ("Steer now"); the row says which, once. Alt+Enter queues. (dobo's arbiter as built
-  with no decision model; mov-agent's explicit `/steer` and `/queue`.)
+- A message sent while rho works is read at its next step and the model decides what it
+  means (dobo's arbiter as built with no decision model). The controls that let the person
+  make it wait or bring it forward, and Alt+Enter to queue (mov-agent's `/steer` and
+  `/queue`), were removed at the owner's word on 2026-11-12 (item 28): a message is just a
+  message.
 - **One process owns the data** (dobo I7): `rho.lock` names its owner's pid and start time; a
   second rho on the directory is refused, and a dead owner's lock is taken over. Tested.
 - **A failed run does not strand what is queued behind it** (dobo I135): `afterFailedRun:

@@ -82,6 +82,10 @@ rho open
 This starts rho and opens its page in your browser, already paired. Type a question. If no
 browser can be opened, the command prints the address to open instead.
 
+Talk to it as you would to a person. Write while it works and it reads your message at its
+next step; until then the message shows "Not read yet" and can be taken back. With nothing
+typed, Send is Stop. Select any text in the thread and tap Reply to quote it in your answer.
+
 Rho listens only on `127.0.0.1`. To use it from another device, forward the port, for example
 `ssh -L 4780:127.0.0.1:4780 your-machine`, then run `rho open --print` on the machine and
 open the address it prints on your device. The address works once.

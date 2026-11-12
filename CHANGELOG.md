@@ -9,8 +9,10 @@ See [MIGRATION.md](MIGRATION.md).
 
 - A daemon on [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable) that
   continues an answer or a tool call after it is killed.
-- A web page served on loopback: streaming answers, stop, steering while rho works, a
-  message queue, several conversations, a model picker, tool cards with output and diffs.
+- A web page served on loopback: streaming answers, stop, several conversations, a model
+  picker, tool cards with output and diffs. A message written while rho works is read at its
+  next step, shown in the thread as not read yet until then, and can be taken back; there is
+  no mode to choose. Select text in the thread and tap Reply to quote it.
 - A details page behind ⋯ and the title, as a chat app's info screen: the conversation's
   workers, its artifacts (photos sent, files changed, reports), what rho remembers, the
   reminders, the settings and the other conversations. Back returns to the thread.
