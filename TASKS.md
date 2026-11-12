@@ -686,8 +686,10 @@ is used only through Claude Code.
     in the conversation, and its table of sources was cut off by the report's length limit,
     so how well the research is sourced is not known here.
     - The design, in brief: one durable ledger of open items of kind question or change.
-      A budget in code over every source: 2 put to the person per sitting, 5 per day, 12
-      open (taken as starting numbers). A worker's question goes to the main agent with a
+      A budget in code over every source: the worker proposed 2 put to the person per
+      sitting, 5 per day, 12 open, and the main agent took them as starting numbers. **The
+      owner rejected them the same day ("that's the wrong artificial limits"); what
+      replaces them is not settled, and no budget is to be built until it is.** A worker's question goes to the main agent with a
       default and returns at once, so the worker goes on. The main agent may answer only
       with a basis in the person's words, memory, a goal or an earlier answer, and each
       such answer is listed ("Decided without you"). Irreversible things, money, anything
