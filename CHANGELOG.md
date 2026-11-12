@@ -9,6 +9,9 @@ See [MIGRATION.md](MIGRATION.md).
 
 - A daemon on [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable) that
   continues an answer or a tool call after it is killed.
+- Groundwork for workers on other machines, not used yet: a tool environment that works
+  through one "run this script" call, and commands that keep running when the connection or
+  rho itself goes, collected when asked again. Nothing you see changes.
 - A web page served on loopback: streaming answers, stop, several conversations, a model
   picker, tool cards with output and diffs. A message written while rho works is read at its
   next step, shown in the thread as not read yet until then, and can be taken back; there is

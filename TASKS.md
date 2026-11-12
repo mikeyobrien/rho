@@ -52,7 +52,8 @@ Answered by the owner on 2026-11-11, and so no longer waiting:
 1. Item 20, delegates, once the criteria are confirmed.
 2. Item 20a, a command run outside the agent's turn: built, not in the installed rho yet.
 3. Item 20b, delegates on a node. Designed in detail on 2026-11-12 (three pieces, a build
-   order of seven steps, and one open question for the owner: daemon or no daemon). Its
+   order of seven steps, and one open question for the owner: daemon or no daemon). Steps 2
+   and 3 built 2026-11-12 (`src/remote/`), proven on the phone only, wired into nothing. Its
    first shape, with a daemon per node, was confirmed, and it
    now has a plan for pulling changes back (git over SSH, into a local branch, never onto
    the checked-out one). The re-attach question was answered from the engine's README.
@@ -1417,6 +1418,88 @@ is used only through Claude Code.
         channel should be faster; not measured. So an `edit` (three calls) is about half a
         second as scripts over SSH: bearable, and worth cutting. Not measured: mobile data
         (which network the phone was on was not established), a slow link, a second node.
+      - **Steps 2 and 3 built, 2026-11-12**, by a worker on the phone, against a local `sh`;
+        no other machine, no slow link, no sandbox. Nothing is wired in: no place is chosen,
+        `delegate` is unchanged, the installed rho behaves as before.
+        - **The transport's shape** (`src/remote/run.ts`): `run(script, { stdin?, signal?,
+          onOutput? }) => Promise<{ code, stdout, stderr }>`, all bytes. It rejects only when
+          the transport fails or `signal` aborts; a failed script is a result. No timeout in it:
+          callers abort. `localRun()` binds it to this machine's `sh`.
+        - **`RemoteEnv`** (`src/remote/env.ts`): `ExecutionEnv` over `run` alone. Each file
+          operation is one sh script; bytes go in on stdin and come back raw on stdout (no
+          base64 needed: the transport carries bytes). Errors are printed as
+          `code<TAB>message` on stderr with exit 3, the code read from the C library's error
+          text under `LC_ALL=C`. The far side needs GNU-style `stat -c`/`--printf`,
+          `realpath -e`, `mktemp`, `tail -c`, `head -c`, `dd`, `find -mindepth`: Linux and
+          Termux have them, macOS does not (not tried there).
+        - **Checked:** the engine ships a conformance suite (`pi-durable/testing`,
+          `registerEnvConformance`); all of it passes for `RemoteEnv` but its 9 `watch`
+          cases, and all of it for `NodeExecutionEnv`. Then 97 cases run on both envs and
+          compared result for result (`test/remote-env.test.ts`): text with multi-byte
+          characters, CRLF and no final newline; every byte value; empty files; 3 MB; names
+          with spaces, quotes, `$(...)`, backquotes, a tab, a leading dash; nested directories;
+          rename of files and directories; remove with and without `recursive` and `force`;
+          the line readers; truncate and extend; temp files; and the error codes not_found,
+          permission_denied, not_directory, is_directory, invalid, aborted. mtimes agree to
+          the microsecond.
+        - **Round trips** (asserted in the test): `writeFile`, `readTextFile`, `fileInfo` one
+          each; opening a file of 1 MB or less reads it whole, so open, info, read, scan and
+          close cost one. The tools add their own path checks: `read` two (exists, open),
+          `write` two on an existing file and three on a new one (the mutation queue's
+          `canonicalPath`, of the parent too when the file is new), `edit` four (canonical
+          path, fileInfo, read, write), `bash` one. So the "edit is three calls" in step 1 is
+          four, about 0.6 s at the median measured; folding the engine's checks into one
+          script is the next cut, and needs the tools' cooperation.
+        - **Not faithful to the local env**, each said in the code: `watch` returns
+          `not_supported` (the contract allows it). A binary reader of a file over 1 MB reads
+          by path, checking device and inode each time, and fails `invalid` if the path now
+          names another file, where a local open file goes on reading the one it opened (a
+          file of 1 MB or less is read whole at open and keeps its bytes, which passes the
+          suite's rename case). A text line reader on a directory fails at open, not at its
+          first line. `rename` is done by `mv` with rename(2)'s rules checked first: where it
+          replaces a symbolic link or an empty directory it removes it first (not atomic), and
+          across file systems it copies where rename(2) refuses. `remove` of a directory
+          without `recursive` is `unknown`, as the local env gives on Bun. `exec` ignores
+          `window` (every chunk is delivered, as locally) and keeps a spill file on the far
+          side, sent in batches of 256 KB. A string command runs with the far side's bash,
+          else sh. Temp files go to the far side's `$TMPDIR`, else `/tmp`. `listFiles` (optional)
+          is not offered. `cleanup` aborts this env's own calls; a remote command whose `run`
+          was cut has its process group killed by the transport (`localRun` does; a transport
+          over SSH must too).
+        - **Paths** resolve as the local env does, relative to `cwd`, with `~` asked of the
+          far side once. Nothing confines them to a workspace: that is step 5, the sandbox.
+        - **Jobs** (`src/remote/jobs.ts`): `job(key, command, options)` makes
+          `<root>/jobs/<key>/` (the mkdir is the lock), writes the command and a small runner
+          there and starts it with `setsid` (else a subshell with `set -m`), stdin from
+          /dev/null, output to `out` and `err`, its pid to `pid`, its code to `exit` by
+          rename when it ends. The start and the first follow are one `run`. Following is a
+          script that polls the files (200 ms) and sends framed bytes from the offsets reached,
+          for up to 20 s per `run`, then is asked again. A later call with the key collects
+          from byte 0: an exit code, the output; a live pid, follows; neither, `stopped`. A pid
+          is trusted only on the boot it was written on (`boot_id`), so a reboot that reuses it
+          reads as stopped. A `run` that fails is tried again (3 tries, 1 s apart) from the byte
+          it reached; after that the result is `unreachable`, and asking again reattaches.
+          Aborting the caller leaves the command running. `stop(key)` sends TERM to the
+          group, then KILL after 2 s. `remove(key)` deletes a finished job and is refused while
+          it runs. A timeout counts from the command's start, and stops it.
+        - **`jobBashTool`**: `bash`-shaped, `replay: "safe"`, keyed `t<taskId>`, works where
+          the call's env is a `RemoteEnv`. An abort leaves the command running. It keeps a
+          finished job's directory: removing it before the result is committed would let a
+          rerun start the command again. Who removes it is open (the node's cleanup, step 3 of
+          the daemon). Exported, installed nowhere.
+        - **Checked by killing a real second process** (`test/remote-jobs.test.ts`, the
+          crash host's new `REMOTE_JOBS` option): SIGKILL while the command runs; the
+          command is still alive; started again, the host collects it: the mark file has one
+          line, the result has the real exit code (5) and the output from before and after the
+          kill, there is one tool result and two model calls. Plain tests: reattach after
+          an abort, collect after the end, a follow cut off every other call, 3 MB over
+          several polls, stop of the whole group, gone with no code, two keys at once, cwd,
+          env, timeout, a missing cwd (127), a bad key, a transport that is down. Passed 3
+          runs in a row alone and in each full check.
+        - **Not checked:** another machine, SSH, a slow or lossy link, macOS, a far side
+          without `setsid` (the `set -m` road is untested), a reboot of the far side, the
+          person's Stop reaching a remote job (the design's "another road": nothing calls
+          `stop` yet), the size a job's files may grow to, many jobs at once.
       - **Order to build, each step useful by itself:**
         1. Measure the SSH round trip from the phone to the owner's Linux machine, kept
            connection, Wi-Fi and mobile data. An hour; decides if the rest is worth it.
