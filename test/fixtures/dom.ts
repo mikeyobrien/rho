@@ -12,6 +12,9 @@ export class El {
 	inert = false;
 	selected = false;
 	value = "";
+	/** A text box's cursor, as a browser keeps it; unset elsewhere. */
+	selectionStart: number | undefined;
+	setSelectionRange(start: number) { this.selectionStart = start; }
 	className = "";
 	id = "";
 	/** The element that was last given the focus, in any document: a test reads it after an action. */
@@ -30,7 +33,7 @@ export class El {
 	replaceChildren(...nodes: (El | TextNode)[]) { this.children = nodes; this.#text = ""; }
 	addEventListener(type: string, listener: (event: any) => unknown) { (this.listeners[type] ??= []).push(listener); }
 	setAttribute(name: string, value: string) { this.attrs[name] = value; }
-	contains(other: unknown): boolean { return this === other || this.children.some((child) => child instanceof El && child.contains(other)); }
+	contains(other: unknown): boolean { return this === other || this.children.some((child) => child === other || (child instanceof El && child.contains(other))); }
 	async fire(type: string, event: object = {}) { for (const listener of this.listeners[type] ?? []) await listener({ preventDefault() {}, target: this, ...event }); }
 	requestSubmit() { return this.fire("submit"); }
 	click() { return this.fire("click"); }
@@ -50,7 +53,14 @@ export class TextNode {
 export function fakeDocument() {
 	const byId = new Map<string, El>();
 	const listeners: Record<string, ((event: any) => unknown)[]> = {};
-	const hiddenAtStart = new Set(["earlier", "empty", "latest", "notice", "details", "details-notice", "release", "workers", "worker-thread"]);
+	// The selection, as the Selection API shows it: what is selected, and in which node it starts and ends.
+	const selection = {
+		text: "", anchorNode: null as unknown, focusNode: null as unknown,
+		get isCollapsed() { return this.text === ""; },
+		toString() { return this.text; },
+		removeAllRanges() { Object.assign(selection, { text: "", anchorNode: null, focusNode: null }); },
+	};
+	const hiddenAtStart = new Set(["reply", "earlier", "empty", "latest", "notice", "details", "details-notice", "release", "workers", "worker-thread"]);
 	return {
 		visibilityState: "visible",
 		getElementById(id: string) {
@@ -61,6 +71,12 @@ export function fakeDocument() {
 		createTextNode: (text: string) => new TextNode(text),
 		addEventListener: (type: string, listener: (event: any) => unknown) => void (listeners[type] ??= []).push(listener),
 		async fire(type: string, event: object = {}) { for (const listener of listeners[type] ?? []) await listener(event); },
+		getSelection: () => selection,
+		/** Select `text` within `node` (and to `end`, when it ends elsewhere), and tell the page as a browser would. */
+		async select(text: string, node: unknown, end: unknown = node) {
+			Object.assign(selection, { text, anchorNode: node, focusNode: end });
+			await this.fire("selectionchange");
+		},
 	};
 }
 /**

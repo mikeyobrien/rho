@@ -964,6 +964,9 @@ test("a worker's No is told to it; its thread opens from its row, to read; Stop 
 	expect(page.$("worker-thread").textContent).toContain("Publish the branch: a worker's thread, read only.");
 	expect(page.$("composer").hidden).toBe(true);
 	expect(runningCard(page)).toBeUndefined(); // a worker's own thread lists no workers
+	// There is no box to reply into: selecting text there shows no Reply.
+	await page.document.select("You are a worker.", (page.$("entries").children as El[]).find((node) => node.className === "msg user"));
+	expect(page.$("reply").hidden).toBe(true);
 	const token = JSON.parse(page.stored.get("token")!);
 	const post = (path: string, body: object) => fetch(`http://127.0.0.1:${server.port}/api/${path}?c=${worker.conversation}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
 	for (const [path, body] of [["submit", { text: "do something else", requestId: "worker-thread-1" }], ["stop", {}], ["new", {}], ["cwd", { path: work }]] as const) {
@@ -1191,4 +1194,61 @@ test("a notice is drawn as a card only when what was stored is a card, field by 
 	expect(noticeCard({ card: { ...good, decided: [decided, { ...decided, by: "boss" }, { question: 1 }, null, { ...decided, extra: "<b>" }] } })!.decided).toEqual([decided, decided] as never);
 	expect(noticeCard({ card: { ...good, decided: Array.from({ length: 30 }, () => decided) } })!.decided!.length).toBe(20);
 	expect(noticeCard({ card: { ...good, decided: "no" } })!.decided).toBeUndefined();
+});
+
+test("highlight to reply: text selected in the thread is quoted into the box with what it came from; nothing else shows it", async () => {
+	faux.setResponses([fauxAssistantMessage(fauxToolCall("bash", { command: "printf 'line one\\nline two'" }), { stopReason: "toolUse" }), fauxAssistantMessage("Paris is the capital.\n\nIt has the Louvre.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await page.send("what is the capital?");
+	await until("the answer", () => page.messages().some((line) => line.startsWith("msg assistant|Paris")) && idle(page));
+	const answer = (page.$("entries").children as El[]).find((node) => node.className === "msg assistant" && node.textContent.startsWith("Paris"))!;
+	const inner = answer.all()[0]!; // a paragraph of the answer, as the browser's selection would name it
+	expect(page.$("reply").hidden).toBe(true);
+	// Nothing selected in the thread, or a selection outside it: no Reply.
+	await page.document.select("Message", page.$("input"));
+	expect(page.$("reply").hidden).toBe(true);
+	await page.document.select("Paris is the capital.", inner);
+	expect(page.$("reply").hidden).toBe(false);
+	await page.type("Thanks.");
+	page.$("input").selectionStart = 0; // the cursor at the start: the quote goes above the words already there
+	await page.$("reply").click();
+	expect(page.$("input").value).toBe("> Paris is the capital.\n> — from your answer\n\nThanks.");
+	expect(page.$("input").selectionStart).toBe("> Paris is the capital.\n> — from your answer\n\n".length);
+	expect(El.focused).toBe(page.$("input"));
+	expect(page.$("reply").hidden).toBe(true); // the selection is cleared with the tap
+	// A tool's output, several lines, and long: quoted line by line and cut with an ellipsis.
+	const card = (page.$("entries").children as El[]).find((node) => node.className === "tool")!;
+	const output = card.all().find((node) => node.className === "output")!;
+	await page.type("");
+	await page.document.select(`line one\n\nline two ${"x".repeat(700)}`, output);
+	await page.$("reply").click();
+	const quoted = page.$("input").value;
+	expect(quoted.startsWith("> line one\n>\n> line two xxx")).toBe(true);
+	expect(quoted.endsWith("…\n> — from the output of bash\n\n")).toBe(true);
+	expect(quoted.length).toBeLessThan(700);
+	// What is sent is plain text, the quote in it; no new field and no id.
+	await page.$("composer").requestSubmit();
+	await until("the sent quote", () => page.messages().some((line) => line.startsWith("msg user|> line one")));
+	// A selection that is cleared takes the Reply away; so does opening the details page.
+	await page.document.select("capital", inner);
+	expect(page.$("reply").hidden).toBe(false);
+	await page.document.select("", null);
+	expect(page.$("reply").hidden).toBe(true);
+	await page.document.select("capital", inner);
+	await page.$("menu-button").click();
+	expect(page.$("reply").hidden).toBe(true);
+});
+
+test("highlight to reply on a worker's report card names the report", async () => {
+	faux.setResponses([fauxAssistantMessage("Read it.")]);
+	const page = await open();
+	await until("live", () => idle(page));
+	await core.root.submit({ type: "input", content: "[worker w1] reports.", requestId: "quote-report-1", whenBusy: "followUp", entry: { kind: "rho.notice", data: { from: "worker", card: { kind: "report", title: "Fix the greeting", verdict: "done", who: "worker w1", body: "DONE\nFixed the greeting." } } } }, context);
+	await until("the report card", () => reports(page).length === 1 && idle(page), 15_000);
+	const body = part(reports(page)[0]!, "report-body")!;
+	await page.document.select("Fixed the greeting.", body.all().at(-1));
+	await page.$("reply").click();
+	expect(page.$("input").value).toBe("> Fixed the greeting.\n> — from a worker's report: Fix the greeting\n\n");
+	expect(page.$("input").value).not.toContain("w1");
 });

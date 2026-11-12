@@ -30,7 +30,7 @@ export function start(env) {
 		notice: $("notice"), noticeText: $("notice-text"), composer: $("composer"), input: $("input"), send: $("send"),
 		menuButton: $("menu-button"), title: $("title"), details: $("details"), detailsBack: $("details-back"), detailsTitle: $("details-title"), detailsBody: $("details-body"), detailsNotice: $("details-notice"),
 		attach: $("attach"), photoInput: $("photo-input"), photos: $("photos"), release: $("release"), releaseText: $("release-text"),
-		workers: $("workers"), workerThread: $("worker-thread"), footer: $("composer"),
+		workers: $("workers"), workerThread: $("worker-thread"), footer: $("composer"), reply: $("reply"),
 	};
 	const store = {
 		get(key, fallback) {
@@ -494,6 +494,7 @@ export function start(env) {
 
 		renderStatus();
 		renderSend();
+		renderReply();
 		if (stick) el.thread.scrollTop = el.thread.scrollHeight;
 		el.latest.hidden = stick;
 	}
@@ -799,6 +800,65 @@ export function start(env) {
 		renderChosen();
 		setDraft("");
 		submit(text, images);
+	});
+
+	// --- highlight to reply ----------------------------------------------------------------------
+	// Text selected in the thread can be answered: a small Reply above the message box puts it in
+	// the box as a quote, with a line that says what it was quoted from. It sits above the box, not
+	// by the selection, so the phone's own Copy and Share bar and the finger do not cover it.
+	const QUOTE_MAX = 600;
+	let quoting; // { text, from } of the selection in the thread, while there is one
+	/** What a quote came from, as the person would name it to rho. No ids: rho reads the words. */
+	function quotedFrom(entry) {
+		if (!entry) return "";
+		if (entry.role === "user") return "from my message";
+		if (entry.role === "assistant") return "from your answer";
+		if (entry.role === "tool") return `from the output of ${entry.name}`;
+		if (entry.role === "notice" && entry.card?.kind === "report") return `from a worker's report: ${entry.card.title}`;
+		if (entry.role === "notice") return "from a notice";
+		return "";
+	}
+	function readSelection() {
+		const selection = document.getSelection?.();
+		const text = selection && !selection.isCollapsed ? String(selection).trim() : "";
+		const within = (node) => Boolean(node) && (el.entries.contains(node) || el.live.contains(node));
+		if (text === "" || !within(selection.anchorNode) || !within(selection.focusNode)) return undefined;
+		let entry;
+		for (const [id, node] of rendered) if (node.contains(selection.anchorNode)) entry = known.get(id);
+		return { text, from: quotedFrom(entry) };
+	}
+	function renderReply() {
+		// Not in a worker's thread (there is no box) and not under the details page.
+		if (state?.workerThread || trail.length > 0) quoting = undefined;
+		el.reply.hidden = quoting === undefined;
+	}
+	document.addEventListener("selectionchange", () => {
+		quoting = readSelection();
+		renderReply();
+	});
+	/** Markdown quote lines, cut to a length a reply can carry, with what they came from under them. */
+	function quoteOf({ text, from }) {
+		const cut = text.length > QUOTE_MAX ? `${text.slice(0, QUOTE_MAX).trimEnd()}…` : text;
+		const lines = cut.split("\n").map((line) => line.trimEnd());
+		return [...lines.map((line) => (line === "" ? ">" : `> ${line}`)), ...(from ? [`> — ${from}`] : [])].join("\n");
+	}
+	// A press on Reply must not take the selection away before the tap is heard.
+	for (const type of ["pointerdown", "mousedown"]) el.reply.addEventListener(type, (event) => event.preventDefault());
+	el.reply.addEventListener("click", () => {
+		const taken = quoting ?? readSelection();
+		if (!taken) return;
+		// At the cursor, on lines of its own; the box's other words stay where they are.
+		const value = el.input.value;
+		const at = typeof el.input.selectionStart === "number" ? Math.min(el.input.selectionStart, value.length) : value.length;
+		const before = value.slice(0, at).replace(/\s+$/, "");
+		const after = value.slice(at).replace(/^\s+/, "");
+		const head = `${before === "" ? "" : `${before}\n\n`}${quoteOf(taken)}\n\n`;
+		setDraft(head + after);
+		el.input.focus?.();
+		el.input.setSelectionRange?.(head.length, head.length);
+		document.getSelection?.()?.removeAllRanges?.();
+		quoting = undefined;
+		renderReply();
 	});
 
 	// --- thread ----------------------------------------------------------------------------------
@@ -1154,6 +1214,7 @@ export function start(env) {
 		el.detailsNotice.textContent = flashText;
 		el.detailsNotice.hidden = flashText === "";
 		el.menuButton.setAttribute("aria-expanded", view === undefined ? "false" : "true");
+		renderReply(); // the page covers the thread: no Reply over it
 		if (view === undefined) return void ((detailsKey = undefined), (ticks = []));
 		syncPickers();
 		const key = JSON.stringify([view, view === "main" ? mainData() : viewOf(view).data()]);
